@@ -1,4 +1,6 @@
 .tmp/
 .work*/
+lib/
+node_modules/
 mock/ledger.js
 mock/issues.js

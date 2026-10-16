@@ -15,7 +15,12 @@
  * @module dsh-pathfinder/host
  */
 import type { Context } from '@deepseek-ai/cordis'
+/* 三样服务各自的声明合并住在各自的**包入口**里：只引 `…/types` 子路径拿不到那一段（`SessionId`
+ * 那个类型就在子路径上，`sessions` 服务不在这里）。所以三个包各引一次，只为把 `workspaceFiles`／
+ * `sessions`／`sandboxPolicy` 挂到 Context 上——全是类型引用，运行时与产物里什么都不进。 */
 import type {} from '@deepseek-ai/dsh-api-workspace-files'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { readReading } from './records.ts'
 import type { PathfinderReading, PathfinderRecords } from './contract.ts'

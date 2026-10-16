@@ -1,0 +1,16 @@
+{
+  // 模型层的编译面：纯逻辑一份。这里的源码不 import 任何运行时依赖，类型检查因此只用得上
+  // 编译器自己（宿主那一半的依赖类型不进来）。
+  // 它只检查、不出产物：模型层的类型由这一条命令把关，产物那一侧归 tsconfig.host.json。
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["**/*.ts"]
+}

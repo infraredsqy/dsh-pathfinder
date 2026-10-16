@@ -22,6 +22,7 @@
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "types": "tsc -b tsconfig.host.json",
+    "types:model": "tsc -p src/model/tsconfig.json",
     "test": "node --test tests/"
   },
   "peerDependencies": {
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-api-workspace-files": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-sandbox-policy": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session": "0.2.0-rc.2",
     "@types/node": "^22.20.0",
     "tsdown": "^0.22.2",

@@ -10,7 +10,8 @@
 
 - 现状正本在三处（先看这个）—— `mock/f-main.html`：打开就是这一屏；`src/`：记录怎么读进来；`tools/`：记录从哪来、怎么重跑
 - `src/` —— 宿主半身：那一半的记录读取与边界形状。改取数、改它对外那条接口时看，怎么起见 `src/AGENTS.md`
-- `tests/` —— 上面那一半的单元测试，`npm test` 一条命令跑全
+- `src/model/` —— 模型层：把 mock 的读数逻辑搬成带类型的纯函数，输入＝四份记录原形＋一个时刻、输出＝那一刻的读数。改读数怎么算时看
+- `tests/` —— 两半的单元测试（宿主＋模型），`npm test` 一条命令跑全
 - `package.json`、`tsconfig.json`、`tsconfig.host.json`、`tsdown.config.ts` —— 包面与构建面：`npm run types` 把类型出到 `lib/types`，`npm run bundle` 出包入口 `lib/host/index.js`。改发布面时看
 - `mock/` —— 原型：主面板 `f-main.html` 和它内嵌的两格，另有一页面板还没引用的 `h-settings.html`。改版面前看
 - `tools/` —— 从一份真实 `.pf` 生成 `mock/ledger.js` 与 `mock/issues.js`（这两个文件不进库，新克隆里跑一遍才有数据）；`testbed/` 一条命令起一个与主环境隔离的 DSH 测试床（`up`／`check`／`down`）。改数据来源、要亲手复现面板读数时看，怎么起见 `tools/AGENTS.md`
