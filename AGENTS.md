@@ -8,7 +8,7 @@
 加内容需要 user 批准。
 
 - 现状正本在两处（先看这个）—— `mock/f-main.html`：打开就是这一屏；`tools/`：记录从哪来、怎么重跑
-- `mock/` —— 原型：主面板 `f-main.html` 和它内嵌的两格。改版面前看
-- `tools/` —— 从一份真实 `.pf` 生成 `mock/ledger.js` 与 `mock/issues.js`（这两个文件不进库，新克隆里跑一遍才有数据）。改数据来源时看
+- `mock/` —— 原型：主面板 `f-main.html` 和它内嵌的两格，另有一页面板还没引用的 `h-settings.html`。改版面前看
+- `tools/` —— 从一份真实 `.pf` 生成 `mock/ledger.js` 与 `mock/issues.js`（这两个文件不进库，新克隆里跑一遍才有数据）；`testbed/` 一条命令起一个与主环境隔离的 DSH 测试床（`up`／`check`／`down`）。改数据来源、要亲手复现面板读数时看，怎么起见 `tools/AGENTS.md`
 - `docs/` —— 这个仓的法：动手改界面之前看
 - `.tmp/` —— 过程物，gitignored：截图、探针、当轮笔记，随手写随手扔
