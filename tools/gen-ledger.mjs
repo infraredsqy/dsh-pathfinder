@@ -7,7 +7,7 @@
  * ideas.json + state.json + instructions.json and written out as one data blob;
  * nothing here names a node, rewords a sentence or invents a timestamp.
  *
- *   node   id, title, tags, mode, created_at, completed_at, dependencies
+ *   node   id, title, tags, mode, created_at, completed_at, dependencies, status
  *   cycle  id, title, tags, status, created_at, updated_at,
  *          path[] = the steps that RAN (node, started_at, ended_at, result)
  *   instruction
@@ -68,7 +68,8 @@ const nodes = Object.keys(raw).map((id) => {
     n.mode || 'auto',
     n.created_at || null,
     n.completed_at || null,
-    n.dependencies || []
+    n.dependencies || [],
+    n.status || 'todo'
   ];
 });
 // Chronological, oldest completion first: the grid of a census reads as the
@@ -114,7 +115,8 @@ body.push(` *   cycles   ${cycles.length}`);
 body.push(` *   steps    ${cycles.reduce((s, c) => s + c.path.length, 0)}`);
 body.push(` *   instructions ${instructions.length}`);
 body.push(' *');
-body.push(' * nodes[i] = [id, title, tags, mode, created_at, completed_at, dependencies]');
+body.push(' * nodes[i] = [id, title, tags, mode, created_at, completed_at, dependencies,');
+body.push(' *             status]   status = todo | shelved | completed');
 body.push(' * cycle.path[j] = [node, started_at, ended_at, result]');
 body.push(' * instructions[k] = [id, text, scope, target, state, cycle, node, at,');
 body.push(' *                     resolved_at, note, stop_after_nodes]');
@@ -170,6 +172,10 @@ console.log(`nodes carrying dependencies: ${withDeps}`);
 console.log(`path nodes not in the pool: ${JSON.stringify(orphan)}`);
 console.log(`pool nodes never walked: ${missing.length}${missing.length ? ' ' + JSON.stringify(missing.slice(0, 4)) : ''}`);
 console.log(`completed_at span ${stamps[0]} .. ${stamps[stamps.length - 1]}`);
+// The one number the panels cannot check for themselves: a node that is not
+// completed is either in play or parked, and only the record knows which.
+const statusTally = nodes.reduce((m, n) => ((m[n[7]] = (m[n[7]] || 0) + 1), m), {});
+console.log(`node status ${JSON.stringify(statusTally)}`);
 const tally = (key) => instructions.reduce((m, r) => ((m[r[key]] = (m[r[key]] || 0) + 1), m), {});
 console.log(
   `instructions ${instructions.length}  scope=${JSON.stringify(tally(2))}  ` +
