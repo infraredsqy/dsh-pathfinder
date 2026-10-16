@@ -1,0 +1,11 @@
+{
+  // 宿主半身的编译面：src/host 出到 lib/types，再由 tsdown 捆成 lib/host/index.js。
+  // DSH 自己的插件包走的就是这条层次（源码 → lib/types → lib），发布面与源码面因此对得上。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
+  },
+  "include": ["src/host/**/*.ts"]
+}

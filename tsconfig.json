@@ -1,0 +1,30 @@
+{
+  // 仓根的编译面。包与仓同名，宿主半身在 src/host，浏览器半身将来落在 src/client（各自一份
+  // tsconfig，见 tsconfig.host.json 那一份的写法）。
+  // 这里刻意不写 include/files：基线只放编译器选项，具体收哪些文件由各半身那一份说了算。
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    // 源码里用 `./x.ts` 这种带扩展名的相对引用：运行时（Node 直接加载 .ts）与构建产物两头都认。
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "incremental": true
+  },
+  "files": []
+}
