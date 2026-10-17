@@ -4,7 +4,7 @@
  * 每一条在那一刻是什么样，由它**自己的字段**说：时刻按那一刻切；记录自己的词，在它自己的
  * 最后改动时刻之前写下来才算数。记录里没有那一刻就空着，不拿 0 顶上。
  *
- * 在手以线路记录里的**持有关系**为准——那是记录里的权威字段，也是词表的口径：谁在做它这个
+ * 进行中以线路记录里的**持有关系**为准——那是记录里的权威字段，也是词表的口径：谁在做它这个
  * 问题记在线路那一侧，卡片自己的字段只回答「交付了没有」。
  *
  * @module dsh-pathfinder/model/project
@@ -22,7 +22,9 @@ import type {
   StepReading,
 } from './contract.ts'
 import { cutAt, happenedAt, secondsBetween, text, toMoment, writtenBy } from './fields.ts'
+import { readGraph } from './graph.ts'
 import { readInstructions } from './instructions.ts'
+import { readPool } from './pool.ts'
 
 /** 没交付的那两个判决：落到卡片上就是把这一格搁置了。 */
 const PARKED_RESULTS = new Set(['failed', 'stopped'])
@@ -94,6 +96,8 @@ export function readProject(input: RecordsAtMoment): ProjectReading {
     cycles,
     cycleById,
     instructions: readInstructions(input.instructions, nodeById, cycleById, at),
+    graph: readGraph(nodes),
+    pool: readPool(input.nodes, input.cycles, input.issues, at),
   }
 }
 
@@ -151,7 +155,7 @@ function readHolding(cycle: PathfinderCycle, at: Date): readonly CutHolding[] {
   const current = text(cycle.current_node)
   if (current === undefined) return out
   const startedAt = toMoment(cycle.current_started_at)
-  /* 那一刻还没拿起来的那一手，当时不在手里。 */
+  /* 那一刻还没拿起来的那一手，当时还没被握着。 */
   if (startedAt !== null && !happenedAt(startedAt, at)) return out
   return [{ cycleId: id, holding: { nodeId: current, since: startedAt } }]
 }
@@ -164,7 +168,7 @@ function holdingOf(entry: unknown, at: Date): HoldingReading | null {
   const nodeId = text(fields.id)
   if (nodeId === undefined) return null
   const since = toMoment(fields.since)
-  /* 记录说这一手是那一刻才拿起来的，而那一刻还没到：当时它还没在手里。 */
+  /* 记录说这一手是那一刻才拿起来的，而那一刻还没到：当时它还没被握着。 */
   if (since !== null && !happenedAt(since, at)) return null
   return { nodeId, since }
 }
@@ -273,6 +277,7 @@ function readNode(
   const openDependencies = (node.dependencies ?? []).filter((dependency) => !completed.has(dependency))
   const recordStatus = text(node.status)
   const mode = text(node.mode)
+  const title = text(node.title)
   const line = facts.walkedBy[0]
   const lineLast = line === undefined ? undefined : cut.find((item) => item.id === line)?.lastStep ?? null
   const gate = gateOf({
@@ -291,7 +296,7 @@ function readNode(
     dependencies: [...(node.dependencies ?? [])],
     openDependencies,
     heldBy: heldByIDs,
-    /* 拿在手里的那一刻：最早的那一手；记录里没记就是空。 */
+    /* 把它拿起来的那一刻：最早的那一手；记录里没记就是空。 */
     heldSince: holdMoments.length > 0 ? new Date(Math.min(...holdMoments.map((d) => d.getTime()))) : null,
     createdAt: cutAt(toMoment(node.created_at), at),
     completedAt,
@@ -303,6 +308,7 @@ function readNode(
     steps,
     cycleIds: [...facts.walkedBy],
     gate,
+    ...(title !== undefined ? { title } : {}),
     ...(recordStatus !== undefined ? { recordStatus } : {}),
     ...(mode !== undefined ? { mode } : {}),
   }

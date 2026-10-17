@@ -123,6 +123,16 @@ mkdirSync(workspace, { recursive: true })
 copyRecord(record)
 check('记录拷贝就位', existsSync(join(record, 'instructions.json')), record.replace(root, '.'))
 
+/** 一份记录当下的样子：每份文件的路径与字节数。两个新看法不落笔，靠它比一遍。 */
+function recordDigest() {
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) => (entry.isDirectory()
+      ? walk(join(dir, entry.name))
+      : [`${join(dir, entry.name).replace(record, '')}:${String(readFileSync(join(dir, entry.name)).length)}`]))
+    .sort()
+  return walk(record).join('\n')
+}
+
 /* ---- 2. 真宿主半身，写面经 pf 那条 CLI --------------------------------- */
 
 const { PathfinderRecordsGateway } = await import(pathToFileURL(join(root, 'src', 'host', 'index.ts')).href)
@@ -303,15 +313,19 @@ const track = (promise) => {
   inFlight.push(promise.catch(() => undefined))
   return promise
 }
+/** 写面被叫过几次：两个新看法一遍点下来，这一次数必须停在原地。 */
+const writeCalls = []
 const trackedPort = {
   ...panel.port,
   read(id, signal) {
     return track(panel.port.read(id, signal))
   },
   write(verb, id, target) {
+    writeCalls.push(`write/${verb}`)
     return track(panel.port.write(verb, id, target))
   },
   setPolicy(id, cycle, key, value) {
+    writeCalls.push(`setPolicy/${key}`)
     return track(panel.port.setPolicy(id, cycle, key, value))
   },
 }
@@ -357,8 +371,8 @@ lines.push(`      记录里的读数：${JSON.stringify(reading.sources)}`)
 const infoCap = 3
 const expectedPills = [
   ...(project.columns.shelved.length > 0 ? [['等待处理', project.columns.shelved.length]] : []),
-  ['已成', project.columns.completed.length],
-  ['在手', project.columns.running.length],
+  ['已交付', project.columns.completed.length],
+  ['进行中', project.columns.running.length],
   ['未开始', project.columns.todo.length],
 ]
 const pillReadings = [...container.querySelectorAll('#census .pf-pill')].map((pill) => [
@@ -440,10 +454,21 @@ check(
  * 规范化：比之前两边都摘掉注释、把连续空白折成一个空格、去掉首尾空白。声明次序照原样比，
  * 不排序——CSS 里次序有意义。
  */
-const SHEETS = ['tokens.css', 'styles/main.css', 'styles/board.css', 'styles/lines.css', 'styles/detail.css', 'styles/notes.css']
+const SHEETS = [
+  { sheet: 'tokens.css', scope: '.pf-page' },
+  { sheet: 'styles/main.css', scope: '.pf-page' },
+  { sheet: 'styles/board.css', scope: '.pf-page' },
+  { sheet: 'styles/lines.css', scope: '.pf-page' },
+  { sheet: 'styles/detail.css', scope: '.pf-page' },
+  { sheet: 'styles/notes.css', scope: '.pf-page' },
+  /* 依赖与问题那两张表收进面板里的 `.is-embed` 那一层：它们在蓝本里各自是一份独立
+     文档，靠 `.is-embed` 把页头与页边距让给宿主。 */
+  { sheet: 'styles/field.css', scope: '.is-embed' },
+  { sheet: 'styles/register.css', scope: '.is-embed' },
+]
 const CARRIED = [{ sheet: 'styles/settings.css', selectors: ['.pf-stage', '.pf-frame'] }]
 const SCOPE = '.pf-page'
-/** 蓝本里写在页面根上的那几段：收拢后落到面板根自己身上（判据 6 那两条读数管着它们）。 */
+/** 蓝本里写在页面根上的那几段：收拢后落到那一层自己身上。 */
 const PAGE_ROOTS = new Set([':root', 'html', 'body'])
 
 /** 与 `open` 那个 `{` 配对的那个 `}` 落在哪儿。 */
@@ -485,38 +510,38 @@ function ruleEntries(css, wrap = []) {
   return out
 }
 
-/** 「这一段已经收进面板那一层了」——切段之后逐段比，不看子串（`.pf-pagewrap` 不算）。 */
-function alreadyScoped(part) {
+/** 「这一段已经收进那一层了」——切段之后逐段比，不看子串（`.pf-pagewrap` 不算）。 */
+function alreadyScoped(part, scope) {
   return part
     .split(/[\s>+~]+/u)
     .flatMap((segment) => segment.split(/[.#:[\]]/u))
-    .some((token) => token === SCOPE.slice(1))
+    .some((token) => token === scope.slice(1))
 }
 
 /** 这一段选择器进包之后该长成哪几段——这张表就是进包的约定，明写在这儿、与构建口各写一份。 */
-function expectedPart(part) {
+function expectedPart(part, scope) {
   const low = part.toLowerCase()
-  if (low === '*') return [SCOPE, `${SCOPE} *`]
-  if (low.startsWith('*::')) return [`${SCOPE}${part.slice(1)}`, `${SCOPE} ${part}`]
-  if (PAGE_ROOTS.has(low)) return [SCOPE]
-  return alreadyScoped(part) ? [part] : [`${SCOPE} ${part}`]
+  if (low === '*') return [scope, `${scope} *`]
+  if (low.startsWith('*::')) return [`${scope}${part.slice(1)}`, `${scope} ${part}`]
+  if (PAGE_ROOTS.has(low)) return [scope]
+  return alreadyScoped(part, scope) ? [part] : [`${scope} ${part}`]
 }
 
 /** 一整串选择器（逗号列表）收拢后的样子：重复的只留一条。 */
-function expectedPrelude(prelude) {
+function expectedPrelude(prelude, scope) {
   const parts = prelude
     .split(',')
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
-    .flatMap((part) => expectedPart(part))
+    .flatMap((part) => expectedPart(part, scope))
   return [...new Set(parts)].join(', ')
 }
 
 /** `mock/` 那一侧算出来的期望样子。`@keyframes` 这类整块原样带走，里面没有选择器可收拢。 */
-function expectedOf(entry) {
+function expectedOf(entry, scope) {
   return {
     wrap: entry.wrap,
-    prelude: entry.prelude.startsWith('@') ? entry.prelude : expectedPrelude(entry.prelude),
+    prelude: entry.prelude.startsWith('@') ? entry.prelude : expectedPrelude(entry.prelude, scope),
     body: entry.body,
   }
 }
@@ -543,8 +568,8 @@ function firstMismatch(expected, got) {
 
 const productEntries = ruleEntries(client.PANEL_CSS)
 let cursor = 0
-for (const sheet of SHEETS) {
-  const expected = ruleEntries(readFileSync(join(root, 'mock', sheet), 'utf8')).map(expectedOf)
+for (const { sheet, scope } of SHEETS) {
+  const expected = ruleEntries(readFileSync(join(root, 'mock', sheet), 'utf8')).map((entry) => expectedOf(entry, scope))
   const got = productEntries.slice(cursor, cursor + expected.length)
   cursor += expected.length
   const bad = firstMismatch(expected, got)
@@ -560,7 +585,7 @@ const carriedWanted = CARRIED.flatMap(({ sheet, selectors }) => {
   const wanted = new Set(selectors)
   return ruleEntries(readFileSync(join(root, 'mock', sheet), 'utf8')).flatMap((entry) => {
     const kept = entry.prelude.split(',').map((part) => part.trim()).filter((part) => wanted.has(part))
-    return kept.length > 0 ? [expectedOf({ ...entry, prelude: [...new Set(kept)].join(', ') })] : []
+    return kept.length > 0 ? [expectedOf({ ...entry, prelude: [...new Set(kept)].join(', ') }, SCOPE)] : []
   })
 })
 const carriedGot = productEntries.slice(cursor, cursor + carriedWanted.length)
@@ -574,7 +599,7 @@ check(
 check(
   '产物里除了 mock/ 那几张表与明写的 CARRIED，没有别的规则',
   cursor === productEntries.length,
-  `产物 ${String(productEntries.length)} 条 ｜ 六张表 + CARRIED 算出来 ${String(cursor)} 条`,
+  `产物 ${String(productEntries.length)} 条 ｜ 八张表 + CARRIED 算出来 ${String(cursor)} 条`,
 )
 lines.push(`      等价性：mock/ 那 ${String(SHEETS.length)} 张表 + CARRIED ${String(carriedWanted.length)} 条 → 产物 ${String(productEntries.length)} 条规则，逐条比选择器与声明正文（上面每张表一条读数）`)
 
@@ -693,6 +718,151 @@ if (line !== undefined) {
     lines.push(`      三个策略数各写一次：${wrote.join(' ｜ ')}`)
   }
 }
+
+/* ---- 4b. 依赖那一格：层数、节点数、边数从记录里来；放大、抠出来看都真在动 -----
+ * 这一份记录只有十几个格，所以这里管的是「读数对不对、看法动不动」；三位数那一档另有一趟
+ * 探针（节点目录的 `temp/`）。 */
+
+const click = async (element) => {
+  await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+  await settle()
+}
+const clickTimes = async (element, times) => {
+  for (let round = 0; round < times; round += 1) {
+    await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: round + 1 })) })
+  }
+  await settle()
+}
+const zoomKey = (pane, label) => [...(pane?.querySelectorAll('.pf-zbtn') ?? [])]
+  .find((button) => button.getAttribute('aria-label') === label)
+
+/** 这一节开动之前，写面被叫过几次、记录长什么样。 */
+const writesBefore = writeCalls.length
+const recordBefore = recordDigest()
+
+await act(async () => { tabs[3].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await settle()
+const wiresPane = container.querySelector('#pane-wires')
+const markCount = wiresPane?.querySelectorAll('.pf-node').length ?? 0
+const wireCount = wiresPane?.querySelectorAll('.pf-edge').length ?? 0
+const figsNow = (wiresPane?.querySelector('.pf-figs')?.textContent ?? '').replace(/\s+/gu, ' ').trim()
+const figsWant = `${String(project.graph.layers.length)} 列 · ${String(project.nodes.length)} 节点 · ${String(project.graph.edges.length)} 边`
+check(
+  '依赖那一格：记号、连线、顶栏那三个数与记录现算的逐项对上',
+  markCount === project.nodes.length && wireCount === project.graph.edges.length && figsNow === figsWant,
+  `记录现算 ${figsWant} ｜ 面板上 ${figsNow}，记号 ${String(markCount)}，连线 ${String(wireCount)}`,
+)
+
+const shortOf = (node) => (node.title ?? (node.id.length > 8 ? node.id.slice(0, 8) : node.id))
+await click(zoomKey(wiresPane, '放大'))
+await click(zoomKey(wiresPane, '放大'))
+const cardsNow = [...(wiresPane?.querySelectorAll('.pf-zcard') ?? [])]
+const cardNames = cardsNow.map((card) => card.querySelector('.pf-ztitle')?.textContent ?? '').sort()
+const namesWant = project.nodes.map(shortOf).sort()
+check(
+  '依赖那一格：放大到有名字那一档，一格一张卡，卡上的名字就是记录里那个标题',
+  JSON.stringify(cardNames) === JSON.stringify(namesWant) && cardsNow.length === project.nodes.length,
+  `记录里 ${String(namesWant.length)} 个名字 ｜ 面板上 ${String(cardNames.length)} 张卡，头三个 ${cardNames.slice(0, 3).join(' / ')}`,
+)
+
+/* 最上面那一档：卡片上多一行「还等不等、等几件」。期望值从读数自己那几栏现算，不抄实现
+   的判据：`ready` 就是「可开工」那一栏，进行中的格子（`running`）两样都不印。照
+   `state === 'todo'` 数会把进行中的那一格一起算进来——那一份期望值与被测实现同源，跑多少
+   遍都是绿的。 */
+await click(zoomKey(wiresPane, '放大'))
+const fullCards = [...(wiresPane?.querySelectorAll('.pf-zcard.is-full') ?? [])]
+const metaCount = fullCards.filter((card) => card.querySelector('.pf-zmeta') !== null).length
+const metaWant = project.nodes.filter((node) => node.ready || (node.state === 'todo' && !node.running && node.openDependencies.length > 0)).length
+check(
+  '依赖那一格：最上面那一档，可开工的与还欠着前置的那几格各多一行前置读数',
+  fullCards.length === project.nodes.length && metaCount === metaWant && metaWant > 0,
+  `卡片 ${String(fullCards.length)} 张（该带那一行 ${String(metaWant)} 格）｜ 带那一行 ${String(metaCount)} 张`,
+)
+
+/* 进行中的那一格不许印「可开工」：读数里 `ready` 与 `running` 互斥，卡片上那行与悬停说的是
+   同一件事。本仓这份记录里就有一格——`5294d24a`（就是写这一格的那一格自己）进行中、欠前置 0。 */
+const inHand = project.nodes.filter((node) => node.running)
+const inHandCards = inHand.map((node) => fullCards.find((card) => card.getAttribute('data-id') === node.id))
+check(
+  '依赖那一格：进行中的格子不印「可开工」，悬停照旧说「进行中」',
+  inHand.length > 0
+    && inHandCards.every((card) => card !== undefined
+      && card.querySelector('.pf-zmeta') === null
+      && (card.getAttribute('title') ?? '').includes('进行中')
+      && (card.getAttribute('title') ?? '').includes('可开工') === false),
+  `记录里进行中 ${String(inHand.length)} 格（${inHand.map((node) => `${node.id.slice(0, 8)} 欠前置 ${String(node.openDependencies.length)}`).join('、')}）｜ 这几张卡带那一行的 ${String(inHandCards.filter((card) => card?.querySelector('.pf-zmeta') !== null).length)} 张 ｜ 悬停 ${inHandCards.map((card) => card?.getAttribute('title') ?? '（没有这张卡）').join(' / ')}`,
+)
+
+/* 抠出来看：双击一格，只留它自己、它欠的、欠它的。 */
+const hub = project.graph.edges[0]?.from
+const litWant = hub === undefined ? [] : [
+  hub,
+  ...(project.nodeById[hub]?.dependencies ?? []).filter((id) => project.nodeById[id] !== undefined),
+  ...project.graph.edges.filter((edge) => edge.from === hub).map((edge) => edge.to),
+].sort()
+const cardAt = (id) => fullCards.find((card) => card.getAttribute('data-id') === id)
+if (hub !== undefined) await clickTimes(cardAt(hub), 2)
+const cutIds = [...(wiresPane?.querySelectorAll('.pf-zcard') ?? [])].map((card) => card.getAttribute('data-id')).sort()
+const cutKey = zoomKey(wiresPane, '退出这一块')
+check(
+  '依赖那一格：双击把那一条圈出来，只留它自己、它欠的、欠它的',
+  hub !== undefined && JSON.stringify(cutIds) === JSON.stringify(litWant),
+  `这一圈 ${String(litWant.length)} 格（${litWant.map((id) => id.slice(0, 8)).join(',')}）｜ 面板上 ${String(cutIds.length)} 格`,
+)
+check('抠出来看时那枚叉露出来了', cutKey !== undefined && cutKey.hidden === false, `hidden=${String(cutKey?.hidden)}`)
+if (cutKey !== undefined) await click(cutKey)
+check(
+  '退出这一块，整张图回来',
+  (wiresPane?.querySelectorAll('.pf-zcard').length ?? 0) === project.nodes.length,
+  `卡片 ${String(wiresPane?.querySelectorAll('.pf-zcard').length ?? 0)} 张`,
+)
+
+/* ---- 4c. 问题那一格：登记簿的行、重量条画不画、以及自带的主从 ---------------- */
+
+await act(async () => { tabs[4].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await settle()
+const issuePane = container.querySelector('#pane-issue')
+const openGroup = project.pool.groups.find((group) => group.key === 'open')
+const openIds = (openGroup?.entries ?? []).map((entry) => entry.id)
+const poolRows = [...(issuePane?.querySelectorAll('button.pf-row[data-issue]') ?? [])]
+check(
+  '问题那一格：开在未解决上，登记簿的行就是记录里未解决的那几条',
+  JSON.stringify(poolRows.map((row) => row.getAttribute('data-issue'))) === JSON.stringify(openIds),
+  `记录里未解决 ${String(openIds.length)} 条 ｜ 面板上 ${String(poolRows.length)} 行`,
+)
+check(
+  '问题那一格：记录里没有重量表与策略线，重量条不画',
+  project.pool.weights === null && project.pool.line === null && issuePane?.querySelector('.pf-gauge') === null,
+  `weights=${JSON.stringify(project.pool.weights)} line=${String(project.pool.line)} ｜ 重量条=${issuePane?.querySelector('.pf-gauge') === null ? '没有' : '画出来了'}`,
+)
+
+const caseId = () => issuePane?.querySelector('#case .pf-case-id')?.textContent ?? ''
+check(
+  '问题那一格自带主从：一案那一栏先摆第一条',
+  openIds.length === 0 || caseId() === openIds[0],
+  `第一条=${String(openIds[0])} ｜ 一案上=${caseId()}`,
+)
+if (openIds.length > 1) {
+  await click(poolRows[1])
+  check(
+    '问题那一格：换一条，一案跟着换',
+    caseId() === openIds[1] && poolRows[1].getAttribute('aria-current') === 'true',
+    `点到 ${String(openIds[1])} ｜ 一案上=${caseId()} aria-current=${String(poolRows[1].getAttribute('aria-current'))}`,
+  )
+}
+const fullKey = [...(issuePane?.querySelectorAll('.pf-segbtn') ?? [])].find((button) => button.textContent === '完整')
+if (fullKey !== undefined) await click(fullKey)
+check(
+  '问题那一格：「完整」那一档落在面板自己的偏好里，不碰记录',
+  fullKey !== undefined && fullKey.getAttribute('aria-pressed') === 'true'
+    && window.localStorage.getItem('dsh-pathfinder.showOtherStates') === '1',
+  `aria-pressed=${String(fullKey?.getAttribute('aria-pressed'))} 本地存储=${String(window.localStorage.getItem('dsh-pathfinder.showOtherStates'))}`,
+)
+check(
+  '两个看法都不落笔：点过一遍，写面一次都没被叫过，记录一个字节没动',
+  writeCalls.length === writesBefore && recordDigest() === recordBefore,
+  `写面调用 ${String(writeCalls.length - writesBefore)} 次 ｜ 记录 ${recordDigest() === recordBefore ? '一个字节没动' : '变了'}`,
+)
 
 /* ---- 5. 明细那道缝：真有入口，真拖得动，重开之后还在 -------------------- */
 

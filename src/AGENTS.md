@@ -11,6 +11,6 @@
 - 记录住在工作区里那层隐藏目录（`.pf`）。一份文件一页一页取全：口子对一页有字节上限、对请求的行数另有一档，这一页被拒就把行数减半重取，只减不增；收到一行也过不去才算真读不动
 - 每份来源各报结局：`read`／`missing`／`unusable`。取不到就给空集合、读数照常返回
 - `host/contract.ts` —— 边界形状：记录里原有字段的直通副本。字段一个都不改名、不换算、不折算时刻
-- `model/` —— 模型层：四份记录原形＋一个时刻 → 那一刻的读数；不取数、不碰 DOM。类型检查 `npm run types:model`
-- `client/` —— 浏览器半身：面板本体（`panel.tsx`：壳＋六格标签，三格接真记录、另三格还是空壳）、与宿主说话那条口子（`data.ts`）、面板自己的偏好（`prefs.ts`）、面板那几张样式表（`styles.ts`，正文由构建期从 `mock/` 取进来）、入口 `index.ts`（类型检查 `npm run types:client`）。它**不往 DSH 的座席上注册**：座席归挂载点那一格，这里只交出 `ctx.pathfinderPanel`（id＋title＋`Panel`＋`port`）
+- `model/` —— 模型层：四份记录原形＋一个时刻 → 那一刻的读数（项目、依赖场、指令、问题池各一份，分别在 `project.ts`／`graph.ts`／`instructions.ts`／`pool.ts`）；不取数、不碰 DOM。类型检查 `npm run types:model`
+- `client/` —— 浏览器半身：面板本体（`panel.tsx`：壳＋六格标签；当前 / 明细 / 指令三格在里面，依赖与问题两格各自的看法住在 `field.tsx` 与 `pool.tsx`，设置那一格还只留座席）、与宿主说话那条口子（`data.ts`）、面板自己的偏好（`prefs.ts`）、面板那几张样式表（`styles.ts`，正文由构建期从 `mock/` 取进来）、入口 `index.ts`（类型检查 `npm run types:client`）。它**不往 DSH 的座席上注册**：座席归挂载点那一格，这里只交出 `ctx.pathfinderPanel`（id＋title＋`Panel`＋`port`）
 - 单测在 `tests/`（宿主＋模型＋浏览器半身的数据面＋写面），`npm test` 一条命令跑全；面板那一块的自证夹具是 `npm run check:panel`

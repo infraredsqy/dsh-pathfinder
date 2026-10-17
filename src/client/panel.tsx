@@ -5,9 +5,9 @@
  * 那一刻的读数，这一层只把读数画出来。所以「面板印的每个字都来自记录」在结构上
  * 成立——换个工作区，换条会话，画出来的就是那一份。
  *
- * 依赖 / 问题 / 设置三格只留座席：标签与空壳，内容归各自的格。蓝本那一页里的
- * 假外壳（会话栏、中间那道缝、左右两个把手、页头的工作区下拉）不在这里——那些在
- * DSH 里是 DSH 自己的东西。
+ * 依赖 / 问题两格接真记录（各自的看法住在 `field.tsx` 与 `pool.tsx`），设置仍只留座席：
+ * 标签与空壳。蓝本那一页里的假外壳（会话栏、中间那道缝、左右两个把手、页头的工作区下拉）
+ * 不在这里——那些在 DSH 里是 DSH 自己的东西。
  *
  * @module dsh-pathfinder/client/panel
  */
@@ -22,6 +22,7 @@ import {
   POLICY_KEYS,
   readPrefs,
   saveInfo,
+  saveOtherStates,
   saveSideWidth,
   saveTab,
   SIDE_DEFAULT,
@@ -29,6 +30,8 @@ import {
   SIDE_MIN,
 } from './prefs.ts'
 import type { PanelPort, WriteVerb } from './data.ts'
+import { DependencyField } from './field.tsx'
+import { IssuePool } from './pool.tsx'
 
 /** 六个看法：身份、标签上的字、以及这一格要不要吃掉整块地界。 */
 interface View {
@@ -64,10 +67,10 @@ interface Group {
 
 const GROUPS: readonly Group[] = [
   { key: 'shelved', label: '等待处理', cls: 'is-shelved', deps: false, folded: false },
-  { key: 'run', label: '在手', cls: 'is-running', deps: false, folded: false },
+  { key: 'run', label: '进行中', cls: 'is-running', deps: false, folded: false },
   { key: 'ready', label: '可开工', cls: 'is-todo', deps: false, folded: false },
   { key: 'wait', label: '未开始', cls: 'is-todo', deps: true, folded: false },
-  { key: 'done', label: '已成', cls: 'is-done', deps: false, folded: true },
+  { key: 'done', label: '已交付', cls: 'is-done', deps: false, folded: true },
 ]
 
 /** 收起归档时，一组里最多露几行不算数的。 */
@@ -100,7 +103,7 @@ export interface PanelProps {
   readonly sessionId?: string | undefined
 }
 
-/** 一条读数在手上走到哪一步了。 */
+/** 一条读数走到哪一步了。 */
 type Load =
   | { readonly phase: 'loading' }
   | { readonly phase: 'ok'; readonly reading: PathfinderReading }
@@ -116,6 +119,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const [tab, setTab] = React.useState<ViewId>(() => readPrefs().tab)
   const [info, setInfo] = React.useState<InfoLevel>(() => readPrefs().info)
   const [sideWidth, setSideWidth] = React.useState<number>(() => readPrefs().sideWidth)
+  const [otherStates, setOtherStates] = React.useState<boolean>(() => readPrefs().otherStates)
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
   const [at, setAt] = React.useState<Date>(() => new Date())
   const [tick, setTick] = React.useState(0)
@@ -204,6 +208,12 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const pickInfo = React.useCallback((level: InfoLevel) => {
     setInfo(level)
     saveInfo(level)
+  }, [])
+
+  /* 问题那一格读的是哪一档：这一下只动面板自己的偏好，记录一个字节都不碰。 */
+  const pickOtherStates = React.useCallback((on: boolean) => {
+    setOtherStates(on)
+    saveOtherStates(on)
   }, [])
 
   const active = VIEWS.find((view) => view.id === tab) ?? VIEWS[0] as View
@@ -338,8 +348,30 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             </div>
           </div>
 
-          <Seat id="wires" label="依赖" hidden={tab !== 'wires'} />
-          <Seat id="issue" label="问题" hidden={tab !== 'issue'} />
+          <div
+            className="pf-pane is-frame is-embed"
+            id="pane-wires"
+            role="tabpanel"
+            aria-labelledby="tab-wires"
+            data-fill=""
+            hidden={tab !== 'wires'}
+          >
+            {project === null ? null : <DependencyField project={project} active={tab === 'wires'} />}
+          </div>
+
+          <div
+            className="pf-pane is-frame is-embed"
+            id="pane-issue"
+            role="tabpanel"
+            aria-labelledby="tab-issue"
+            data-fill=""
+            hidden={tab !== 'issue'}
+          >
+            {project === null ? null : (
+              <IssuePool project={project} showOtherStates={otherStates} onShowOtherStates={pickOtherStates} />
+            )}
+          </div>
+
           <Seat id="config" label="设置" hidden={tab !== 'config'} />
         </div>
       </div>
@@ -383,8 +415,8 @@ function Census(props: { readonly project: ProjectReading }): React.ReactElement
   return (
     <React.Fragment>
       {columns.shelved.length > 0 ? <Pill cls="is-shelved" n={columns.shelved.length} label="等待处理" /> : null}
-      <Pill cls="is-done" n={columns.completed.length} label="已成" />
-      <Pill cls="is-running" n={columns.running.length} label="在手" />
+      <Pill cls="is-done" n={columns.completed.length} label="已交付" />
+      <Pill cls="is-running" n={columns.running.length} label="进行中" />
       <Pill cls="is-todo" n={columns.todo.length} label="未开始" />
     </React.Fragment>
   )
@@ -483,14 +515,14 @@ function durationOf(moment: Date | null): string {
   return moment === null ? '--' : elapsedSince(moment, new Date())
 }
 
-/** 依赖那两句话，逐字是记录里的词：可开工 / 前置 N。落定的格不欠谁的前置。 */
+/** 依赖那两句话，逐字是记录里的词：可开工 / 前置节点 N 个。落定的格不欠谁的前置。 */
 function DepsChip(props: { readonly node: NodeReading }): React.ReactElement | null {
   const { node } = props
   if (node.state === 'completed') return null
   const open = node.openDependencies.length
   return (
     <span className={`pf-deps${open === 0 ? ' is-ready' : ''}`}>
-      {open === 0 ? '可开工' : <React.Fragment>{'前置 '}<b className="pf-num">{open}</b></React.Fragment>}
+      {open === 0 ? '可开工' : <React.Fragment>{'前置节点 '}<b className="pf-num">{open}</b>{' 个'}</React.Fragment>}
     </span>
   )
 }
@@ -515,7 +547,7 @@ function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind 
     return <span className="pf-state is-next" title="即将进线" />
   }
   return (
-    <span className="pf-state is-done" title="已成">
+    <span className="pf-state is-done" title="已交付">
       <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
         <path d="M2.5 6.5l2.4 2.4 4.6-5.4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -608,7 +640,7 @@ function nodesOf(key: Group['key'], cycle: CycleReading, project: ProjectReading
     .sort((left, right) => (right.completedAt?.getTime() ?? 0) - (left.completedAt?.getTime() ?? 0))
 }
 
-/** 一组的组头与它下面的行；已成那组默认折着。 */
+/** 一组的组头与它下面的行；已交付那组默认折着。 */
 function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[] }): React.ReactElement {
   const { group } = props
   const [folded, setFolded] = React.useState(group.folded)

@@ -8,7 +8,9 @@
 //      factory 里的 `require` 由外壳的模块表给（`react` 就在基线表上）。
 //
 // 样式在捆之前做一次作用域收拢：**只重写选择器，声明一个字节不动**。那几张表是照整页写的
-// （`body`、`html`、`*`），面板在 DSH 里只占一格，整页的规矩不该由它来立：
+// （`body`、`html`、`*`），面板在 DSH 里只占一格，整页的规矩不该由它来立。每张表收进哪一层
+// 由下面的 `SHEETS` 定：主面板那六张收进 `.pf-page`，依赖与问题那两张收进 `.pf-pane.is-embed`
+// （理由写在 `SHEETS` 旁边那一段）。收拢的规矩是：
 //
 //   - 落点在页面根上的那几条（`:root` / `html` / `body`）改成落在面板根自己身上
 //     （`.pf-page`）——它们本来就写在页面根上，收拢后落到面板根上才等价。`body` 这一条
@@ -44,14 +46,30 @@ import { rolldown } from 'rolldown'
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
-/** 面板用到的模块表，次序就是 `<link>` 的次序。 */
-const SHEETS = ['tokens.css', 'styles/main.css', 'styles/board.css', 'styles/lines.css', 'styles/detail.css', 'styles/notes.css']
+/** 面板用到的模块表，次序就是 `<link>` 的次序，`scope` 是这张表收进哪一层。 */
+const SHEETS = [
+  { sheet: 'tokens.css', scope: '.pf-page' },
+  { sheet: 'styles/main.css', scope: '.pf-page' },
+  { sheet: 'styles/board.css', scope: '.pf-page' },
+  { sheet: 'styles/lines.css', scope: '.pf-page' },
+  { sheet: 'styles/detail.css', scope: '.pf-page' },
+  { sheet: 'styles/notes.css', scope: '.pf-page' },
+  /* 依赖与问题这两格在蓝本里各自是一份独立文档，靠 `.is-embed` 那几行把页头与页边距让给
+     宿主。收进面板里它们是两个自带一块地界的格（`.pf-pane.is-embed`），所以这两张表收进
+     `.is-embed` 那一层：两张表里都写着自己的 `.pf-head`，收进 `.pf-page` 会把主面板自己
+     的页头一起改掉。 */
+  { sheet: 'styles/field.css', scope: '.is-embed' },
+  { sheet: 'styles/register.css', scope: '.is-embed' },
+]
 
 /** 蓝本那一页末位还挂着、但整张表不该进包的那几张：取它里面落在主面板 DOM 上的那几条。 */
 const CARRIED = [{ sheet: 'styles/settings.css', selectors: ['.pf-stage', '.pf-frame'] }]
 
-/** 面板根那一层。 */
+/** 主面板那一层。 */
 const SCOPE = '.pf-page'
+
+/** 进包的每一层：一道选择器落在哪一层上都算收拢过。 */
+const SCOPES = [...new Set(SHEETS.map((entry) => entry.scope))]
 
 /** 原本落在页面根上的那几条选择器：收拢后落到面板根自己身上。 */
 const PAGE_SELECTORS = new Set([':root', 'html', 'body'])
@@ -215,16 +233,16 @@ function scopeSheet(css, prefix) {
  * 不报错、只是管到了 DSH 的外壳，所以在这一步把整条选择器点出来。
  *
  * @param css - 收拢之后的表身。
- * @param prefix - 面板根那一层。
- * @returns 没有打头落在面板那一层上的那些选择器；一条都没有就是空清单。
+ * @param prefixes - 进包的每一层。
+ * @returns 没有打头落在任何一层上的那些选择器；一条都没有就是空清单。
  */
-function assertScopedProduct(css, prefix) {
-  const className = prefix.slice(1)
+function assertScopedProduct(css, prefixes) {
+  const classes = prefixes.map((prefix) => prefix.slice(1))
   const leaked = []
   mapRules(css, (prelude) => {
     for (const part of prelude.split(',').map((one) => one.trim()).filter((one) => one.length > 0)) {
       const head = part.split(/[\s>+~]+/u)[0]
-      if (!hasScopeClass(head, className)) leaked.push(part)
+      if (!classes.some((className) => hasScopeClass(head, className))) leaked.push(part)
     }
     return prelude
   })
@@ -243,17 +261,17 @@ function pickRules(css, selectors) {
   })
 }
 
-const sources = SHEETS.map((sheet) => ({ sheet, css: readFileSync(join(root, 'mock', sheet), 'utf8') }))
-const strayed = sources.flatMap(({ sheet, css }) => assertRootLanding(sheet, css, SCOPE))
+const sources = SHEETS.map(({ sheet, scope }) => ({ sheet, scope, css: readFileSync(join(root, 'mock', sheet), 'utf8') }))
+const strayed = sources.flatMap(({ sheet, css, scope }) => assertRootLanding(sheet, css, scope))
 if (strayed.length > 0) {
   throw new Error(`build-client: 收拢之后有声明落不到面板根上（页面根 / 全局那一批）：\n  ${strayed.join('\n  ')}`)
 }
-const sheets = sources.map(({ css }) => scopeSheet(css, SCOPE))
+const sheets = sources.map(({ css, scope }) => scopeSheet(css, scope))
 /* 蓝本末位那张表的共享两条：它们在蓝本的主面板上真的生效，次序也照蓝本摆在最后。 */
 const carried = CARRIED.map(({ sheet, selectors }) =>
   scopeSheet(pickRules(readFileSync(join(root, 'mock', sheet), 'utf8'), selectors), SCOPE))
 const css = [...sheets, ...carried].filter((part) => part.trim().length > 0).join('\n')
-const leaked = assertScopedProduct(css, SCOPE)
+const leaked = assertScopedProduct(css, [...SCOPES, SCOPE])
 if (leaked.length > 0) {
   throw new Error(`build-client: 产物里有选择器没落在面板那一层上（收拢漏了）：\n  ${leaked.join('\n  ')}`)
 }

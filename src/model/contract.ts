@@ -75,10 +75,12 @@ export interface StepReading {
 export interface NodeReading {
   /** 节点身份。 */
   readonly id: string
+  /** 记录自己写的标题；没写就没有。 */
+  readonly title?: string
   /** 那一刻的状态：三个词里的一个。 */
   readonly state: NodeState
   /**
-   * 在手：那一刻有条线握着它、且它还没交付。
+   * 进行中：那一刻有条线握着它、且它还没交付。
    * 以线路记录里的持有关系为准——那是记录里的权威字段。
    */
   readonly running: boolean
@@ -96,7 +98,7 @@ export interface NodeReading {
   readonly openDependencies: readonly string[]
   /** 那一刻握着它的线路身份，按记录顺序。 */
   readonly heldBy: readonly string[]
-  /** 持有关系自己那一刻：它最早被拿在手里的时刻；没记或没到就是 `null`。 */
+  /** 持有关系自己那一刻：它最早被拿起来的时刻；没记或没到就是 `null`。 */
   readonly heldSince: Date | null
   /** 建立时刻，按那一刻切过。 */
   readonly createdAt: Date | null
@@ -108,7 +110,7 @@ export interface NodeReading {
   readonly endedAt: Date | null
   /** 它自己那一步用了多久。 */
   readonly seconds: number | null
-  /** 在手开了多久（算到那一刻）；不在手、或没有那一刻就是 `null`。 */
+  /** 进行中开了多久（算到那一刻）；没在进行中、或没有那一刻就是 `null`。 */
   readonly elapsedSeconds: number | null
   /** 等待处理那一刻：判决那一步的落停时刻；没有那一刻就是 `null`（不是 0）。 */
   readonly parkedSince: Date | null
@@ -182,21 +184,152 @@ export interface InstructionReading {
  * 一个节点只在一栏里。
  */
 export interface ColumnReadings {
-  /** 已成：那一刻交付了的。 */
+  /** 已交付：那一刻交付了的。 */
   readonly completed: readonly NodeReading[]
-  /** 在手：那一刻有条线握着、还没交付的。 */
+  /** 进行中：那一刻有条线握着、还没交付的。 */
   readonly running: readonly NodeReading[]
   /**
    * 等待处理：那一刻出局等人的。它一个都没有时这一栏是空清单——那一格空着，不画，
    * 也不写 0。
    */
   readonly shelved: readonly NodeReading[]
-  /** 待办：在局中、还没交付、也没人做（在手的不在这一栏里）。 */
+  /** 未开始：在局中、还没交付、也没人做（进行中的不在这一栏里）。 */
   readonly todo: readonly NodeReading[]
-  /** 可开工：待办里依赖都交付了、也没人握着的那一半。 */
+  /** 可开工：未开始里依赖都交付了、也没人握着的那一半。 */
   readonly ready: readonly NodeReading[]
   /** 前置未交付的那一半。 */
   readonly blocked: readonly NodeReading[]
+}
+
+/**
+ * 依赖场上的一条边：谁挡着谁。`from` 是前置、`to` 是等它的那一格。
+ *
+ * `span` 是两头隔了几层——最长路那一档算出来的层，所以它至少是 1。
+ */
+export interface GraphEdge {
+  /** 前置那一格的身份。 */
+  readonly from: string
+  /** 等它的那一格的身份。 */
+  readonly to: string
+  /** 两头隔了几层。 */
+  readonly span: number
+}
+
+/**
+ * 那一刻的依赖场读数：一张分层图，层与边都从记录里长出来。
+ *
+ * 一格的层号是**最长路**那一档：它站在它最深的前置右边一层。所以层是边自己算出来的
+ * ——同一层里的格，都等过它左边那些层里的东西。
+ */
+export interface GraphReading {
+  /** 每一层里那几格，按记录里的次序（先记的在先）。一个节点都没有时这一份是空的。 */
+  readonly layers: readonly (readonly NodeReading[])[]
+  /** 最深的那一层是第几层。 */
+  readonly maxDepth: number
+  /** 记录里写下的每一条依赖边，按节点与依赖各自的次序。 */
+  readonly edges: readonly GraphEdge[]
+}
+
+/** 问题池里一条问题的四个状态，记录自己那几个词。 */
+export type IssueState = 'open' | 'acknowledged' | 'rejected' | 'resolved'
+
+/** 那一刻的一条问题。 */
+export interface IssueReading {
+  /** 问题身份。 */
+  readonly id: string
+  /** 记录自己写的标题；没写就没有。 */
+  readonly title?: string
+  /** 严重程度那一档，原样；没写就没有。 */
+  readonly severity?: string
+  /** 记录里那一档在重量表里算几倍；表里没有这一档就是 0。 */
+  readonly weight: number
+  /** 那一刻它落在哪个状态：记录自己的词，那一刻还没写下来就是 `open`。 */
+  readonly status: IssueState
+  /** 记录自己写的那个词，原样；没写就没有。 */
+  readonly recordStatus?: string
+  /** 落在哪个模块上；没写就没有。 */
+  readonly module?: string
+  /** 谁报的；没写就没有。 */
+  readonly source?: string
+  /** 判决；没写就没有。 */
+  readonly decision?: string
+  /** 发现时刻，按那一刻切过：那一刻还没发现就没有。 */
+  readonly discoveredAt: Date | null
+  /** 最后改动时刻，按那一刻切过。 */
+  readonly updatedAt: Date | null
+  /** 核过几次；没记就没有。 */
+  readonly checkCount: number | null
+  /** 牵到的文件，原样。 */
+  readonly files: readonly string[]
+  /** 问题的说明；没写就没有。 */
+  readonly description?: string
+  /** 建议；没写就没有。 */
+  readonly suggestion?: string
+  /** 理由；没写就没有。 */
+  readonly reason?: string
+  /** 方案落在哪儿；没写就没有。 */
+  readonly planPath?: string
+}
+
+/** 问题池里的一堆：一个状态下面那几条。 */
+export interface IssueGroupReading {
+  /** 这一堆是哪个状态。 */
+  readonly key: IssueState
+  /** 读作哪一个词：未解决 / 已承认 / 已驳回 / 已解决。 */
+  readonly label: string
+  /** 这一堆算不算池子还欠着的：欠着的两堆算，放下的两堆不算。 */
+  readonly standing: boolean
+  /** 这一堆里那几条，排序见 {@link PoolReading}。 */
+  readonly entries: readonly IssueReading[]
+  /** 几条。 */
+  readonly count: number
+  /** 这一堆的加权和：判成 `external` 的那几条不进这个和。 */
+  readonly weight: number
+}
+
+/** 重量表：记录里写着的一档算几倍。 */
+export type PoolWeights = Readonly<Record<string, number>>
+
+/** 那一刻的问题池读数。 */
+export interface PoolReading {
+  /**
+   * 策略线：`issue_pool_weight_limit` 那条线自己立的数。记录里没有这一条就是 `null`
+   * ——不补一个默认值，也不印 0。
+   */
+  readonly line: number | null
+  /**
+   * 重量表：记录里写着的那一份（几个等级各算几倍）。记录里没有这一份就是 `null`。
+   */
+  readonly weights: PoolWeights | null
+  /** 那一刻登记在册的每一条，按记录里的顺序。 */
+  readonly rows: readonly IssueReading[]
+  /** 四堆，按读者遇到它们的次序：未解决、已承认、已驳回、已解决；空的堆不收。 */
+  readonly groups: readonly IssueGroupReading[]
+  /**
+   * 还欠着的那几条：未解决的接着已承认的。池子的重量就是这一份里进和的那几条的重量，
+   * 重量表没有的话这一份也没有。
+   */
+  readonly standing: readonly IssueReading[]
+  /** 站着那几条的加权和，判成 `external` 的不进这个和；重量表读不出来就是 `null`。 */
+  readonly weight: number | null
+  /** 四个数，外加一个总数。 */
+  readonly census: PoolCensus
+}
+
+/** 问题池那几个数。 */
+export interface PoolCensus {
+  /** 在册的一共几条。 */
+  readonly total: number
+  /** 站着的一共几条。 */
+  readonly standing: number
+  /** 未解决的几条。 */
+  readonly open: number
+  /** 已承认的几条。 */
+  readonly acknowledged: number
+  /** 已驳回的几条。 */
+  readonly rejected: number
+  /** 已解决的几条。 */
+  readonly resolved: number
 }
 
 /** 那一刻的项目读数。 */
@@ -215,4 +348,8 @@ export interface ProjectReading {
   readonly cycleById: Readonly<Record<string, CycleReading>>
   /** 那一刻说出口了的那几条指令，按记录里的顺序。 */
   readonly instructions: readonly InstructionReading[]
+  /** 那一刻的依赖场：谁挡着谁。 */
+  readonly graph: GraphReading
+  /** 那一刻的问题池。 */
+  readonly pool: PoolReading
 }

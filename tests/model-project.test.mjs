@@ -47,18 +47,18 @@ test('进来的不是一个时刻：当场报出来', () => {
   assert.throws(() => readProject(record({ at: new Date('不是一刻') })), TypeError)
 })
 
-test('在手以线路记录里的持有关系为准：卡片自己的词仍然是待办', () => {
+test('进行中以线路记录里的持有关系为准：卡片自己的词仍然是未开始', () => {
   const reading = readProject(record({
     nodes: { n1: node() },
     cycles: [cycle({ holding: [{ id: 'n1', since: '2026-03-10T11:00:00.000Z' }] })],
   }))
   const n1 = reading.nodeById.n1
 
-  assert.equal(n1.state, 'todo', '被某条线做着的卡，状态仍然是待办')
+  assert.equal(n1.state, 'todo', '被某条线做着的卡，状态仍然是未开始')
   assert.equal(n1.running, true)
   assert.deepEqual(n1.heldBy, ['c1'])
   assert.deepEqual(ids(reading.columns.running), ['n1'])
-  assert.deepEqual(reading.columns.todo, [], '在手的不在待办那一栏里')
+  assert.deepEqual(reading.columns.todo, [], '进行中的不在未开始那一栏里')
   assert.equal(n1.heldSince.getTime(), Date.parse('2026-03-10T11:00:00.000Z'))
   assert.equal(n1.startedAt, null, '它那一步还没迈出：记录里没有那一刻')
   assert.equal(n1.elapsedSeconds, null, '没有那一刻就没有时长，不写 0')
@@ -98,7 +98,7 @@ test('只有一个出局等人的节点：等待处理那一栏正好一条，�
   assert.equal(only.parkedSince, null, '没有判决那一步，就没有那一刻')
 })
 
-test('同一节点先失败后成功：读成已成，不读出局等人', () => {
+test('同一节点先失败后成功：读成已交付，不读出局等人', () => {
   const reading = readProject(record({
     nodes: { n: node({ status: 'completed', completed_at: '2026-03-10T10:00:00.000Z' }) },
     cycles: [cycle({
@@ -118,7 +118,7 @@ test('同一节点先失败后成功：读成已成，不读出局等人', () =>
   assert.equal(n.seconds, 3600, '它自己那一步是记录里最先走的那一步')
 })
 
-test('同一节点先失败、重跑那一步以 completed 落停、这一格还没有交付时刻：读作待办', () => {
+test('同一节点先失败、重跑那一步以 completed 落停、这一格还没有交付时刻：读作未开始', () => {
   /* 这一格：先失败，重跑那一趟带了 completed 回来，但没有 completed_at；它自己那个词
    * 是 completed，updated_at 却晚于读到的那一刻——那一刻这个词还没写下来，状态只能按
    * 走过的步判，而最后落停的那一步带回的是 completed。 */
@@ -149,14 +149,14 @@ test('老一版的持有关系写法：线路上那个单值 current_node / curr
   }))
   const n1 = old.nodeById.n1
 
-  assert.equal(n1.state, 'todo', '卡片自己的词仍然是待办')
+  assert.equal(n1.state, 'todo', '卡片自己的词仍然是未开始')
   assert.equal(n1.running, true)
   assert.deepEqual(n1.heldBy, ['c1'])
   assert.equal(n1.heldSince.getTime(), Date.parse('2026-03-10T11:00:00.000Z'))
   assert.deepEqual(old.cycleById.c1.holding, [{ nodeId: 'n1', since: new Date('2026-03-10T11:00:00.000Z') }])
   assert.deepEqual(ids(old.columns.running), ['n1'])
 
-  /* 那一刻还没拿起来：记录里写着那一刻在后头，当时这一手不在手里。 */
+  /* 那一刻还没拿起来：记录里写着那一刻在后头，当时这一手还没被握着。 */
   const later = readProject(record({
     nodes: { n1: node() },
     cycles: [cycle({ current_node: 'n1', current_started_at: '2026-03-10T13:00:00.000Z' })],
@@ -175,7 +175,7 @@ test('时刻切法：记录自己的词在那一刻写下来了才算数', () =>
   const early = readProject(record({ nodes, cycles, at: new Date('2026-03-10T11:00:00.000Z') }))
   const late = readProject(record({ nodes, cycles }))
 
-  assert.equal(early.nodeById.n.state, 'shelved', '那一刻「待办」这个词还没写下来，按判决那一步读')
+  assert.equal(early.nodeById.n.state, 'shelved', '那一刻「未开始」这个词还没写下来，按判决那一步读')
   assert.equal(early.nodeById.n.parkedSince.getTime(), Date.parse('2026-03-10T10:00:00.000Z'))
   assert.equal(late.nodeById.n.state, 'todo', '词写下来了：记录说它已经回到局中')
 })

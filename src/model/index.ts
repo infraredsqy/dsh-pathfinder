@@ -8,6 +8,8 @@
  */
 export type * from './contract.ts'
 export { readProject } from './project.ts'
+export { readGraph } from './graph.ts'
 export { readInstructions } from './instructions.ts'
+export { readLine, readPool, readWeights } from './pool.ts'
 export { ago, clock, dayLabel, duration, durationLong, elapsedSince, two } from './format.ts'
 export { cutAt, happenedAt, secondsBetween, text, toMoment, writtenBy } from './fields.ts'

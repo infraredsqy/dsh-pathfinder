@@ -26,6 +26,8 @@ export interface PanelPrefs {
   readonly info: InfoLevel
   /** 面板露面时停在哪个看法。 */
   readonly tab: ViewId
+  /** 问题那一格要不要把已经处置过的那三个状态也放回页面上。 */
+  readonly otherStates: boolean
 }
 
 /** 侧栏宽度的上下限，与蓝本同一档。 */
@@ -40,6 +42,7 @@ export const DEFAULT_PREFS: PanelPrefs = {
   sideWidth: SIDE_DEFAULT,
   info: 'three',
   tab: 'now',
+  otherStates: false,
 }
 
 /** 本地存储里的键。 */
@@ -47,6 +50,7 @@ const KEYS = {
   sideWidth: 'dsh-pathfinder.sideWidth',
   info: 'dsh-pathfinder.infoLevel',
   tab: 'dsh-pathfinder.defaultTab',
+  otherStates: 'dsh-pathfinder.showOtherStates',
 } as const
 
 const INFO_LEVELS: readonly InfoLevel[] = ['lean', 'three', 'full']
@@ -87,6 +91,7 @@ export function readPrefs(): PanelPrefs {
     sideWidth: Number.isNaN(width) ? SIDE_DEFAULT : clampSide(width),
     info: INFO_LEVELS.includes(info as InfoLevel) ? (info as InfoLevel) : DEFAULT_PREFS.info,
     tab: VIEW_IDS.includes(tab as ViewId) ? (tab as ViewId) : DEFAULT_PREFS.tab,
+    otherStates: read(KEYS.otherStates) === '1',
   }
 }
 
@@ -103,6 +108,12 @@ export function saveInfo(level: InfoLevel): void {
 /** 记住面板该停在哪个看法。 */
 export function saveTab(tab: ViewId): void {
   write(KEYS.tab, tab)
+}
+
+/** 记住问题那一格读的是哪一档：只读未解决的，还是把处置过的也放回来。 */
+export function saveOtherStates(on: boolean): void {
+  if (on) write(KEYS.otherStates, '1')
+  else write(KEYS.otherStates, '0')
 }
 
 /** 一条线自己的三个策略数，键与工具那边逐字相同。 */
