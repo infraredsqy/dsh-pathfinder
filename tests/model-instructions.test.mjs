@@ -66,7 +66,7 @@ test('收掉的那一刻晚于读到的那一刻：那一刻它还算数', () =>
   assert.equal(out[0].closedAt, null, '那一刻还没收掉：读数里就没有那一刻')
 })
 
-test('范围：绑的线不在服务里就不念，绑的那一格交付了就不念', () => {
+test('范围：绑的线不在服务里就不算数，绑的那一格交付了就不算数', () => {
   const out = read([
     instruction({ id: 'global', scope: 'global' }),
     instruction({ id: 'in-service', scope: 'cycle', cycle: 'c1' }),
