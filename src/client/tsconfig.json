@@ -1,0 +1,20 @@
+{
+  // 浏览器半身的编译面：它与宿主半身共用模型层（`src/model`），换一套库（DOM）与一份
+  // 面板源码。产物由 tools/build-client.mjs 捆，这一份只管类型检查。
+  //
+  // JSX 走经典那一套（`jsx: "react"`）：它把每一处 JSX 摊成 `React.createElement`，
+  // 于是浏览器里只要模块表上那一个 `react`，不必再要 `react/jsx-runtime` 这个子路径。
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "jsx": "react",
+    "noEmit": true,
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["./**/*.ts", "./**/*.tsx", "../model/**/*.ts", "../host/contract.ts", "../host/write.ts", "../host/gateway.ts"]
+}

@@ -11,6 +11,9 @@
       "types": "./lib/types/host/index.d.ts",
       "default": "./lib/host/index.js"
     },
+    "./client": {
+      "default": "./lib/client.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -20,19 +23,38 @@
   ],
   "scripts": {
     "bundle": "tsdown",
+    "bundle:client": "node tools/build-client.mjs",
     "watch": "tsdown --watch",
     "types": "tsc -b tsconfig.host.json",
     "types:model": "tsc -p src/model/tsconfig.json",
+    "types:client": "tsc -p src/client/tsconfig.json",
+    "check:panel": "node tools/build-client.mjs && node tools/panel-check.mjs",
     "test": "node --test tests/"
   },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.4"
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-api-gateway": "0.2.1-rc.2",
     "@deepseek-ai/dsh-api-workspace-files": "0.2.0-rc.2",
     "@deepseek-ai/dsh-sandbox-policy": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-subprocess": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-registry": "0.2.1-rc.2",
     "@types/node": "^22.20.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "jsdom": "^26.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "rolldown": "^1.2.14",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3"
   }

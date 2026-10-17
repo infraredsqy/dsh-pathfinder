@@ -4,3 +4,5 @@ lib/
 node_modules/
 mock/ledger.js
 mock/issues.js
+# pnpm 在装包时自己写的一份放行名单（发布年龄闸），随安装现长，跟着别人走没有意义
+pnpm-workspace.yaml
