@@ -1,0 +1,744 @@
+#!/usr/bin/env node
+/**
+ * The panel's stylesheet self-check.
+ *
+ * DSH's own stylesheet contracts (`ui-theme`'s specs, and the scan helper they
+ * share) range over the harness's `packages/` tree. A plugin lives outside it,
+ * so it cannot be held to those specs by running them — this script runs the
+ * same set of questions against this repo's own sheets, and adds the two things
+ * those specs leave to a human: which alias each mark inks itself with, and
+ * whether that ink clears this panel's contrast floors in both palettes.
+ *
+ * What it checks, and where each question comes from:
+ *   1. every colour an alias, never a literal, a raw palette step, or a theme
+ *      selector                                        (web-styling.md, ownership)
+ *   2. every radius on the shared scale, and every full-round shape paired with
+ *      `corner-shape: round`                           (ui-radius.md, corner-shape spec)
+ *   3. elevated surfaces take `border: 0` and the elevation material, and no
+ *      rule pairs a neutral border with an elevation shadow  (elevation spec)
+ *   4. neutral borders at the 0.5px hairline, state-coloured ones at 1px
+ *                                                      (web-styling.md, elevation spec)
+ *   5. menus keep the theme's material, and a menu-role renderer says so
+ *                                                      (menu-surfaces spec)
+ *   6. clickable links colour through `--dsw-alias-link`  (web-styling.md)
+ *   7. both palettes define every alias the panel reads  (design-platform.css)
+ *   8. every mark's ink clears its floor in light and dark, each row read against
+ *      the surface the instance it names stands on, printed
+ *   9. class names that mean two different things in two modules, listed
+ *  10. every module sheet is loaded by a page, and every href resolves
+ *  11. a card's hover moves its stroke, never the face it carries a ring on
+ *  12. panel tokens declared on `html` would resolve to nothing and paint nothing
+ *
+ * Usage: node tools/css-check.mjs [--root <dir>] [--quiet]
+ * Exit code 0 when every question passes.
+ */
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const argv = process.argv.slice(2)
+const argOf = (flag) => {
+  const at = argv.indexOf(flag)
+  return at >= 0 ? argv[at + 1] : undefined
+}
+const QUIET = argv.includes('--quiet')
+const ROOT = resolve(argOf('--root') ?? fileURLToPath(new URL('..', import.meta.url)))
+const MOCK = join(ROOT, 'mock')
+const THEME_SHEET = join(MOCK, 'theme.css')
+
+/* ------------------------------------------------------------------ parsing */
+
+/** Strip comments so no rule is read out of a sentence. */
+const withoutComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+/**
+ * Every rule in a sheet, in source order, flattened across at-rules.
+ * A block whose prelude starts with `@` is a container and its inner rules are
+ * returned too, each carrying the container's prelude as `at`.
+ * @param {string} css - stylesheet text.
+ * @returns {{selectors: string[], declarations: [string, string][], at: string}[]}
+ */
+function parseRules(css) {
+  const rules = []
+  const walk = (text, at) => {
+    let i = 0
+    while (i < text.length) {
+      const open = text.indexOf('{', i)
+      if (open < 0) break
+      const prelude = text.slice(i, open).trim()
+      let depth = 0
+      let end = -1
+      for (let j = open; j < text.length; j += 1) {
+        if (text[j] === '{') depth += 1
+        else if (text[j] === '}') {
+          depth -= 1
+          if (depth === 0) { end = j; break }
+        }
+      }
+      if (end < 0) throw new Error('unbalanced braces')
+      const body = text.slice(open + 1, end)
+      if (prelude.startsWith('@')) walk(body, prelude)
+      else {
+        rules.push({
+          selectors: prelude.split(',').map(s => s.trim()).filter(Boolean),
+          declarations: body.split(';').map(p => p.trim()).filter(p => p.includes(':')).map((p) => {
+            const colon = p.indexOf(':')
+            return [p.slice(0, colon).trim(), p.slice(colon + 1).trim()]
+          }),
+          at,
+        })
+      }
+      i = end + 1
+    }
+  }
+  walk(withoutComments(css), '')
+  return rules
+}
+
+/** Custom-property names a value reads. */
+const varNames = (value) => [...value.matchAll(/var\(\s*(--[\w-]+)/g)].map(([, name]) => name)
+
+/**
+ * Substitute var() references until none are left, looking each name up in the
+ * given map (fallback text wins only when the name is absent and the reference
+ * carries one). Cycle-safe.
+ */
+function resolveVars(value, map, seen = new Set()) {
+  let out = value
+  for (let pass = 0; pass < 12; pass += 1) {
+    if (!out.includes('var(')) break
+    let changed = false
+    out = out.replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*(?:\([^()]*\)[^()]*)*))?\)/g, (whole, name, fallback) => {
+      if (seen.has(name)) return whole
+      const found = map.get(name)
+      if (found === undefined) return fallback !== undefined ? fallback.trim() : whole
+      changed = true
+      seen.add(name)
+      return found
+    })
+    if (!changed) break
+  }
+  return out
+}
+
+/* ------------------------------------------------------------------- colour */
+
+/** Parse one colour into {r,g,b,a} (0-255, 0-1). Returns undefined when it is not a colour. */
+function parseColor(text) {
+  const value = text.trim()
+  const hex = value.match(/^#([0-9a-f]{3,8})$/i)
+  if (hex) {
+    const d = hex[1]
+    const wide = d.length > 4
+    const step = wide ? 2 : 1
+    const part = (n) => parseInt(d.slice(n * step, n * step + step).padEnd(step, d[0]), 16)
+    const alpha = wide && d.length === 8 ? part(3) / 255 : 1
+    return { r: part(0), g: part(1), b: part(2), a: alpha }
+  }
+  const rgb = value.match(/^rgba?\(([^)]+)\)$/i)
+  if (rgb) {
+    const parts = rgb[1].split(/[\s,/]+/).filter(Boolean).map(Number)
+    return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 }
+  }
+  return undefined
+}
+
+/** The single colour a resolved value paints, `color-mix(..., transparent)` included. */
+function colorOf(value) {
+  const direct = parseColor(value)
+  if (direct) return direct
+  const mix = value.match(/color-mix\(\s*in\s+srgb\s*,\s*(.+?)\s+([\d.]+)%\s*,\s*(transparent|#[0-9a-f]{3,8}|rgba?\([^)]*\))\s*\)/i)
+  if (!mix) return undefined
+  const base = colorOf(mix[1])
+  const weight = Number(mix[2]) / 100
+  if (!base) return undefined
+  if (mix[3].toLowerCase() === 'transparent') return { ...base, a: base.a * weight }
+  const other = colorOf(mix[3])
+  if (!other) return undefined
+  const share = 1 - weight
+  return {
+    r: base.r * weight + other.r * share,
+    g: base.g * weight + other.g * share,
+    b: base.b * weight + other.b * share,
+    a: base.a * weight + other.a * share,
+  }
+}
+
+/** Composite a (possibly translucent) ink over an opaque ground. */
+function over(ink, ground) {
+  if (ink.a >= 1) return ink
+  return {
+    r: ink.r * ink.a + ground.r * (1 - ink.a),
+    g: ink.g * ink.a + ground.g * (1 - ink.a),
+    b: ink.b * ink.a + ground.b * (1 - ink.a),
+    a: 1,
+  }
+}
+
+const channel = (c) => {
+  const s = c / 255
+  return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+}
+const luminance = ({ r, g, b }) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+/** WCAG contrast ratio between two colours, the ink composited over the ground first. */
+function contrast(ink, ground) {
+  const a = luminance(over(ink, ground))
+  const b = luminance(ground)
+  const [hi, lo] = a > b ? [a, b] : [b, a]
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase()
+
+/* -------------------------------------------------------------------- input */
+
+const failures = []
+const fail = (section, detail) => failures.push(`${section}: ${detail}`)
+
+const read = (path) => readFileSync(path, 'utf8')
+const stylesDir = join(MOCK, 'styles')
+const moduleSheets = existsSync(stylesDir)
+  ? readdirSync(stylesDir).filter(n => n.endsWith('.css')).sort().map(n => join(stylesDir, n))
+  : []
+const panelSheets = [join(MOCK, 'tokens.css'), ...moduleSheets].filter(existsSync)
+const pages = readdirSync(MOCK).filter(n => n.endsWith('.html')).sort().map(n => join(MOCK, n))
+
+if (!existsSync(THEME_SHEET)) throw new Error(`no theme sheet at ${THEME_SHEET}`)
+if (panelSheets.length < 2) throw new Error('no panel sheets found under mock/')
+
+const rel = (p) => relative(ROOT, p).split(sep).join('/')
+const themeRules = parseRules(read(THEME_SHEET))
+const panelFiles = panelSheets.map(path => ({ path, rules: parseRules(read(path)) }))
+
+/* Token map per palette: theme `:root` then the palette block, then every panel
+ * sheet's own `:root`-ish declarations (last wins, which is how the ramp's
+ * per-day ink is read). */
+function paletteMap(palette) {
+  const map = new Map()
+  const collect = (rules, test) => {
+    for (const rule of rules) {
+      if (!rule.selectors.some(test)) continue
+      for (const [name, value] of rule.declarations) if (name.startsWith('--')) map.set(name, value)
+    }
+  }
+  collect(themeRules, s => s === ':root')
+  collect(themeRules, s => s === 'body')
+  if (palette === 'dark') collect(themeRules, s => s.includes('data-ds-dark-theme'))
+  // Panel sheets: `body` first (the panel's own ladder lives there, beside the
+  // theme's aliases), then `:root` numbers, then the per-state declarations.
+  for (const file of panelFiles) collect(file.rules, s => s === 'body')
+  for (const file of panelFiles) collect(file.rules, s => s === ':root')
+  for (const file of panelFiles) collect(file.rules, s => /^\.pf-/.test(s) && s.includes('['))
+  return map
+}
+
+const PALETTES = { light: paletteMap('light'), dark: paletteMap('dark') }
+
+/* ------------------------------------------------------- 1. colours, aliases */
+
+const LITERAL = /(#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\()/i
+/** Aliases a feature sheet may spend. Anything else is either the theme's own
+ * business or a raw palette step. */
+const ALIAS_FAMILIES = /^--(?:dsw-alias-|dsw-elevation|dsw-menu-|dsw-mask-|dsw-radius-|dsw-font-|dsw-focus-|dsw-corner-shape|dsw-specific-|ds-font-|ds-ease-|ds-transition-|pf-)/
+
+let literalCount = 0
+let rawStepCount = 0
+/* Every custom property the sheets declare themselves: a component is allowed to
+ * own one for its own layout or presentation contract, and reading it back is
+ * what makes that a contract instead of a wish. */
+const declared = new Set()
+/* Declarations the panel sheets make themselves. `--pf-*` is this panel's own
+ * vocabulary (ink steps, marks, the two floors), so where it is declared is the
+ * thing to ask about: the theme sheet carries none of it. */
+const panelDeclared = new Set()
+for (const file of panelFiles) {
+  for (const rule of file.rules) for (const [property] of rule.declarations) if (property.startsWith('--')) panelDeclared.add(property)
+}
+for (const file of [...panelFiles, { path: THEME_SHEET, rules: themeRules }]) {
+  for (const rule of file.rules) for (const [property] of rule.declarations) if (property.startsWith('--')) declared.add(property)
+}
+/** Properties a page's script passes in, each with a fallback where it is read. */
+const optional = new Set([...[...panelFiles].flatMap(file => [...read(file.path).matchAll(/var\(\s*(--[\w-]+)\s*,/g)].map(([, name]) => name))])
+for (const file of panelFiles) {
+  for (const rule of file.rules) {
+    for (const [property, value] of rule.declarations) {
+      if (property.startsWith('--pf-') && LITERAL.test(value)) {
+        literalCount += 1
+        fail('literal colour', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
+      } else if (!property.startsWith('--pf-') && LITERAL.test(value)) {
+        literalCount += 1
+        fail('literal colour', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
+      }
+      for (const name of varNames(value)) {
+        if (name.startsWith('--dsw-static-')) {
+          rawStepCount += 1
+          fail('raw palette step', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
+        } else if (!ALIAS_FAMILIES.test(name) && !declared.has(name) && !optional.has(name)) {
+          fail('unknown token family', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${name} }`)
+        }
+      }
+    }
+  }
+}
+
+/* Theme selectors stay out of a feature sheet: light/dark is the theme owner's. */
+const THEME_SELECTOR = /(data-ds-dark-theme|data-theme|prefers-color-scheme|\.dark\b|\bdark-mode\b)/
+let themeSelectorCount = 0
+for (const file of panelFiles) {
+  for (const rule of file.rules) {
+    if (rule.at && THEME_SELECTOR.test(rule.at) && !/prefers-reduced-motion/.test(rule.at)) {
+      themeSelectorCount += 1
+      fail('theme selector', `${rel(file.path)} ${rule.at}`)
+    }
+    for (const selector of rule.selectors) {
+      if (THEME_SELECTOR.test(selector)) {
+        themeSelectorCount += 1
+        fail('theme selector', `${rel(file.path)} ${selector}`)
+      }
+    }
+  }
+}
+
+/* Both palettes have to define every alias the panel reads. */
+const panelTokens = new Set()
+for (const file of panelFiles) {
+  for (const rule of file.rules) for (const [, value] of rule.declarations) for (const name of varNames(value)) panelTokens.add(name)
+}
+let undefinedTokens = 0
+for (const name of [...panelTokens].sort()) {
+  if (!name.startsWith('--dsw-') && !name.startsWith('--ds-')) continue
+  for (const palette of ['light', 'dark']) {
+    if (!PALETTES[palette].has(name)) {
+      undefinedTokens += 1
+      fail('alias not defined by the theme', `${name} (${palette})`)
+    }
+  }
+}
+
+/* The same question on the panel's own side. `--pf-*` is read by the sheets that
+ * declare it, so a name with a letter off (`--pf-ink44`) paints nothing in either
+ * palette, raises nothing, and every mark it inks just goes missing. A name a page's
+ * script hands in is the one exception, and it is written with a fallback. */
+let undeclaredPanelTokens = 0
+for (const name of [...panelTokens].sort()) {
+  if (!name.startsWith('--pf-')) continue
+  if (!panelDeclared.has(name) && !optional.has(name)) {
+    undeclaredPanelTokens += 1
+    fail('panel token not declared', name)
+  }
+}
+
+/* ------------------------------------------- 2. radius scale, full-round pair */
+
+const themeTokens = new Set([...PALETTES.light.keys()])
+let radiusOffScale = 0
+let fullRoundUnpaired = 0
+const RADIUS_PROPERTY = /^(?:border(?:-[a-z]+)*?-radius|--dsl-[\w-]*radius)$/
+for (const file of [...panelFiles, { path: THEME_SHEET, rules: themeRules }]) {
+  for (const rule of file.rules) {
+    const declarations = rule.declarations
+    for (const [property, value] of declarations) {
+      if (!RADIUS_PROPERTY.test(property)) continue
+      const offScale = [...value.matchAll(/\b(\d+(?:\.\d+)?)px\b/g)].some(([, n]) => Number(n) > 4 && Number(n) < 99)
+      const missingToken = varNames(value).some(n => n.startsWith('--dsw-radius-') && !themeTokens.has(n))
+      if (offScale || missingToken) {
+        radiusOffScale += 1
+        fail('radius off the shared scale', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
+      }
+    }
+    const fullRound = declarations.some(([property, value]) => property === 'border-radius'
+      && value.split(/\s+/).some(part => part === '50%' || part === '100%' || (part.endsWith('px') && Number.parseFloat(part) >= 99)))
+    if (fullRound && !declarations.some(([property, value]) => property === 'corner-shape' && value === 'round')) {
+      fullRoundUnpaired += 1
+      fail('full-round radius without corner-shape: round', `${rel(file.path)} ${rule.selectors.join(', ')}`)
+    }
+  }
+}
+
+/* ------------------------------------------------ 3/4. borders and elevation */
+
+const ELEVATED_SHADOW = /--dsw-(?:elevation-|shadow-lv)/
+const NEUTRAL_BORDER = /--dsw-alias-border-/
+const STATE_COLOR = /--dsw-alias-state-|--dsw-alias-link/
+const BORDER_EDGE = /^border(?:-top|-bottom|-left|-right)?(-width)?$/
+/* Ring tracks: the border is the drawn graphic (a rotating ring), not an
+ * outline, so it keeps its width — the same exemption the theme's elevation
+ * spec spells out. The panel draws this ring in two places, and both are listed:
+ * the state mark a card and a detail row share, and the line's own mark. */
+const RING_TRACKS = new Set(['tokens.css .pf-state.is-run', 'lines.css .pf-linemark.is-run'])
+let elevationPairedWithBorder = 0
+let neutralBorderWide = 0
+let stateBorderNarrow = 0
+let filledDividerWide = 0
+for (const file of panelFiles) {
+  for (const rule of file.rules) {
+    const elevated = rule.declarations.some(([property, value]) => property === 'box-shadow' && ELEVATED_SHADOW.test(value))
+    if (elevated) {
+      const bordered = rule.declarations.some(([property, value]) => property.startsWith('border') && !property.startsWith('border-radius') && NEUTRAL_BORDER.test(value))
+      if (bordered) {
+        elevationPairedWithBorder += 1
+        fail('elevation shadow beside a neutral border', `${rel(file.path)} ${rule.selectors.join(', ')}`)
+      }
+      const paintsMenu = rule.declarations.some(([property, value]) => (property === 'background' || property === 'background-color')
+        && /--dsw-(?:specific-menu|menu-surface-fill)/.test(value))
+      if (paintsMenu && !rule.declarations.some(([property, value]) => property === 'backdrop-filter' && value === 'var(--dsw-menu-backdrop-filter)')) {
+        fail('menu fill without the shared backdrop filter', `${rel(file.path)} ${rule.selectors.join(', ')}`)
+      }
+    }
+    for (const [property, value] of rule.declarations) {
+      if (BORDER_EDGE.test(property) && value.includes('solid')) {
+        const width = resolveVars(value, PALETTES.light).trim().split(/\s+/)[0]
+        const exempt = rule.selectors.some(s => RING_TRACKS.has(`${rel(file.path).split('/').pop()} ${s}`))
+        if (NEUTRAL_BORDER.test(value) && width !== '0.5px' && !exempt) {
+          neutralBorderWide += 1
+          fail('neutral border off the hairline', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
+        }
+        if (STATE_COLOR.test(value) && width !== '1px') {
+          stateBorderNarrow += 1
+          fail('state-coloured border not 1px', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
+        }
+      }
+      if ((property === 'background' || property === 'background-color') && NEUTRAL_BORDER.test(value)) {
+        const box = rule.declarations.find(([p]) => p === 'height' || p === 'width')
+        if (box && box[1].trim() === '1px') {
+          filledDividerWide += 1
+          fail('filled divider off the hairline', `${rel(file.path)} ${rule.selectors.join(', ')} { ${box[0]}: 1px }`)
+        }
+      }
+    }
+  }
+}
+
+/* --------------------------------------------------------- 5. menus, 6. links */
+
+let menuRoleContainers = 0
+let nativeSelects = 0
+let anchors = 0
+for (const page of pages) {
+  const text = read(page)
+  const roles = [...text.matchAll(/role="(menu|listbox)"/g)]
+  menuRoleContainers += roles.length
+  for (const role of roles) {
+    // A static page has no MenuSurface component to wrap anything in, so a
+    // menu role here means a second menu material was invented.
+    fail('menu role without MenuSurface', `${rel(page)} role="${role[1]}"`)
+  }
+  nativeSelects += [...text.matchAll(/<select\b/g)].length
+  anchors += [...text.matchAll(/<a\s/g)].length
+}
+
+let menuMaterialOverrides = 0
+for (const file of panelFiles) {
+  for (const rule of file.rules) {
+    for (const [property, value] of rule.declarations) {
+      if (property === '--dsw-menu-surface-fill' || property === '--dsw-menu-backdrop-filter' || property === '--dsw-specific-menu') {
+        menuMaterialOverrides += 1
+        fail('menu material redefined outside the theme', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property} }`)
+      }
+      if (property === 'backdrop-filter' && value !== 'var(--dsw-menu-backdrop-filter)') {
+        fail('backdrop filter not the theme material', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
+      }
+    }
+  }
+  for (const rule of file.rules) {
+    for (const selector of rule.selectors) {
+      if (!/(^|[\s,>+~])a(?::|[\s,>+~.]|$)/.test(selector)) continue
+      const colored = rule.declarations.some(([property, value]) => (property === 'color' || property.startsWith('border')) && value.includes('--dsw-alias-link'))
+      if (!colored) fail('link selector without the link alias', `${rel(file.path)} ${selector}`)
+    }
+  }
+}
+
+/* ------------------------------------------------ 11. hover and the card face */
+
+/* A card carries a reading on its own surface: the amber ring that says a person
+ * has to move is an inset shadow on `.pf-card`, and the card's raised look is its
+ * fill. A hover that paints either of them does two things at once — it covers the
+ * ring (the reading is gone while the pointer is on it) and, because both paint
+ * through the same transition, it sweeps a solid block through the interpolation.
+ * So a hover on a card moves the stroke and leaves the face alone. A row is a
+ * different object and keeps its fill: it carries no ring. */
+const CARD = /\.(?:pf-card|pf-zcard|pf-case)(?![\w-])/
+const HOVER = /:(?:hover|active)\b/
+const FACE_INK = new Set(['background', 'background-color', 'box-shadow', 'filter', 'backdrop-filter', 'opacity'])
+let hoverPaintsFace = 0
+for (const file of panelFiles) {
+  for (const rule of file.rules) {
+    if (!rule.selectors.some(s => CARD.test(s) && HOVER.test(s))) continue
+    for (const [property, value] of rule.declarations) {
+      if (!FACE_INK.has(property)) continue
+      hoverPaintsFace += 1
+      fail('card hover paints the face', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
+    }
+  }
+}
+
+/* ------------------------- 12. panel tokens that would resolve to nothing */
+
+/* The theme declares its aliases on `body`, and a custom property's var() is
+ * substituted where the declaration sits. A panel token declared on `:root` or
+ * `html` therefore resolves against an element that has no alias yet, computes
+ * to the guaranteed-invalid value, and paints nothing — in both palettes, with
+ * no error anywhere. Cheap to write, invisible in review, so it is checked. */
+const ALIAS_READ = /var\(\s*--(?:dsw|ds)-/
+let rootTokensWithAlias = 0
+for (const file of panelFiles) {
+  for (const rule of file.rules) {
+    if (!rule.selectors.some(s => s === ':root' || s === 'html' || s === 'html, body' || s === 'body, html')) continue
+    for (const [property, value] of rule.declarations) {
+      if (!property.startsWith('--')) continue
+      if (ALIAS_READ.test(value) || panelTokensFeed(value)) {
+        rootTokensWithAlias += 1
+        fail('panel token on html with a theme alias in it', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} } — declare it on body`)
+      }
+    }
+  }
+}
+/** Whether a value reads another panel token that itself reads an alias. */
+function panelTokensFeed(value, depth = 0) {
+  if (depth > 6) return false
+  for (const name of varNames(value)) {
+    if (!name.startsWith('--pf-')) continue
+    for (const file of panelFiles) {
+      for (const rule of file.rules) {
+        for (const [property, declared] of rule.declarations) {
+          if (property !== name) continue
+          if (ALIAS_READ.test(declared) || panelTokensFeed(declared, depth + 1)) return true
+        }
+      }
+    }
+  }
+  return false
+}
+
+/* ------------------------------------------------ 8. the mark inks and floors */
+
+const floorOf = (name, fallback) => {
+  const found = PALETTES.light.get(name)
+  const value = found === undefined ? undefined : Number(resolveVars(found, PALETTES.light))
+  return Number.isFinite(value) ? value : fallback
+}
+const FLOOR = { A: floorOf('--pf-mark-floor', 3), B: floorOf('--pf-mark-floor-dense', 1.5) }
+
+/**
+ * The marks this panel paints, each tied to the rule that paints it: the check
+ * fails when a sheet stops saying what the table says it says. `tier` is the
+ * floor the mark answers to ('A' a mark the reader resolves on its own, 'B' one
+ * read as part of a dense row), or null for a reading that is the theme's own
+ * value rather than a choice made here.
+ *
+ * `where` is the instance the reading belongs to, `decl` the rule whose
+ * declaration carries the ink (it defaults to `where`). The two differ where one
+ * rule paints the same mark in two places that stand on different grounds: the
+ * state mark is drawn on a board card (`.pf-card`, `--dsw-alias-bg-layer-1`) and
+ * on a detail row (`.pf-row`, which has no fill of its own, `--dsw-alias-bg-base`).
+ * One row per place — a single row naming one place and reading the other's ground
+ * prints a number no instance stands on.
+ */
+const MARKS = [
+  { what: '计数胶囊方记号 · 已成', where: '.pf-cell', property: 'background', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '计数胶囊方记号 · 未开始', where: '.pf-cell.is-todo', property: 'box-shadow', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '卡片状态标 · 即将进线', where: '.pf-card .pf-state.is-next', decl: '.pf-state.is-next', property: 'border', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-layer-1', tier: 'A' },
+  { what: '明细行记号 · 即将进线', where: '.pf-row .pf-state.is-next', decl: '.pf-state.is-next', property: 'border', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '分层场记号 · 已成', where: '.pf-node.pf-cell.is-done', property: 'background', ink: 'var(--pf-ink-1)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '分层场记号 · 可开工', where: '.pf-node.pf-cell.is-todo', property: 'box-shadow', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '分层场记号 · 欠前置', where: '.pf-node.pf-cell.is-wait', property: 'box-shadow', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '问题池记号 · 已承认', where: '.pf-cell.is-acknowledged', property: 'box-shadow', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '问题池记号 · 已否决', where: '.pf-cell.is-rejected', property: 'box-shadow', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '重量档 · 最重一档（P0）', where: '.is-P0', property: '--sev', ink: 'var(--pf-ink-1)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '重量档 · 第二档（P1）', where: '.is-P1', property: '--sev', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '重量档 · 第三档（P2）', where: '.is-P2', property: '--sev', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '重量档 · 最轻一档（P3，密排那一档）', where: '.is-P3', property: '--sev', ink: 'var(--pf-ink-4)', ground: '--dsw-alias-bg-base', tier: 'B' },
+  { what: '重量条的格 · 空位', where: '.pf-block', property: 'box-shadow', ink: 'var(--pf-ink-4)', ground: '--dsw-alias-bg-base', tier: 'B' },
+  /* The amber ring is an inset shadow on the card's own face, so the card's fill is
+   * its ground — not the layer the card itself sits on. */
+  { what: '卡片上的闸 · 琥珀环', where: '.pf-card.is-gate', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-layer-1', tier: null },
+  { what: '卡片状态标 · 已成', where: '.pf-card .pf-state.is-done', decl: '.pf-state.is-done', property: 'color', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-layer-1', tier: null },
+  { what: '明细行记号 · 已成', where: '.pf-row .pf-state.is-done', decl: '.pf-state.is-done', property: 'color', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-base', tier: null },
+  /* No node in today's ledger is in flight, so this mark has no instance on the page
+   * right now; the same rule paints it in both places (a card and a row), so both
+   * rows stay and are read where they would stand. */
+  { what: '卡片状态标 · 在手', where: '.pf-card .pf-state.is-run', decl: '.pf-state.is-run', property: 'color', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-layer-1', tier: null },
+  { what: '明细行记号 · 在手', where: '.pf-row .pf-state.is-run', decl: '.pf-state.is-run', property: 'color', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-base', tier: null },
+  { what: '计数胶囊方记号 · 在手', where: '.pf-cell.is-running', property: 'background', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-base', tier: null },
+  { what: '问题池记号 · 未解决', where: '.pf-cell.is-open', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-base', tier: null },
+  { what: '线路记号 · 阻塞的点', where: '.pf-linemark.is-blocked::before', property: 'background', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-base', tier: null },
+  { what: '会话栏的点', where: '.pf-side-dot', property: 'background', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-base', tier: null },
+  { what: '主题自己的空闲点（1.5 那一档的依据）', where: null, property: null, ink: 'var(--dsw-alias-state-idle-primary)', ground: '--dsw-alias-bg-base', tier: null },
+]
+
+const findDeclaration = (selector, property) => {
+  for (const file of panelFiles) {
+    for (const rule of file.rules) {
+      if (!rule.selectors.includes(selector)) continue
+      const hit = rule.declarations.find(([p]) => p === property)
+      if (hit) return { file, value: hit[1] }
+    }
+  }
+  return undefined
+}
+
+const readings = []
+let markFailures = 0
+for (const mark of MARKS) {
+  /* `where` may name an instance rather than the rule that paints it (the same rule
+   * drawn in two places); the declaration to check is `decl` when it is given. */
+  const decl = mark.decl ?? mark.where
+  if (decl !== null) {
+    const found = findDeclaration(decl, mark.property)
+    if (!found) {
+      markFailures += 1
+      fail('mark rule missing', `${decl} { ${mark.property} } (${mark.what})`)
+      continue
+    }
+    if (!found.value.includes(mark.ink)) {
+      markFailures += 1
+      fail('mark ink moved', `${decl} { ${mark.property}: ${found.value} } — the table reads ${mark.ink} (${mark.what})`)
+      continue
+    }
+  }
+  const row = { what: mark.what, where: mark.where ?? '(theme)', ink: mark.ink, ground: mark.ground, tier: mark.tier, floor: mark.tier === null ? null : FLOOR[mark.tier], reading: {} }
+  for (const palette of ['light', 'dark']) {
+    const map = PALETTES[palette]
+    const ink = colorOf(resolveVars(mark.ink, map))
+    const ground = colorOf(resolveVars(`var(${mark.ground})`, map))
+    if (!ink || !ground) {
+      markFailures += 1
+      fail('mark ink unresolvable', `${mark.what} (${palette}): ${mark.ink} / ${mark.ground}`)
+      continue
+    }
+    const ratio = contrast(ink, ground)
+    row.reading[palette] = { ratio, ink: hex(over(ink, ground)), ground: hex(ground) }
+    if (row.floor !== null && ratio < row.floor) {
+      markFailures += 1
+      fail('mark under its floor', `${mark.what} (${palette}): ${ratio.toFixed(2)}:1 < ${row.floor}:1`)
+    }
+  }
+  readings.push(row)
+}
+
+/* ---------------------------------------------- 9. names meaning two things */
+
+/* A name's own declarations in one file: the rules whose selector is a compound
+ * that starts with it (`.pf-mark`, `.pf-mark:hover`, `.pf-mark.pf-failed`).
+ * Rules that merely mention it further along (`.pf-line:hover .pf-chev`) style
+ * something else and are not that object's own shape. */
+const NAME_RULE = (name) => new RegExp(`^\\.${name}(?![\\w-])`)
+/** (selector, file) -> property -> value, for every compound selector. */
+const bySelector = new Map()
+const namesOf = new Map()
+for (const file of panelFiles) {
+  for (const rule of file.rules) {
+    for (const selector of rule.selectors) {
+      const names = [...selector.matchAll(/\.(pf-[\w-]+)/g)].map(([, n]) => n).filter(n => NAME_RULE(n).test(selector))
+      if (!names.length) continue
+      const key = selector
+      if (!bySelector.has(key)) bySelector.set(key, new Map())
+      const perFile = bySelector.get(key)
+      if (!perFile.has(file.path)) perFile.set(file.path, new Map())
+      for (const [property, value] of rule.declarations) perFile.get(file.path).set(property, value)
+      for (const name of names) {
+        if (!namesOf.has(name)) namesOf.set(name, new Set())
+        namesOf.get(name).add(key)
+      }
+    }
+  }
+}
+/** Selectors two files declare with a different value for one property: one
+ * class, two objects. Each view loads only its own module today, so these are
+ * latent until two views share one document. */
+const collisions = new Map()
+for (const [selector, perFile] of [...bySelector].sort()) {
+  if (perFile.size < 2) continue
+  const files = [...perFile.keys()]
+  const disagreed = new Set()
+  for (let i = 0; i < files.length; i += 1) {
+    for (let j = i + 1; j < files.length; j += 1) {
+      for (const [property, value] of perFile.get(files[i])) {
+        const other = perFile.get(files[j]).get(property)
+        if (other === undefined || other === value) continue
+        disagreed.add(`${property}: ${value} / ${other}`)
+      }
+    }
+  }
+  if (!disagreed.size) continue
+  for (const [name, selectors] of namesOf) {
+    if (!selectors.has(selector)) continue
+    if (!collisions.has(name)) collisions.set(name, { name, files: new Set(), why: new Set() })
+    const entry = collisions.get(name)
+    for (const f of files) entry.files.add(rel(f))
+    entry.why.add(`${selector} :: ${[...disagreed].join('; ')}`)
+  }
+}
+
+/* ------------------------------------------------- 10. sheets and their pages */
+
+const linked = new Set()
+let brokenHref = 0
+for (const page of pages) {
+  for (const [, href] of read(page).matchAll(/<link[^>]+href="([^"]+)"/g)) {
+    const target = resolve(MOCK, href)
+    if (!existsSync(target) || !statSync(target).isFile()) {
+      brokenHref += 1
+      fail('link target missing', `${rel(page)} -> ${href}`)
+    }
+    linked.add(target)
+  }
+}
+for (const sheet of panelSheets) {
+  if (!linked.has(sheet)) fail('module sheet nobody loads', rel(sheet))
+}
+
+/* ------------------------------------------------------------------- report */
+
+const line = (text = '') => { if (!QUIET) console.log(text) }
+const pad = (text, width) => String(text).padEnd(width)
+
+line(`css-check · root ${ROOT}`)
+line(`sheets: theme 1, panel ${panelSheets.length} (${panelSheets.map(p => rel(p).replace('mock/', '')).join(', ')})`)
+line('')
+line(`1  colours         literals ${literalCount}, raw palette steps ${rawStepCount}, theme selectors ${themeSelectorCount}`)
+line(`2  radii           off scale ${radiusOffScale}, unpaired full-round ${fullRoundUnpaired}`)
+line(`3  elevation       shadow beside a neutral border ${elevationPairedWithBorder}`)
+line(`4  borders         neutral not 0.5px ${neutralBorderWide}, state not 1px ${stateBorderNarrow}, filled dividers not 0.5px ${filledDividerWide}`)
+line(`5  menus           menu-role containers ${menuRoleContainers}, native selects ${nativeSelects}, material overrides ${menuMaterialOverrides}`)
+line(`6  links           anchors ${anchors}`)
+line(`7  theme aliases   read ${panelTokens.size}, undefined ${undefinedTokens}`)
+line(`7b panel tokens    read ${panelTokens.size}, undeclared ${undeclaredPanelTokens}`)
+line(`8  marks           rows ${readings.length}, under floor ${markFailures}`)
+line(`9  class names     one selector two meanings ${collisions.size}`)
+line(`10 sheets linked   hrefs checked ${linked.size}, broken ${brokenHref}`)
+line(`11 card hover      face-ink declarations ${hoverPaintsFace}`)
+line(`12 panel tokens on html that read an alias (would paint nothing): ${rootTokensWithAlias}`)
+line('')
+line('floors, read from --pf-mark-floor / --pf-mark-floor-dense in mock/tokens.css:')
+line(`  a mark the reader resolves on its own >= ${FLOOR.A}:1 · one read as density >= ${FLOOR.B}:1`)
+line('')
+line('mark inks with a floor — all of these pass:')
+line(`${pad('mark', 40)}${pad('ink', 10)}${pad('ground', 10)}${pad('light', 22)}${pad('dark', 22)}floor`)
+const cellOf = (row, palette) => {
+  const r = row.reading[palette]
+  return r ? `${r.ratio.toFixed(2)}:1 ${r.ink}` : '—'
+}
+const rowLine = (row) => `${pad(row.what, 40)}${pad(row.ink.replace('var(', '').replace(')', ''), 10)}${pad(String(row.ground).replace('--dsw-alias-', ''), 10)}${pad(cellOf(row, 'light'), 22)}${pad(cellOf(row, 'dark'), 22)}${row.floor === null ? 'theme' : row.floor + ':1'}`
+for (const row of readings.filter(r => r.floor !== null)) line(rowLine(row))
+line('')
+line('the theme\'s own state hues and structure, read for the record (the panel paints')
+line('what the theme defines and these are not this panel\'s numbers to move):')
+for (const row of readings.filter(r => r.floor === null)) line(rowLine(row))
+line('')
+line('names two modules declare with different values — one class, two objects. No single')
+line('document loads both of these today, so each is latent until two views share one page;')
+line('the day they do, each of these names needs one meaning:')
+for (const entry of [...collisions.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+  line(`  ${entry.name} — ${[...entry.files].join(', ')}`)
+  for (const why of entry.why) line(`      ${why}`)
+}
+line('')
+if (failures.length) {
+  line(`FAIL ${failures.length}`)
+  for (const f of failures) line(`  ${f}`)
+  process.exit(1)
+}
+line(`PASS — ${panelSheets.length} panel sheets, ${readings.length} marks in 2 palettes, 0 failures`)
