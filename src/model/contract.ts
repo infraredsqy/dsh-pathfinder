@@ -164,9 +164,12 @@ export interface InstructionReading {
   readonly saidAt: Date | null
   /** 结掉的时刻，按那一刻切过：那一刻还没结就没有。 */
   readonly closedAt: Date | null
-  /** 记录自己写的那个词，原样；没写就没有。 */
+  /** 记录自己写的那个词，原样（存量的旧值也原样带出来，不折算）；没写就没有。 */
   readonly recordState?: string
-  /** 那一刻它还站着：词没说它终局，也没有一个已经到的那一刻把它收掉。 */
+  /**
+   * 那一刻它还站着：词说的是 `live`（不是 `live` 的一律算已归档），也没有一个已经到的
+   * 那一刻把它收掉。
+   */
   readonly standing: boolean
   /** 那一刻它管得着：范围说的是「这一句算在谁头上」。 */
   readonly inScope: boolean

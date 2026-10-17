@@ -8,9 +8,9 @@ import { readProject } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
-/** 一条指令，只写这一步要说的字段。 */
+/** 一条指令，只写这一步要说的字段；默认是记录里最常见的那种：说出口了、还在生效。 */
 function instruction(fields = {}) {
-  return { id: 'i1', text: '一句话', scope: 'global', target: 'stage', at: '2026-03-10T09:00:00.000Z', ...fields }
+  return { id: 'i1', text: '一句话', scope: 'global', target: 'stage', at: '2026-03-10T09:00:00.000Z', state: 'live', ...fields }
 }
 
 /** 读一份记录里的指令。 */
@@ -32,34 +32,53 @@ test('那一刻还没说出口的句子不在这份读数里', () => {
   assert.equal(out[0].inForce, true)
 })
 
-test('收掉了的句子不算数：终局词，或者一个已经到的收掉时刻', () => {
+test('收掉了的句子不算数：一个已经到的收掉时刻，或者一个不是 live 的词', () => {
   const out = read([
-    instruction({ id: 'done', state: 'done', resolved_at: '2026-03-10T11:00:00.000Z' }),
-    instruction({ id: 'applied', state: 'applied', resolved_at: '2026-03-10T11:00:00.000Z' }),
-    instruction({ id: 'na', state: 'n/a', resolved_at: '2026-03-10T11:00:00.000Z' }),
     instruction({ id: 'withdrawn', state: 'withdrawn', resolved_at: '2026-03-10T11:00:00.000Z' }),
-    instruction({ id: 'superseded', state: 'superseded', resolved_at: '2026-03-10T11:00:00.000Z' }),
-    instruction({ id: 'word-only', state: 'done' }),
+    instruction({ id: 'closed-while-live', resolved_at: '2026-03-10T11:00:00.000Z' }),
+    instruction({ id: 'word-only', state: 'withdrawn' }),
   ])
 
   assert.deepEqual(out.filter((item) => item.inForce).map((item) => item.id), [])
   assert.ok(out.every((item) => item.standing === false))
-  assert.equal(out[5].closedAt, null, '记录里没有收掉的那一刻时，它自己那个终局词才算数')
+  assert.equal(out[2].closedAt, null, '记录里没有收掉的那一刻：这一句不生效由词自己说')
 })
 
-test('别的写法都还算数：在生效、没写、还没结论的、这里不认识的', () => {
+test('存量的旧值照「已归档」读：喂进 done / superseded / applied / n/a 都不抛，一律不生效', () => {
+  const legacy = ['done', 'superseded', 'applied', 'n/a']
+  let out
+  assert.doesNotThrow(() => {
+    out = read([
+      instruction({ id: 'live', state: 'live' }),
+      ...legacy.map((state, index) => instruction({ id: `legacy-${index}`, state })),
+      ...legacy.map((state, index) => instruction({
+        id: `legacy-closed-${index}`,
+        state,
+        resolved_at: '2026-03-10T11:00:00.000Z',
+      })),
+    ])
+  })
+
+  assert.deepEqual(ids(out.filter((item) => item.inForce)), ['live'])
+  assert.equal(out.filter((item) => item.standing).length, 1, '旧值一个都不站着')
+  assert.equal(out[1].recordState, 'done', '记录自己写的那个词原样带出来，不折算、不改写')
+  assert.equal(out[1].closedAt, null, '旧值不靠一个收掉时刻来判：不是 live 就不生效')
+})
+
+test('词表之外、以及没写这个词的：都读作已归档，不替它折算', () => {
   const out = read([
     instruction({ id: 'live', state: 'live' }),
-    instruction({ id: 'none' }),
-    instruction({ id: 'pending', state: 'pending', resolved_at: null }),
+    instruction({ id: 'pending', state: 'pending' }),
     instruction({ id: 'strange', state: '别的写法' }),
+    instruction({ id: 'no-word', state: undefined }),
   ])
 
-  assert.deepEqual(ids(out.filter((item) => item.inForce)), ['live', 'none', 'pending', 'strange'])
+  assert.deepEqual(ids(out.filter((item) => item.inForce)), ['live'])
+  assert.equal(Object.hasOwn(out[3], 'recordState'), false, '没写词就没有词，不补一个')
 })
 
 test('收掉的那一刻晚于读到的那一刻：那一刻它还算数', () => {
-  const out = read([instruction({ id: 'i1', state: 'done', resolved_at: '2026-03-10T13:00:00.000Z' })])
+  const out = read([instruction({ id: 'i1', resolved_at: '2026-03-10T13:00:00.000Z' })])
 
   assert.equal(out[0].standing, true)
   assert.equal(out[0].inForce, true)
@@ -73,7 +92,7 @@ test('范围：绑的线不在服务里就不算数，绑的那一格交付了�
     instruction({ id: 'out-of-service', scope: 'cycle', cycle: 'c2' }),
     instruction({ id: 'gone-cycle', scope: 'cycle', cycle: 'c9' }),
     instruction({ id: 'open-node', scope: 'node', node: 'n1' }),
-    instruction({ id: 'done-node', scope: 'node', node: 'n2' }),
+    instruction({ id: 'completed-node', scope: 'node', node: 'n2' }),
     instruction({ id: 'gone-node', scope: 'node', node: 'n9' }),
     instruction({ id: 'no-binding', scope: 'cycle' }),
     instruction({ id: 'no-scope' }),
@@ -94,13 +113,13 @@ test('范围：绑的线不在服务里就不算数，绑的那一格交付了�
     ['global', 'in-service', 'gone-cycle', 'open-node', 'gone-node', 'no-binding', 'no-scope', 'other-scope'],
     '量不着的一律算：绑的线或那一格记录里已经没有了的，也念',
   )
-  assert.deepEqual(ids(out.filter((item) => !item.inScope)), ['out-of-service', 'done-node'])
+  assert.deepEqual(ids(out.filter((item) => !item.inScope)), ['out-of-service', 'completed-node'])
 })
 
 test('记录里没写的字段就空着，不补一个默认值', () => {
   const out = read([{ id: 'i1', at: '2026-03-10T09:00:00.000Z' }])
 
-  assert.equal(out[0].inForce, true)
+  assert.equal(out[0].inForce, false, '没写状态就是没写 live：按已归档读，也不替它补一个词')
   assert.equal(Object.hasOwn(out[0], 'scope'), false)
   assert.equal(Object.hasOwn(out[0], 'recordState'), false)
   assert.equal(Object.hasOwn(out[0], 'text'), false)
