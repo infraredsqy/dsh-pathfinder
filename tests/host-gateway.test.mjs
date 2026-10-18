@@ -1,11 +1,10 @@
-/* 宿主半身那条远端口的单元测试：锁的是「DSH 的网关认不认得出这几个端点」。
+/* 宿主半身那条远端口：锁的是「DSH 的网关认不认得出这几个端点」。
  *
- * 这一关的判官在网关那一侧：它按类上那几枚记号认端点，参数是拿方法**源码**切出来
- * 的，于是几件看起来无关的小事会让整条端点在真部署里叫不动——参数带默认值、参数表
- * 末尾多一个逗号，都会被它判成「签名说不清」。这类毛病在本地一跑就过、上了真网关才
- * 现形，所以它值得一条用例守着。
+ * 判官在网关那一侧，它按类上那几枚记号认端点、参数是拿方法源码切出来的，于是几件看起来
+ * 无关的小事会让整条端点在真部署里叫不动（参数带默认值、参数表末尾多一个逗号）——这类毛病
+ * 本地一跑就过、上了真网关才现形，所以它值得一条用例守着。
  *
- * 网关与注册表是可选开发依赖：没装就跳过，装了就把五个端点逐个叫一遍。
+ * 网关与注册表是可选开发依赖：没装就跳过，装了就把端点逐个叫一遍。
  *
  *   node --test tests/
  */
@@ -28,7 +27,6 @@ const ENDPOINTS = [
   'readSessions',
 ]
 
-/** 装得上那一对可选依赖就先问一声。 */
 const wired = await Promise.all([
   import('@deepseek-ai/cordis').then(() => true, () => false),
   import('@deepseek-ai/dsh-api-gateway').then(() => true, () => false),
@@ -62,10 +60,7 @@ function syntheticWorkspace({ note = true } = {}) {
   return root
 }
 
-/**
- * 一个装上读取口、网关与注册表的真 cordis 上下文。
- * @param root - 这个工作区的根。
- */
+/** 一个装上真 cordis 上下文、真网关与真注册表的场子。 */
 async function liveGateway(root) {
   const { Context } = await import('@deepseek-ai/cordis')
   const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')

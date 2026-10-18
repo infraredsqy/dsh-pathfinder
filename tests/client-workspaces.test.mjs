@@ -1,12 +1,7 @@
 /* 面板顶上那枚工作区选择器的候选名单：锁的是「清单从哪来」与「这条会话落在哪个桶里」。
  *
- * 锁的几条：
- *   1. 清单从 DSH 的 `workspaces` 服务上那条只读口子来（`getSnapshot` ＋ `subscribe`）；
- *      形状不对的、或者压根没有这条服务的，一律当「没有」——面板顶上就不摆那一枚控件。
- *   2. 「这条会话落在哪个桶里」就是 DSH 自己那条读法：身份出现在某个工作区的
- *      `sessionIds` 里就算它；一个都不出现、或压根没有会话，就是未分组。
- *   3. 没有清单时那份空名单每次给出的是**同一个对象**：`getSnapshot` 交给 React 之后
- *      每次现拼一份新的，React 会当成一直在变。
+ * 清单从 DSH 的 `workspaces` 服务上那条只读口子来，形状不对的当没有；没有清单时那份空
+ * 名单每次给出同一个对象——现拼一份新的，React 会当成一直在变。
  *
  *   node --test tests/
  */
@@ -14,12 +9,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { NO_WORKSPACES, bucketOf, workspacesAt } from '../src/client/workspaces.ts'
 
-/** 一条工作区：只写这一层读的那几样。 */
 function choice(workspaceId, sessionIds = []) {
   return { workspaceId, path: `C:\\${workspaceId}`, title: workspaceId, sessionIds }
 }
 
-/** 一条清单口子：快照固定，订阅记一笔。 */
 function source(items) {
   const snapshot = { items }
   const listeners = []

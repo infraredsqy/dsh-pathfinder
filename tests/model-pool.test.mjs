@@ -1,5 +1,5 @@
-/* 问题池那一段的单元测试：只锁不变量——重量表与策略线从哪里取、一条问题在哪一刻算在册、
- * 重量怎么加、四堆怎么排。不锁版面，也不锁快照。
+/* 问题池那一段：只锁不变量——重量表与策略线从哪里取、一条问题在哪一刻算在册、重量怎么加、
+ * 四堆怎么排。不锁版面，也不锁快照。
  *
  *   node --test tests/
  */
@@ -9,17 +9,14 @@ import { readLine, readPool, readProject, readWeights } from '../src/model/index
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
-/** 一条问题，只写这一步要说的字段。 */
 function issue(fields = {}) {
   return { id: 'i1', title: '一处对不上的判据', severity: 'P3', status: 'open', discovered: '2026-03-01T00:00:00.000Z', ...fields }
 }
 
-/** 一条线。 */
 function cycle(fields = {}) {
   return { id: 'c1', status: 'active', holding: [], path: [], ...fields }
 }
 
-/** 一份记录。 */
 function record(parts = {}) {
   return { nodes: {}, cycles: [], instructions: [], issues: {}, ...parts, at: parts.at ?? AT }
 }

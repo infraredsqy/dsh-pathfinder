@@ -1,9 +1,7 @@
 /* 设置那一格的两条端点：锁的是「工具印的那几行读成什么」与「写的那一条命令长什么样」。
  *
- * 这一格不自己判一个值合不合法（那是工具那一侧的 `parse_value`），也不自己拼 `.pf` 底下的
- * 路径：读是把 `pf config list` 印出来的几行读开，写是把一条 `config set` 递出去。所以这里
- * 锁的就是这两样——印出来的那一行长什么样、递出去的 argv 是哪几个词、工作目录在哪儿。
- * 工具的印法一改、键表一改、命令的次序一改，这几条就红。
+ * 这一格读是把 `pf config list` 印出来的几行读开，写是把一条 `config set` 递出去，
+ * 自己不判值合不合法（那是工具那一侧），也不自己拼 `.pf` 底下的路径。
  *
  *   node --test tests/
  */
@@ -20,7 +18,6 @@ const LISTED = [
   'issue_repair  = on（出厂默认）',
 ].join('\n')
 
-/** 一份记下了「被递出去的是哪条命令行」的起进程替身。 */
 function fakeSubprocess({ executable = 'C:\\tools\\bin\\pf.cmd', exitCode = 0, stdout = '', stderr = '' } = {}) {
   const specs = []
   return {
@@ -51,7 +48,6 @@ function fakeContext({ subprocess, workspaceRoot = 'C:\\workspace' } = {}) {
   }
 }
 
-/** 一条命令行里 `pf` 后面那几个词。 */
 function wordsOf(spec) {
   return spec.argv[spec.argv.length - 1].split(' ').slice(1)
 }

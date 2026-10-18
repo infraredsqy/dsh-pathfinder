@@ -1,9 +1,8 @@
 /* 宿主半身读会话笔记那一手：锁的是「那一层按节点分的小份笔记怎么读成每一格的会话」。
  *
- * 会话身份是这台机器自己的事，住在记录库自己那层目录里按节点分的小份笔记上。这一层要认的
- * 几件事：一格开过好几条时取哪一条（最近开过的；同一刻时跑它的那条压过讨论的那条）、解不
- * 出来的那一份怎么处置（跳过这一格，别的格照读）、那一层目录不在时交回什么（一份空清单，
- * 面板上每张卡都点不动，这一屏照旧画得出来）。
+ * 会话身份住在那层按节点分的小份笔记上。这一层要认的几件事：一格开过好几条时取哪一条
+ * （最近开过的；同一刻时跑它的那条压过讨论的那条）、解不出来的那一份怎么处置（跳过这一格）、
+ * 那一层目录不在时交回什么（一份空清单，这一屏照旧画得出来）。
  *
  *   node --test tests/
  */
@@ -12,13 +11,11 @@ import assert from 'node:assert/strict'
 import { latestSessionOf, readSessionNotes } from '../src/host/sessions.ts'
 
 test('笔记里最近开过的那条会话：两类各按自己的时刻比', () => {
-  /* 跑过的那条更晚：取它。 */
   assert.equal(latestSessionOf({
     discussion: [{ session: 'session-talk', host: 'dsh', at: '2026-10-16T18:21:28Z' }],
     run: [{ session: 'session-run', host: 'dsh', at: '2026-10-18T17:59:44Z' }],
   }), 'session-run')
 
-  /* 讨论更晚（交付之后又聊过一次）：取讨论那条。 */
   assert.equal(latestSessionOf({
     discussion: [{ session: 'session-talk', at: '2026-10-19T01:00:00Z' }],
     run: [{ session: 'session-run', at: '2026-10-18T17:59:44Z' }],
@@ -54,7 +51,6 @@ test('解不出来的那一份：什么也解不出，不抛', () => {
   assert.equal(latestSessionOf(undefined), undefined)
 })
 
-/** 一副按工作区相对路径回话的文件口子；`files` 是路径 → 正文。 */
 function fakePort(files, { absent = false } = {}) {
   const asked = []
   const missing = () => {

@@ -1,4 +1,4 @@
-/* 模型层读数那一段的单元测试：只锁不变量——四个读数怎么算出来、边界上给什么读数、
+/* 模型层读数那一段：只锁不变量——四个读数怎么算出来、边界上给什么读数、
  * 记录里没有那一刻的时候空着。样本改了断言跟着改，不锁版面，也不锁快照。
  *
  *   node --test tests/
@@ -9,29 +9,23 @@ import { readProject } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
-/** 一份记录：四份都在，想换哪一份就换哪一份。 */
 function record(parts = {}) {
   return { nodes: {}, cycles: [], instructions: [], issues: {}, ...parts, at: parts.at ?? AT }
 }
 
-/** 一个节点，只写这一步要说的字段。 */
 function node(fields = {}) {
   return { mode: 'auto', status: 'todo', dependencies: [], ...fields }
 }
 
-/** 一条线。 */
 function cycle(fields = {}) {
   return { id: 'c1', status: 'active', holding: [], path: [], ...fields }
 }
 
-/** 线路上走过的一步。 */
 function step(id, started, ended, result) {
   return { node: id, started_at: started, ended_at: ended, result }
 }
 
-/** 读数里有哪些身份。 */
 const ids = (list) => list.map((item) => item.id)
-/** 一步走的是哪几格。 */
 const nodesOf = (list) => list.map((item) => item.node)
 
 test('空记录：四个读数都空着，一声不响', () => {
@@ -119,9 +113,8 @@ test('同一节点先失败后成功：读成已交付，不读出局等人', ()
 })
 
 test('同一节点先失败、重跑那一步以 completed 落停、这一格还没有交付时刻：读作未开始', () => {
-  /* 这一格：先失败，重跑那一趟带了 completed 回来，但没有 completed_at；它自己那个词
-   * 是 completed，updated_at 却晚于读到的那一刻——那一刻这个词还没写下来，状态只能按
-   * 走过的步判，而最后落停的那一步带回的是 completed。 */
+  /* `updated_at` 晚于读到的那一刻，这个词当时还没写下来：状态只能按走过的步判，
+   * 而最后落停的那一步带回的是 completed。 */
   const reading = readProject(record({
     nodes: { n: node({ status: 'completed', updated_at: '2026-03-10T13:00:00.000Z' }) },
     cycles: [cycle({
@@ -156,7 +149,7 @@ test('老一版的持有关系写法：线路上那个单值 current_node / curr
   assert.deepEqual(old.cycleById.c1.holding, [{ nodeId: 'n1', since: new Date('2026-03-10T11:00:00.000Z') }])
   assert.deepEqual(ids(old.columns.running), ['n1'])
 
-  /* 那一刻还没拿起来：记录里写着那一刻在后头，当时这一手还没被握着。 */
+  /* 那一刻还没拿起来：记录里那一刻写着在后头。 */
   const later = readProject(record({
     nodes: { n1: node() },
     cycles: [cycle({ current_node: 'n1', current_started_at: '2026-03-10T13:00:00.000Z' })],

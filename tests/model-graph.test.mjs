@@ -1,5 +1,5 @@
-/* 依赖场那一段的单元测试：只锁不变量——层怎么算出来、边怎么长出来、记录里没有的东西
- * 怎么处置。不锁版面，也不锁快照。
+/* 依赖场那一段：只锁不变量——层怎么算出来、边怎么长出来、记录里没有的东西怎么处置。
+ * 不锁版面，也不锁快照。
  *
  *   node --test tests/
  */
@@ -9,17 +9,14 @@ import { readProject } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
-/** 一份记录：四份都在，想换哪一份就换哪一份。 */
 function record(parts = {}) {
   return { nodes: {}, cycles: [], instructions: [], issues: {}, ...parts, at: parts.at ?? AT }
 }
 
-/** 一个节点。 */
 function node(fields = {}) {
   return { mode: 'auto', status: 'todo', dependencies: [], ...fields }
 }
 
-/** 每一层里那几格的身份。 */
 const layerIds = (reading) => reading.graph.layers.map((layer) => layer.map((item) => item.id))
 
 test('依赖场：一格的层是它最深的前置再加一层', () => {
@@ -28,7 +25,6 @@ test('依赖场：一格的层是它最深的前置再加一层', () => {
       root: node(),
       deep: node({ dependencies: ['root'] }),
       deeper: node({ dependencies: ['deep'] }),
-      /* 这一格既欠 root 又欠 deeper：层取最深的那一条路。 */
       far: node({ dependencies: ['root', 'deeper'] }),
     },
   }))

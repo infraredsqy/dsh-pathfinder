@@ -1,4 +1,4 @@
-/* 指令可见性那一段的单元测试：只锁不变量——哪几句还算数由哪几个字段说了算。
+/* 指令可见性那一段：只锁不变量——哪几句还算数由哪几个字段说了算。
  *
  *   node --test tests/
  */
@@ -8,12 +8,11 @@ import { readProject } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
-/** 一条指令，只写这一步要说的字段；默认是记录里最常见的那种：说出口了、还在生效。 */
+/** 一条指令；默认取记录里最常见的那种：说出口了、还在生效。 */
 function instruction(fields = {}) {
   return { id: 'i1', text: '一句话', scope: 'global', target: 'stage', at: '2026-03-10T09:00:00.000Z', state: 'live', ...fields }
 }
 
-/** 读一份记录里的指令。 */
 function read(instructions, parts = {}) {
   const input = { nodes: {}, cycles: [], issues: {}, ...parts, instructions, at: parts.at ?? AT }
   return readProject(input).instructions

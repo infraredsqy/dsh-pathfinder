@@ -1,11 +1,11 @@
 /* 浏览器半身那条通路的数据面：锁的是「从哪一层接上、递出去的是哪一条端点」。
  *
- * 面板不自己取数——它把「哪条会话、哪个工作区」交给这一层，这一层按装好的远程命名空间、
- * 或者载体那一层，叫到同一个端点上。锁的就是这两条路的名字与参数形状：命名空间一改、
- * 端点名一改、参数次序一改，这几条就红。
+ * 面板不自己取数：它把「哪条会话、哪个工作区」交给这一层，这一层按装好的远程命名空间、
+ * 或者载体那一层，叫到同一个端点上。锁的就是两条路的名字与参数形状：命名空间一改、端点名
+ * 一改、参数次序一改，这几条就红。
  *
- * 面板顶上那枚工作区选择器挑中的那个根是**第二个参数**，次序就在会话身份后面：参数是
- * 按位置递出去的，挪一个位置就会把路径当成 id 递给工具。所以每一处都写死它。
+ * 面板顶上那枚工作区选择器挑中的那个根是第二个参数、次序就在会话身份后面：参数是按位置
+ * 递出去的，挪一个位置就会把路径当成 id 递给工具，所以每一处都写死它。
  *
  *   node --test tests/
  */
@@ -13,7 +13,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createPanelPort } from '../src/client/data.ts'
 
-/** 一份记下了每一次调用的远程命名空间替身；回的都是 `{ ok, value }` 那一副脸。 */
 function fakeNamespace(answer = { ok: true, value: { workspaceRoot: 'C:\\ws' } }) {
   const calls = []
   const namespace = {}
@@ -26,7 +25,6 @@ function fakeNamespace(answer = { ok: true, value: { workspaceRoot: 'C:\\ws' } }
   return { calls, namespace }
 }
 
-/** 一份记下了每一次调用的载体替身。 */
 function fakeCarrier(answer = { ok: true, value: { workspaceRoot: 'C:\\ws' } }) {
   const calls = []
   return {

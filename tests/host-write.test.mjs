@@ -1,8 +1,7 @@
-/* 写面那一段的单元测试：锁的是「一条动作对应哪一条命令」，以及那道参数闸。
+/* 写面那一段：锁的是「一条动作对应哪一条命令」，以及那道参数闸。
  *
- * 这一层不碰记录本身，落笔全靠递出去的那条命令行——所以锁住的就是那条命令行：
- * 五个端点各起哪一条 `pf` 命令、参数闸把什么样的输入挡在外面、Windows 上那条
- * 命令行拼成什么样。命令行的名字与次序是工具那一侧的口径，它们一改，这几条就红。
+ * 这一层不碰记录本身，落笔全靠递出去的那条命令行，所以锁住的就是那条命令行：五个端点
+ * 各起哪一条 `pf` 命令、参数闸把什么样的输入挡在外面、Windows 上那条命令行拼成什么样。
  *
  *   node --test tests/
  */
@@ -10,7 +9,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 
-/** 一份记下了「被递出去的是哪条命令行」的起进程替身。 */
 function fakeSubprocess({ executable = 'C:\\tools\\bin\\pf.cmd', exitCode = 0, stdout = '', stderr = '' } = {}) {
   const specs = []
   return {
@@ -41,7 +39,6 @@ function fakeContext({ subprocess, workspaceRoot = 'C:\\workspace' } = {}) {
   }
 }
 
-/** 一条命令行里 `pf` 后面那几个词。 */
 function wordsOf(spec) {
   const line = spec.argv[spec.argv.length - 1]
   return line.split(' ').slice(1)

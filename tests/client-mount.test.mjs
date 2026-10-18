@@ -1,23 +1,11 @@
 /* 调度中心那两处挂载点：锁的是「注册了哪两条」与「卸载撤干净」。
  *
- * 锁的几条：
- *   1. 两处各自的槽位名、条目 id / key、order、侧栏那一行上的名字；
- *      中央栏那一格交出去的正好是**这次 apply 装的那块面板**。
- *   2. 收掉那条 effect：两条注册从名册上撤下来，两张注入的样式标签跟着摘掉（次序不锁，
- *      判定 2 要的是「都不留东西」）。
- *   3. 同一本名册上再起一条插件（profile 重载、HMR 会走到这里）：重复登记那一下抛在
- *      这一层里面，名册还是那两条。
- *   4. 没有 `effect` 的上下文上那一条路：两条照挂，这一层不往调用点交回清理函数——那种
- *      上下文上没有卸载通知可归（真 Cordis 的上下文都带 `effect`）。
- *   5. 会话身份那几手：`sessionsSnapshotOf` 靠恒等投影取回整份快照，`currentSessionOf` 从
- *      那份快照里挑当前那一条，`knownSessionsOf` 交出这台机器上此刻的名册，`createSessionNav`
- *      把身份递给 DSH 那条导航口子。
+ * 两处各自的槽位名、条目 id / key、order、侧栏那一行的名字，以及中央栏那一格交出去的
+ * 正好是这次 apply 装的那块面板；收掉那条 effect 时两条注册从名册上撤下来、两张注入的
+ * 样式标签跟着摘掉；同一本名册上再起一条插件那一下停在这一层里。
  *
- * 两处替身按真协议写：`slots.inject(key, register)` 收槽位名、跑那一趟注册；`slots.register`
- * 收 options + component，返回的摘除器能把那一条收回去，同一个 id 重复注册会抛（真协议
- * 就是这么抛的）。两张样式表的正文由 `styles.ts` / `settings.tsx` 各自持有，`virtual:pf-styles`
- * 在 Node 里解不开、这两份进不来单测；这里按同一对记号把标签挂上再量卸载——挂与摘认的是
- * 那两枚记号，卸载那一趟摘没摘干净，这里量得出来。
+ * 替身按真协议写：同一个 id 重复注册会抛。两张样式表的正文在 Node 里解不开、进不来单测，
+ * 这里按同一对记号把标签挂上再量卸载——挂与摘认的是那两枚记号。
  *
  *   node --test tests/
  */
@@ -35,7 +23,6 @@ import {
 } from '../src/client/mount.ts'
 import { PANEL_STYLE_ID, SETTINGS_STYLE_ID, dropStyleTag, ensureStyleTag } from '../src/client/style-tags.ts'
 
-/** 面板那一层交出去的 id 与名字；注册拿的就是这几个字。 */
 const PANEL_ID = 'pathfinder'
 
 /** 一处注册在名册上的钥匙：单座与列表认 `id`，按 key 分派的那一格认 `key`。 */
@@ -44,10 +31,8 @@ function entryKey(options) {
 }
 
 /**
- * 一架替身上下文：`slots`、`effect`、`inject` 三样都在，形状与真部署一致。
- * @param options - `effect: false` 时摘掉 `effect`，量「没有 effect 的上下文」那一条路；
- *   `services` 是这条上下文上另外挂着的服务（例如那条导航口子）。
- * @returns 名册、调用记录、effect 记录、以及把插件挂上去的那一手。
+ * 一架替身上下文：`slots`、`effect`、`inject` 三样都在，形状与真部署一致；
+ * `effect: false` 时摘掉 `effect`，量「没有 effect 的上下文」那一条路。
  */
 function harness({ withEffect = true, services = {} } = {}) {
   const ledger = new Map()
@@ -83,7 +68,7 @@ function harness({ withEffect = true, services = {} } = {}) {
   return { ledger, calls, effects, ctx }
 }
 
-/** 一块面板：组件与口子都是替身，量的是两条注册本身。 */
+/** 一块面板：组件与口子都是替身。 */
 function fakePanel() {
   const Panel = () => null
   return {
@@ -101,7 +86,7 @@ test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条�
 
   registerSeats(ctx, panel, () => undefined)
 
-  /* 两条各落在**不同**的槽位，谁先登记在 DSH 里没有语义（`order` 只在同一个 list 槽内部
+  /* 两条各落在不同的槽位，谁先登记在 DSH 里没有语义（`order` 只在同一个 list 槽内部
    * 才有意义）：这里只量「哪两条在册」，不锁它们之间的先后。 */
   assert.deepEqual([...ledger.keys()].sort(), [
     `main:${PANEL_ID}`,
@@ -121,7 +106,6 @@ test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条�
   assert.equal(main.key, PANEL_ID)
   assert.equal(main.key === 'conversation', false)
 
-  /* 两条各交了一件真东西出去，没有一条是空手登记。 */
   for (const [, entry] of ledger) assert.equal(typeof entry.component, 'function')
 })
 
@@ -169,8 +153,7 @@ test('工作区清单那份服务还没到场：交出去的是一份空名单�
   const items = [{ workspaceId: 'w-1', path: 'C:\\ws', title: '一个工作区', sessionIds: ['s-1'] }]
   let registered
   const { ledger, ctx } = harness()
-  /* 这条上下文上 `inject` 就是「立刻拿这个 owner 叫一次」；那一手在这里被记下来，
-   * 量的是「服务晚到」那一趟：先给空名单，等它到场再通知订阅者。 */
+  /* 量的是「服务晚到」那一趟：先给空名单，等它到场再通知订阅者。 */
   ctx.inject = (names, callback) => {
     if (names.includes('workspaces')) registered = callback
     else callback(ctx)
@@ -207,7 +190,7 @@ test('收掉那条 effect：两条从名册上撤下来，两张样式标签跟�
     dropStyleTag(SETTINGS_STYLE_ID)
   })
 
-  /* 两张表经渲染那条路挂上（替身按同一对记号挂，见文件头）。 */
+  /* 两张表按同一对记号挂上：真渲染那条路在 Node 里解不开。 */
   ensureStyleTag(PANEL_STYLE_ID, '.pf-page{color:red}')
   ensureStyleTag(SETTINGS_STYLE_ID, '.pfset-page{color:red}')
   assert.equal(ledger.size, 2)
@@ -222,7 +205,6 @@ test('收掉那条 effect：两条从名册上撤下来，两张样式标签跟�
   assert.equal(dom.window.document.getElementById(PANEL_STYLE_ID), null)
   assert.equal(dom.window.document.getElementById(SETTINGS_STYLE_ID), null)
 
-  /* 再跑一遍：两条又回到名册上，没有重复。 */
   seats.run()
   assert.equal(ledger.size, 2)
 })
@@ -236,8 +218,7 @@ test('没有 effect 的上下文：两条照样挂上，这一层不往调用点
   assert.equal(effects.length, 0)
   assert.equal(ledger.size, 2)
 
-  /* 这种上下文上没有卸载通知可归（真 Cordis 的上下文都带 `effect`）：这一层不交回清理
-   * 函数，调用点也就接不到东西；两条注册与两张样式标签随这个上下文一起走。 */
+  /* 这种上下文上没有卸载通知可归：真 Cordis 的上下文都带 `effect`。 */
   assert.equal(handedBack, undefined)
   assert.equal(stylesDropped, 0)
 })
@@ -246,7 +227,7 @@ test('同一本名册上再起一条插件：重复登记那一下停在这一�
   const { ledger, calls, effects, ctx } = harness()
   const panel = fakePanel()
 
-  /* 那一条抛被这一层收住了，但收住不等于咽下去：每条各留一句警告。 */
+  /* 那一条抛被这一层收住，但不咽下去：每条各留一句警告。 */
   const warned = []
   const realWarn = console.warn
   console.warn = (...args) => { warned.push(args.map(String).join(' ')) }
@@ -269,7 +250,7 @@ test('同一本名册上再起一条插件：重复登记那一下停在这一�
 
 test('座席标准 props 里的 useSessions 是一条带投影的 hook，整份快照要靠恒等投影取回来', () => {
   /* 真形状：`ids` 是宿主清单次序，`byId` 里当前会话那条挂着 `retainedBy.mainView`，
-   * 清单第一行是**另一条**会话（副会话也会进 `byId`，它只是没挂 mainView）。 */
+   * 清单第一行是另一条会话（副会话也会进 `byId`，它只是没挂 mainView）。 */
   const snapshot = {
     ids: ['other', 's1'],
     byId: {
@@ -287,13 +268,13 @@ test('座席标准 props 里的 useSessions 是一条带投影的 hook，整份�
   assert.equal(typeof seen[0], 'function')
   assert.equal(snapshot.ids[0], 'other')
 
-  /* 当前会话落在 `ids` 第二位时挑的仍是它：`retainedBy.mainView` 那条。 */
+  /* 挑的是挂了 `mainView` 的那条：它落在 `ids` 第二位也照样挑中。 */
   assert.equal(currentSessionOf(snapshot), 's1')
 
-  /* 没人挂 `mainView` 时不许凭 `byId` 的键序挑人。 */
+  /* 没人挂 `mainView` 时，按 `byId` 的键序挑人会挑错。 */
   assert.equal(currentSessionOf({ ids: [], byId: { z: { id: 'z', retainedBy: {} } }, phase: 'ready' }), undefined)
 
-  /* 三个身份探针还在，服务别的形状与替身：有它们时先认它们。 */
+  /* 三个身份探针还在别的形状里：有它们时先认它们。 */
   assert.equal(currentSessionOf({ ...snapshot, selectedId: 'picked' }), 'picked')
 
   /* 三者都没有、`mainView` 也没有时，落到 `ids[0]` 那条末尾兜底。 */
@@ -332,7 +313,7 @@ test('切会话那一手：接上导航口子就把身份递过去，没接上�
   nav.open('session-7')
   assert.deepEqual(opened, ['session-7'])
 
-  /* 口子晚一层到：这一层先在 `inject` 上等它，到了场就接上。 */
+  /* 口子晚一层到：这一层先在 `inject` 上等它。 */
   const late = []
   let arrived
   const waiting = createSessionNav({
@@ -345,7 +326,7 @@ test('切会话那一手：接上导航口子就把身份递过去，没接上�
   waiting.open('session-late')
   assert.deepEqual(late, ['session-late'])
 
-  /* 口子上那一手自己抛：停在这一层里，不往上带，那一下留一条警告。 */
+  /* 口子上那一手自己抛：停在这一层里，不往上带。 */
   const warned = []
   const realWarn = console.warn
   console.warn = (...args) => { warned.push(args.map(String).join(' ')) }

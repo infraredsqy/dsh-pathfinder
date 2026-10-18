@@ -1,17 +1,13 @@
-/* 浏览器半身设置那一条通路的单元测试：锁的是几个不变量。
+/* 浏览器半身设置那一条通路：锁的是几个不变量。
  *
- * 面板自己的偏好从一份设置文档来（`src/host/settings-fields.ts` 那份字段表、宿主那侧照它
- * 建 schema），这里量三件事：
+ * 面板自己的偏好从一份设置文档来（`src/host/settings-fields.ts` 那份字段表、宿主那侧照它建
+ * schema），这里量三件事：一份设置文档读成面板那几个值、写回交给设置服务的那条动作带哪一个
+ * 修订号、那条口子在设置服务到场前后的读数（值没动就不惊动订阅者——`useSyncExternalStore`
+ * 靠它，破了就是面板一直重画）。
  *
- *   1. 一份设置文档的这一节读成面板那几个值——读不懂的各自退到出厂那一份，宽度收进上下限。
- *   2. 写回交给设置服务的那一条动作长什么样，以及它带的是哪一个修订号（第一次是读到的那
- *      一个，第二次是最新那一个）。
- *   3. 那条口子在设置服务到场前后的读数，以及「值没动就不惊动订阅者」这一条
- *      ——`useSyncExternalStore` 靠它，破了就是面板一直重画。
- *
- * 另有一份照 `buildConfig` 问的：宿主那份 schema 里五个字段都在、个个标了 volatile、
- * 出厂默认与上下限就是字段表里那几个数。一个字段漏标 volatile，设置页里就看不见它，
- * 页面上不报错——所以拿一份记下每次调用的替身顶替 schemastery，把这件事问到底。
+ * 另有一份照 `buildConfig` 问的：宿主那份 schema 里五个字段都在、个个标了 volatile、出厂
+ * 默认与上下限就是字段表里那几个数。漏标 volatile 的字段在设置页里不出现、页面上也不报错，
+ * 所以拿一份记下每次调用的替身顶替 schemastery，把这件事问到底。
  *
  *   node --test tests/
  */
@@ -49,8 +45,6 @@ Object.defineProperty(globalThis, 'localStorage', {
   writable: true,
 })
 
-/* ---- 1. 一份设置文档读成面板那几个值 ------------------------------------ */
-
 test('字段表就是那几个键，出厂默认那几条与浏览器那侧逐项对得上', () => {
   assert.deepEqual(PANEL_PREF_FIELDS, {
     sideWidth: 'sideWidth',
@@ -62,7 +56,7 @@ test('字段表就是那几个键，出厂默认那几条与浏览器那侧逐�
   assert.deepEqual(Object.keys(PANEL_PREF_DEFAULTS).sort(), Object.values(PANEL_PREF_FIELDS).sort())
   assert.deepEqual([...INFO_LEVELS], ['lean', 'three', 'full'])
   assert.deepEqual([...VIEW_IDS], ['now', 'detail', 'notes', 'wires', 'issue', 'config'])
-  /* 印在设置页与面板上的那几个字，六个看法与三档信息量各一份、不多不少。 */
+  /* 印在设置页与面板上的那几个字：六个看法与三档信息量各一份。 */
   assert.deepEqual(Object.keys(INFO_LABELS).sort(), [...INFO_LEVELS].sort())
   assert.deepEqual(Object.keys(VIEW_LABELS).sort(), [...VIEW_IDS].sort())
 })
@@ -105,8 +99,6 @@ test('宽度收进上下限：越界的收回来，量不出来的用出厂那�
   assert.equal(prefsFromSection({ sideWidth: Number.POSITIVE_INFINITY }).sideWidth, SIDE_DEFAULT)
 })
 
-/* ---- 2. 写回那一条动作 --------------------------------------------------- */
-
 test('写回是一条顶层 set，路径就是字段表里那个字', () => {
   assert.deepEqual(prefsWriteOp(PANEL_PREF_FIELDS.infoLevel, 'lean'), {
     op: 'set',
@@ -122,9 +114,6 @@ test('写回是一条顶层 set，路径就是字段表里那个字', () => {
   assert.notEqual(prefsWriteOp(PANEL_PREF_FIELDS.showArchived, true), prefsWriteOp(PANEL_PREF_FIELDS.showArchived, true))
 })
 
-/* ---- 3. 那条口子 --------------------------------------------------------- */
-
-/** 一份设置表单的替身：记下每一次写回，值变了就叫醒订阅者。 */
 function fakeForm(initial) {
   let value = { ...initial }
   let revision = 1
@@ -205,7 +194,7 @@ test('同一趟往返里的第二笔：头一笔带着过期修订号被拒，�
   const form = fakeForm({})
   const source = createPrefsSource()
   source.attach(form)
-  /* 别处先把文档换了一版，这一侧手里还是 1——两笔相邻的改动踩到的正是这一步。 */
+  /* 别处先把文档换了一版，这一侧手里还是 1。 */
   form.bump()
 
   assert.equal(await source.write(PANEL_PREF_FIELDS.showArchived, true), true)
@@ -231,20 +220,17 @@ test('两笔都不作数时不静默：读数里摆出一句话，下一笔写�
   form.refuse()
 
   assert.equal(await source.write(PANEL_PREF_FIELDS.showOtherStates, true), false)
-  /* 仍然是两笔：头一笔带围栏，第二笔摘掉围栏再试一次。 */
   assert.equal(form.writes.length, 2)
   assert.equal(form.writes[1].expected, undefined)
   const failure = source.getSnapshot().failure
   assert.equal(typeof failure, 'string')
   assert.ok(failure.length > 0)
 
-  /* 写回成功的那一笔把它收回去——那句话说的是「上一笔没落定」。 */
+  /* 写回成功的那一笔把它收回去：那句话说的是「上一笔没落定」。 */
   form.refuse(false)
   assert.equal(await source.write(PANEL_PREF_FIELDS.showOtherStates, true), true)
   assert.equal(source.getSnapshot().failure, null)
 })
-
-/* ---- 3b. 旧版那几个本地存储键 -------------------------------------------- */
 
 test('接上设置表单那一刻扫掉旧版那四个键，别人的键不动', () => {
   const held = new Set([...LEGACY_PREF_KEYS, 'somebody-else.key'])
@@ -314,7 +300,6 @@ test('表单换一份、或收回去：读数跟着换，收回去就回到出�
   source.attach(second)
   assert.equal(source.getSnapshot().prefs.info, 'full')
   assert.equal(source.getSnapshot().prefs.otherStates, true)
-  /* 换掉的那一份上再写东西，读数不再跟着动。 */
   first.notify()
   assert.equal(source.getSnapshot().prefs.info, 'full')
 
@@ -326,9 +311,6 @@ test('表单换一份、或收回去：读数跟着换，收回去就回到出�
   assert.equal(source.getSnapshot().status, 'unavailable')
 })
 
-/* ---- 4. 宿主那份 schema -------------------------------------------------- */
-
-/** 一份记下每次调用的 schemastery：够 `buildConfig` 用的那几手。 */
 function fakeSchemastery() {
   const made = []
   const field = (kind, extra = {}) => {
@@ -399,10 +381,9 @@ test('宿主那份 schema：字段的种类、出厂默认与上下限就是字�
   })
 })
 
-/* 这一条只问「模块 import 得动、名字还在」——取不到 schemastery 那一支不许把模块弄挂。
-   不去断言 `host.Config === undefined`：那句话锁的是**本机 node_modules 那一刻的样子**
-   （根上还没有 `@deepseek-ai/schemastery`），而 `package.json` 已把它列进 peerDependencies，
-   下一次 install 就会把这句话判红。要量那一支得让解析确定性地失败，不该拿安装状态当判据。 */
+/* 这一条只问「模块 import 得动、名字还在」；断言 `host.Config === undefined` 锁的是本机
+   node_modules 那一刻的样子（`package.json` 已把它列进 peerDependencies），下一次 install
+   就会判红，所以那一支得让解析确定性地失败才量得准。 */
 test('这一行没有设置表单也装得上：模块 import 得动，名字还在', async () => {
   const host = await import('../src/host/index.ts')
   assert.equal(host.name, 'pathfinder-records')

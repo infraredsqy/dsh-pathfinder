@@ -1,9 +1,7 @@
-/* 宿主半身插件那一段的单元测试：锁的是工作区根的解析次序。
+/* 宿主半身插件那一段：锁的是工作区根的解析次序。
  *
- * spec 的第一条范围就是「按当前会话所在的工作区解析记录在哪」——三个来源按
- * 活着的会话头 → 落盘的会话头 → 沙箱策略那个根的顺序落定，一项都不许乱；
- * 有活着的会话头就不再问落盘的头（与工作区文件口子自己那条解析同序）。
- * 递进口子的那个根是不是解析出来的那一个，也在这一份里锁住。
+ * 三个来源按活着的会话头 → 落盘的会话头 → 沙箱策略那个根的顺序落定，一项都不许乱；
+ * 有活着的会话头就不再问落盘的头。递进口子的那个根是不是解析出来的那一个，也在这里锁住。
  *
  *   node --test tests/
  */
@@ -13,7 +11,6 @@ import { apply, inject, name } from '../src/host/index.ts'
 
 const signal = new AbortController().signal
 
-/** 一份记下了「被谁按哪个根问过」的替身口子。 */
 function fakeWorkspaceFiles() {
   const asked = []
   return {
@@ -31,7 +28,6 @@ function fakeWorkspaceFiles() {
   }
 }
 
-/** 一份够 `apply` 与 `read` 用的最小宿主上下文。 */
 function fakeContext({ live = {}, stored = {}, sandboxRoot = 'C:\\fallback-root' } = {}) {
   const workspaceFiles = fakeWorkspaceFiles()
   const provided = {}

@@ -1,7 +1,7 @@
-/* 宿主半身取数那一段的单元测试：只锁不变量——读得对、缺文件不抛、页被拒时收小重取、只读。
+/* 宿主半身取数那一段：只锁不变量——读得对、缺文件不抛、页被拒时收小重取、只读。
  *
- * 不锁快照：这里比的是「载荷里的条目与记录里那一份是不是同一件事」，以及四份来源各自的
- * 结局；记录长什么样由下面的样本说了算，样本改了断言跟着改，不是反过来。
+ * 不锁快照：这里比的是「载荷里的条目与记录里那一份是不是同一件事」；记录长什么样由下面的
+ * 样本说了算，样本改了断言跟着改，不是反过来。
  *
  *   node --test tests/
  */
@@ -26,12 +26,9 @@ function refused(code) {
   return error
 }
 
-/**
- * 一份替身口子：目录由文件名推出来，读按行分页，分页语义与真口子一致
- * （行以 `\n` 结束；末尾那个 `\n` 结束最后一行，不再起一个空行；`maxLines` 卡一页的行数、
- * `maxBytes` 卡一页的字节数，超了给真口子那两个码，都不截短）。
- * 它只长着 list 与 read 两个成员：取数那一段要是想写回，这里当场就报没有那个方法。
- */
+/** 一份替身口子：目录由文件名推出来，读按行分页，分页语义与真口子一致（行以 `\n` 结束；
+ * 末尾那个 `\n` 结束最后一行，不再起一个空行；`maxLines` 卡一页的行数、`maxBytes` 卡一页的
+ * 字节数，超了给真口子那两个码，都不截短）。它只长着 list 与 read 两个成员，想写回当场就报。 */
 function fakeWorkspace(files, { pageLines = 2, maxBytes = Infinity } = {}) {
   const calls = []
   const refusals = []
@@ -244,7 +241,7 @@ test('一页的字节数超上限时把这一页收小重取：整份照样读�
   }
   const files = record()
   files['.pf/ideas.json'] = json({ nodes: many })
-  // 口子这一档：一页最多 500 行、4096 字节。整份记录塞得进 500 行里，但那一页的字节数超了上限。
+  // 整份记录塞得进 500 行里，但那一页的字节数超了上限：撞的是字节那一面。
   const { port, calls, refusals } = fakeWorkspace(files, { pageLines: 500, maxBytes: 4096 })
   const reading = await readReading(port, scope, signal)
 
@@ -252,7 +249,6 @@ test('一页的字节数超上限时把这一页收小重取：整份照样读�
   assert.deepEqual(reading.nodes, many)
   assert.equal(Object.keys(reading.nodes).length, 400)
 
-  // 真被口子拒过，而拒的是字节上限那一面；第一页问的是默认档，之后问的都是收小过的档。
   assert.ok(refusals.length > 0, '这一份要先把口子的字节上限撞一次')
   assert.deepEqual([...new Set(refusals.map(({ code }) => code))], ['workspace-file/too-large'])
   const limits = calls.filter(([kind, path]) => kind === 'read' && path === '.pf/ideas.json').map(([, , , limit]) => limit)
@@ -267,7 +263,7 @@ test('请求的行数超过口子那一档时也照样收小重取：整份照�
   }
   const files = record()
   files['.pf/ideas.json'] = json({ nodes: many })
-  // 口子这一档只有 40 行，而它一页的字节上限是 8192：撞上限之后收小的档还得先落到 40 行以内。
+  // 一页只有 40 行、字节上限 8192：撞上限之后收小的档还得先落到 40 行以内。
   const { port, refusals } = fakeWorkspace(files, { pageLines: 40, maxBytes: 8192 })
   const reading = await readReading(port, scope, signal)
 
@@ -285,7 +281,7 @@ test('单行本身就超上限时，这一份才是真的读不动', async () =>
   const { port } = fakeWorkspace(files, { pageLines: 500, maxBytes: 4096 })
   const reading = await readReading(port, scope, signal)
 
-  // 那一行单独成页也过不去，收小页救不回来：只有这一份报 unusable，其余三份照读。
+  // 那一行单独成页也过不去，收小页救不回来。
   assert.deepEqual(reading.sources, { nodes: 'unusable', cycles: 'read', instructions: 'read', issues: 'read' })
   assert.deepEqual(reading.nodes, {})
 })
