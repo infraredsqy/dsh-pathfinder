@@ -14,8 +14,12 @@ npm run bundle         # lib/host/index.js（宿主半身）
 npm run bundle:client  # lib/client.js（浏览器半身）
 ```
 
+这三条绑在 `prepack` 上：`npm pack` 与 `npm publish` 会自己把它们跑一遍，所以「发出去的包里有没有
+产物」不再取决于发版的人记不记得先构建。
+
 `package.json` 的 `files` 只收这几样 —— `lib/**/*.js`、`lib/types/**/*.d.ts`、`cordis.patch.yml`，
-于是 `npm pack` 出的那一个 `.tgz` 就是分发件本身。包里两个口子：
+于是 `npm pack` 出的那一个 `.tgz` 就是分发件本身（`lib/client-body.js` 是浏览器那一步的中间件，
+构建脚本用完当场删掉，不进包）。包里两个口子：
 
 | 口子 | 落点 | 谁用 |
 |---|---|---|
@@ -35,8 +39,10 @@ npm run bundle:client  # lib/client.js（浏览器半身）
 外壳照启动名册里这一行先把 `connection` 那条客户端插件送达，再应用本包的面板 —— 浏览器半身那条
 取数口子就靠这个次序才接得上（见「已知限制」）。
 
-`engines.dsh` 是 `>=0.2.1-rc.2 <0.3.0`：装的时候与 profile 起的时候，DSH 版本落在范围外就拒。
-本机 `dsh --version` ＝ `0.2.1-rc.2`，实测装得上、起得来。
+`engines.dsh` 是 `>=0.2.1-rc.2 <0.2.2`：装的时候与 profile 起的时候，DSH 版本落在范围外就拒。
+本机 `dsh --version` ＝ `0.2.1-rc.2`，实测装得上、起得来。口径收在 0.2.1 这条线上，是因为宿主半身
+有一处**运行时的**外部依赖 `@deepseek-ai/dsh-typert-protocol`（与 DSH 本体锁步同版本发布），0.2.x
+里换一个 rc 它就可能动；要放到更宽的那条线，得先在那个 DSH 上重量一遍再改这一行。
 
 包面那几条前提由 `tests/package-surface.test.mjs` 看着（`npm test` 跑）：`package.json` 里没有
 `private`、`version` 是真版本号（现在是 `0.1.0`，`.tgz` 的文件名跟着它）、两个入口都被 `files` 盖住、
@@ -64,10 +70,11 @@ tar --force-local -tzf .tmp/pack/dsh-pathfinder-0.1.0.tgz  # GNU tar
   exit 2）；配了还要排在短选项**前面** —— `-tzf --force-local <路径>` 同样 exit 2。
 - 在 `.tmp/pack` 里用叶子名也行：`tar -tzf dsh-pathfinder-0.1.0.tgz`，两套都认。
 
-本机实测：**23 个条目**，其中 `package/lib/host/index.js`（宿主入口）与 `package/lib/client.js`
-（浏览器那半身）都在。同一份内容打出来的 `.tgz`，sha256 是稳定的：本机拿现在这份源码连打三次都是
-`a7262be6…`（`npm pack` 把归档里每个成员的 mtime 归一，所以产物可复现）；内容改了哈希才变 —— 补
-`dsh.client.inject` 那一行之前那一份是 `184362e0…`。要核对手上那份 `.tgz` 出自哪份源码，跑
+本机实测：**22 个条目**（收窄之前是 23 —— 那时多一份 `lib/client-body.js`），其中
+`package/lib/host/index.js`（宿主入口）与 `package/lib/client.js`（浏览器那半身）都在；包
+119.1 kB、解开 382.7 kB。同一份内容打出来的 `.tgz`，sha256 是稳定的：本机拿现在这份源码连打三次
+都是 `f776c36d…`（`npm pack` 把归档里每个成员的 mtime 归一，所以产物可复现）；内容改了哈希才变 ——
+加 `prepack` 与收窄 `files` 之前那一份是 `90e39b2f…`。要核对手上那份 `.tgz` 出自哪份源码，跑
 `Get-FileHash -Algorithm SHA256 <那份 .tgz>`，拿它与构建那一份记下的哈希比。
 
 ## 三条安装路子
@@ -116,7 +123,8 @@ allowBuilds:
 ```
 
 再装一次。那条授权等于允许这个包在装的时候在你机器上执行代码 —— 只对可信来源这么做，并钉一个 commit。
-本仓当前没有 `prepare` 脚本，所以这条路要先把产物构建好，或者补一条自足的 `prepare`。
+本仓现在有的是 `prepack`（`npm pack`／`npm publish` 之前跑），它管不到这条路：pnpm 为 git 依赖跑的是
+`prepare`，而构建脚本还要用户先放行。所以这条路要先把产物构建好，或者补一条自足的 `prepare`。
 
 ## 装完怎么核
 
@@ -142,8 +150,10 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
   `npm config get registry` 是只读镜像 `https://registry.npmmirror.com`。npm 那条腿要在有凭据、能写
   registry 的机器上执行；**本仓不产出「已发布」读数**，上面那三段就是做法本身。
 - **GitHub Release 那条腿要先有远端**：本仓 `git remote -v` 是空的，先加远端、再建一个 release 放附件。
-- **`engines.dsh` 只对 `0.2.1-rc.2` 实测过**：范围按实测写；换一个 DSH minor 要重量一遍再改范围，
-  否则用户会在装的时候被范围挡下。
+- **`engines.dsh` 只对 `0.2.1-rc.2` 实测过**：范围收在 `>=0.2.1-rc.2 <0.2.2`，换一个 DSH 版本要重量
+  一遍再改这一行，否则用户会在装的时候被范围挡下；挡下是预期行为（DSH 报 `incompatible-version`，
+  并印出 `allow-version` 那条命令，豁免记在 profile 的 `compatibility.json` 里，插件升版与 DSH 升版
+  都不继承）。
 - **git 那条路要用户在 profile 里授权跑构建脚本**（就是让这个包在装的时候执行代码）；预构建产物
   （npm 与 `.tgz` 两条）绕开这件事，所以那两条是主路径。
 - **浏览器半身那条取数口子靠包面上的一行声明**：`package.json` 的 `dsh.client.inject` 声明了

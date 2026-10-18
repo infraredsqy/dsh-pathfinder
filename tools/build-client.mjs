@@ -39,7 +39,7 @@
 // 也不在这里抄第二份。
 //
 //   node tools/build-client.mjs
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { rolldown } from 'rolldown'
@@ -315,4 +315,7 @@ const head = `window.__ModuleLoader__.load({ id: ${JSON.stringify(manifest.name)
   + 'var module = { exports: {} }; var exports = module.exports;\n'
 const tail = '\nreturn module.exports; } });\n'
 writeFileSync(join(root, 'lib/client.js'), head + body + tail)
+// 中间件当场删掉，它只在上面那一步有用。留着的话 `files` 里那条 `lib/**/*.js` 会把它
+// 一起收进包——外壳套完的那一份已经在 lib/client.js 里，它纯属第二份。
+rmSync(join(root, 'lib/client-body.js'))
 console.log(`build-client: lib/client.js written (${String(head.length + body.length + tail.length)} chars, ${String(css.length)} chars of css)`)
