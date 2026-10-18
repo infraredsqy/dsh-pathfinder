@@ -1,6 +1,6 @@
 # docs/ —— 这个仓的法：动手之前要读的规矩
 
-> 本文件是路牌，上限 30 行：只写这一层有什么、什么时候看。
+> 本文件是路牌，上限 15 行：一行一条，只写这一层有什么、什么时候看。
 
-- `design-principles.md` —— 动手改界面之前必读：词表与判据、共同地面、文案纪律、每一格的规矩、代码与注释。它装的是**法**，不装现状与取值（取值住在 `mock/tokens.css`）；加任何内容需要 user explicit approval
-- `publish.md` —— 发布与安装：交付形态（预构建产物随包走）、怎么打一个 `.tgz`、三条安装路子（npm / GitHub Release 的 `.tgz` / 从 git 装）、装完怎么核层与入口、以及已知限制。改包面、要发一版、或别人装不上时看
+- `design-principles.md` —— 动手改界面之前必读的**法**：它不装现状与取值（取值住在 `mock/tokens.css`）；加任何内容需要 user explicit approval
+- `publish.md` —— 发布与安装：改包面、要发一版、或别人装不上时看
