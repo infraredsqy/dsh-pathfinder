@@ -1,32 +1,37 @@
 /**
  * 浏览器半身这一个插件的入口。
  *
- * 它交出去的是一样东西：**一块一挂就能用的主面板**。这一层不往 DSH 的座席上注册
- * 任何东西——中央栏那一格（`main` 的 key）与侧栏那一排（`sidebar.panellist`）归下游
- * 的挂载点那一格；重复注册会抛，两边抢同一把钥匙没有好处。所以这里只把面板、它的
- * id、以及那条与宿主说话的口子装成一条服务 `ctx.pathfinderPanel`，谁要挂就照下面
- * 那三行挂：
+ * 它交出去的是两样东西。
+ *
+ * 第一样是**一块一挂就能用的主面板**。中央栏那一格（`main` 的 key）与侧栏那一排
+ * （`sidebar.panellist`）归下游的挂载点那一格——重复注册会抛，两边抢同一把钥匙没有好处。
+ * 所以这里把面板、它的 id、那条与宿主说话的口子、以及面板读设置的那条口子装成一条服务
+ * `ctx.pathfinderPanel`，谁要挂就照下面那几行挂：
  *
  * ```js
  * const panel = ctx.pathfinderPanel
  * ctx.slots.inject('main', () => ctx.slots.register(
- *   { name: 'main', key: panel.id, inject: () => ({ port: panel.port }) },
+ *   { name: 'main', key: panel.id, inject: () => ({ port: panel.port, prefs: panel.prefs }) },
  *   panel.Panel,
  * ))
  * ```
  *
- * 这条服务只有面板本体：读数从口子上来，`src/model` 那套纯函数把它读成那一刻的
- * 读数，面板只负责画。
+ * 第二样是**设置里那一节**：`settings.section` 上的一条注册，它既是导航行，也是它打开的
+ * 那一页（见 `settings.tsx`）。这一层只注册这一样东西，座席那两排仍然留给挂载点那一格。
  *
- * 服务用动态的 `ctx.inject` 取（与这个部署里别的插件同一路写法），取不到就把服务
- * 照常装出去、口子留成「取不到」那一条——面板自己会说它读不出来，不会把整条插件
- * 卡在待装状态。
+ * 读数从口子上来，`src/model` 那套纯函数把它读成那一刻的读数，面板只负责画。面板自己那
+ * 几个偏好从设置上来、也写回设置里去（`prefs.ts`），浏览器本地存储里不留键。
+ *
+ * 服务用动态的 `ctx.inject` 取（与这个部署里别的插件同一路写法），取不到就把服务照常装
+ * 出去、口子留成「取不到」那一条——面板自己会说它读不出来，不会把整条插件卡在待装状态。
  *
  * @module dsh-pathfinder/client
  */
 import * as React from 'react'
 import { createPanelPort, type PanelPort } from './data.ts'
 import { PathfinderPanel } from './panel.tsx'
+import { createPrefsSource, type PrefsStore } from './prefs.ts'
+import { registerSettingsSection } from './settings.tsx'
 import { ensureStyle } from './styles.ts'
 
 /** 面板的身份：中央栏那一格用它作 key，侧栏那一排用它作 id。 */
@@ -47,6 +52,16 @@ export const SERVICE_KEY = 'pathfinderPanel'
  */
 export { PANEL_CSS } from './styles.ts'
 
+/** 设置那一节的身份，供调用方与自证夹具对着读。 */
+export {
+  SECTION_LABEL,
+  SECTION_ORDER,
+  SECTION_SLOT,
+  SETTINGS_CSS,
+  SETTINGS_NAMESPACE,
+  SettingsSection,
+} from './settings.tsx'
+
 /** 交出去的那条服务。 */
 export interface PathfinderPanelApi {
   /** 面板的身份。 */
@@ -55,6 +70,8 @@ export interface PathfinderPanelApi {
   readonly title: string
   /** 与宿主说话的那条口子：读四份记录，写归档 / 复原 / 删除与三个策略数。 */
   readonly port: PanelPort
+  /** 面板读设置、写设置的那条口子；设置页读的也是它。 */
+  readonly prefs: PrefsStore
   /** 面板本体，直接交给 `slots.register` 的第二个参数。 */
   readonly Panel: (props: PanelArgs) => React.ReactElement
 }
@@ -65,15 +82,19 @@ export interface PanelArgs {
   readonly port: PanelPort
   /** 读哪条会话所在的工作区。 */
   readonly sessionId?: string | undefined
+  /** 面板自己的偏好住哪份设置文档；不给就按出厂那几条画。 */
+  readonly prefs?: PrefsStore | undefined
 }
 
-/** 插件体：把面板装成一条服务。 */
+/** 插件体：把面板装成一条服务，再把设置那一节接上去。 */
 export function apply(ctx: unknown): void {
   const port = createPanelPort(ctx)
+  const prefs = createPrefsSource()
   const api: PathfinderPanelApi = {
     id: PANEL_ID,
     title: PANEL_TITLE,
     port,
+    prefs,
     Panel: Entry,
   }
   try {
@@ -82,6 +103,7 @@ export function apply(ctx: unknown): void {
   } catch (error) {
     report('面板这一格没装上去', error)
   }
+  registerSettingsSection(ctx, prefs)
 }
 
 /**
@@ -98,7 +120,7 @@ function Entry(props: PanelArgs & { readonly useSessions?: unknown }): React.Rea
   const hooks = props.useSessions
   const snapshot = typeof hooks === 'function' ? (hooks as () => unknown)() : undefined
   const sessionId = props.sessionId ?? currentSessionOf(snapshot)
-  return React.createElement(PathfinderPanel, { port: props.port, sessionId })
+  return React.createElement(PathfinderPanel, { port: props.port, sessionId, prefs: props.prefs })
 }
 
 /**

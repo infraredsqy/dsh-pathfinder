@@ -3,7 +3,7 @@
 > 本文件是路牌，上限 30 行：只写这一层有什么、什么时候看。
 
 - 这一层有三半：**宿主半身**装在 DSH 宿主上把记录读进来（读面经工作区文件口子，写面经 `pf` 那条命令）；**模型层**把 mock 的读数逻辑搬成纯函数；**浏览器半身**把读数画成主面板。改取数、改边界形状、改界面时看这里
-- `host/index.ts` —— 插件入口：装上 `ctx.pathfinderRecords`，一条服务五个端点。插件名 `pathfinder-records`；`workspaceFiles`／`sessions`／`sandboxPolicy` 三样到齐才 `apply`；起进程的口子不在这三样里，写面现取
+- `host/index.ts` —— 插件入口：装上 `ctx.pathfinderRecords`，一条服务五个端点，另交出设置 schema `Config`（住在 `host/config.ts`）。插件名 `pathfinder-records`；`workspaceFiles`／`sessions`／`sandboxPolicy` 三样到齐才 `apply`；起进程的口子不在这三样里，写面现取
 - `host/gateway.ts` —— 那条服务本身，也是远端口：五个方法各挂一枚 `Remote` 记号，命名空间就是服务键。**参数表不能带默认值、末尾不能留逗号**——网关按方法源码切参数，两种写法都会让它判成「签名说不清」（`tests/host-gateway.test.mjs` 守着这一条）
 - `host/write.ts` —— 写面：一律把 `pf` 那条命令递出去，不碰 `.pf` 下的文件。参数先过一道字符闸；Windows 上经 `cmd.exe` 起 `pf.cmd`，那条命令行里的路径**不能加引号**（Node 会把它拼成 `\"`）
 - 工作区根按会话身份解析，次序固定：活着的会话头 → 落盘的会话头 → 沙箱策略记的那个根；有活着的会话头就不再问落盘那份。每次调用现算、不缓存
@@ -12,5 +12,6 @@
 - 每份来源各报结局：`read`／`missing`／`unusable`。取不到就给空集合、读数照常返回
 - `host/contract.ts` —— 边界形状：记录里原有字段的直通副本。字段一个都不改名、不换算、不折算时刻
 - `model/` —— 模型层：四份记录原形＋一个时刻 → 那一刻的读数（项目、依赖场、指令、问题池各一份，分别在 `project.ts`／`graph.ts`／`instructions.ts`／`pool.ts`）；不取数、不碰 DOM。类型检查 `npm run types:model`
-- `client/` —— 浏览器半身：面板本体（`panel.tsx`：壳＋六格标签；当前 / 明细 / 指令三格在里面，依赖与问题两格各自的看法住在 `field.tsx` 与 `pool.tsx`，设置那一格还只留座席）、与宿主说话那条口子（`data.ts`）、面板自己的偏好（`prefs.ts`）、面板那几张样式表（`styles.ts`，正文由构建期从 `mock/` 取进来）、入口 `index.ts`（类型检查 `npm run types:client`）。它**不往 DSH 的座席上注册**：座席归挂载点那一格，这里只交出 `ctx.pathfinderPanel`（id＋title＋`Panel`＋`port`）
-- 单测在 `tests/`（宿主＋模型＋浏览器半身的数据面＋写面），`npm test` 一条命令跑全；面板那一块的自证夹具是 `npm run check:panel`
+- `host/config.ts`、`host/settings-fields.ts`、`cordis.patch.yml` —— 设置面：这一行插件就是一个设置命名空间（命名空间＝`cordis.patch.yml` 那条 `- insert:` 的 id `pathfinder`，浏览器半身写着同一个字，两边没有第二处校验）；字段名、出厂默认与取值集合只写在字段表里；`Config` 五个字段全标 volatile（设置服务只投影 volatile 字段），`@deepseek-ai/schemastery` 由宿主提供、取不到时 `Config` 是 `undefined`——这一行照旧装得上，只是没有设置表单。改偏好字段或加一行时看
+- `client/` —— 浏览器半身：面板本体（`panel.tsx`：壳＋六格标签；当前 / 明细 / 指令三格在里面，依赖与问题两格各自的看法住在 `field.tsx` 与 `pool.tsx`，设置那一格还只留座席）、与宿主说话那条口子（`data.ts`）、面板自己的偏好（`prefs.ts`：设置文档这一节与面板读数之间的映射，经设置表单读写，面板自己的键不再写本地存储、接上设置表单时把旧版那四个键扫掉）、设置里那一节（`settings.tsx`：`settings.section` 上的一条幂等注册，既是导航行也是它打开的那一页）、面板那几张样式表（`styles.ts`，正文由构建期从 `mock/` 取进来）、入口 `index.ts`（类型检查 `npm run types:client`）。它交出的 `ctx.pathfinderPanel` 是 id＋title＋`Panel`＋`port`＋`prefs`（面板与设置页读同一份表单）；座席那两排（`main` 与 `sidebar.panellist`）仍留给挂载点那一格——这一层只注册设置里那一节
+- 单测在 `tests/`（宿主＋模型＋浏览器半身的数据面 / 写面 / 偏好面），`npm test` 一条命令跑全；面板那一块的自证夹具是 `npm run check:panel`

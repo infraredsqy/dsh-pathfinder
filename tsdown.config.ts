@@ -18,4 +18,7 @@ export default defineConfig({
   fixedExtension: false,
   dts: false,
   clean: false,
+  /* schemastery 由宿主提供（peerDependency），本仓不装它，捆的时候也不许去找它：
+     这一条留在外面，产物里那句动态 import 照原样进包，装载时由宿主的模块图接上。 */
+  deps: { neverBundle: ['@deepseek-ai/schemastery'] },
 })

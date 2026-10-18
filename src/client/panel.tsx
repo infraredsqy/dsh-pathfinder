@@ -9,6 +9,10 @@
  * 标签与空壳。蓝本那一页里的假外壳（会话栏、中间那道缝、左右两个把手、页头的工作区下拉）
  * 不在这里——那些在 DSH 里是 DSH 自己的东西。
  *
+ * 面板自己那几个显示偏好（每列几张卡、停在哪个看法、侧栏宽度、两个开关）不在这份文件里
+ * 记，也从浏览器本地存储里来不了：它们住 Host 的设置文档，经 `prefs.ts` 那条口子读进来、
+ * 写回去（{@link PathfinderPanel} 的 `prefs`）。所以设置里翻一行，这一屏当场跟着变。
+ *
  * @module dsh-pathfinder/client/panel
  */
 import * as React from 'react'
@@ -16,18 +20,17 @@ import type { PathfinderInstruction, PathfinderReading } from '../host/contract.
 import type { CyclePolicyKey } from '../host/gateway.ts'
 import type { CycleReading, InstructionReading, NodeReading, ProjectReading } from '../model/index.ts'
 import { clock, dayLabel, duration, elapsedSince, readProject } from '../model/index.ts'
-import type { InfoLevel, ViewId } from './prefs.ts'
+import type { InfoLevel, PrefField, PrefsSource, ViewId } from './prefs.ts'
 import {
   clampSide,
+  DEFAULT_SOURCE,
+  INFO_LABELS,
+  PANEL_PREF_FIELDS,
   POLICY_KEYS,
-  readPrefs,
-  saveInfo,
-  saveOtherStates,
-  saveSideWidth,
-  saveTab,
   SIDE_DEFAULT,
   SIDE_MAX,
   SIDE_MIN,
+  VIEW_LABELS,
 } from './prefs.ts'
 import type { PanelPort, WriteVerb } from './data.ts'
 import { DependencyField } from './field.tsx'
@@ -43,12 +46,12 @@ interface View {
 
 /** 标签那一排的唯一真相：选中态、哪一格露面、撑不撑满，都从这一份走。 */
 const VIEWS: readonly View[] = [
-  { id: 'now', label: '当前', fill: false },
-  { id: 'detail', label: '明细', fill: true },
-  { id: 'notes', label: '指令', fill: true },
-  { id: 'wires', label: '依赖', fill: true },
-  { id: 'issue', label: '问题', fill: true },
-  { id: 'config', label: '设置', fill: true },
+  { id: 'now', label: VIEW_LABELS.now, fill: false },
+  { id: 'detail', label: VIEW_LABELS.detail, fill: true },
+  { id: 'notes', label: VIEW_LABELS.notes, fill: true },
+  { id: 'wires', label: VIEW_LABELS.wires, fill: true },
+  { id: 'issue', label: VIEW_LABELS.issue, fill: true },
+  { id: 'config', label: VIEW_LABELS.config, fill: true },
 ]
 
 /** 每列几张卡的三档，以及「铺满」够不着尺子时的落脚点。 */
@@ -76,6 +79,9 @@ const GROUPS: readonly Group[] = [
 /** 收起归档时，一组里最多露几行不算数的。 */
 const NOTES_ROWS = 5
 
+/** 设置服务没到场时面板上那句话：这一下只活在这一屏上。 */
+const PREFS_NOT_KEPT = '这条显示偏好没能保存：设置服务还没接上，改动只活在这一屏上。'
+
 /** 一条线自己那三个数，一个数一行；名字与那句话都照蓝本。 */
 const POLICY_ROWS: readonly { key: CyclePolicyKey; name: string; note: string }[] = [
   {
@@ -101,6 +107,8 @@ export interface PanelProps {
   readonly port: PanelPort
   /** 读哪条会话所在的工作区；没有就画不出东西来。 */
   readonly sessionId?: string | undefined
+  /** 面板自己的偏好住哪份设置文档。不给就按出厂那几条画。 */
+  readonly prefs?: PrefsSource | undefined
 }
 
 /** 一条读数走到哪一步了。 */
@@ -110,16 +118,38 @@ type Load =
   | { readonly phase: 'failed'; readonly message: string }
 
 /**
+ * 面板此刻读的那一档。
+ *
+ * 先按设置文档里那个值站着；读者在面板上当场改了就先按改的来，设置里那一个（别处翻了
+ * 一行、或者写回落定）一有新值就跟着换。设置服务一直没到场时它停在读者改的那一个上，
+ * 面板照常画。
+ * @param stored - 设置文档此刻说的那个值。
+ * @returns 面板此刻读的那一个，以及改写它的那一手。
+ */
+function usePreference<T>(stored: T): [T, (next: T) => void] {
+  const [local, setLocal] = React.useState<T>(stored)
+  React.useEffect(() => {
+    setLocal(stored)
+  }, [stored])
+  return [local, setLocal]
+}
+
+/**
  * 主面板。
  * @param props - 数据通路与那条会话。
  * @returns 这一格的版面。
  */
 export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const { port, sessionId } = props
-  const [tab, setTab] = React.useState<ViewId>(() => readPrefs().tab)
-  const [info, setInfo] = React.useState<InfoLevel>(() => readPrefs().info)
-  const [sideWidth, setSideWidth] = React.useState<number>(() => readPrefs().sideWidth)
-  const [otherStates, setOtherStates] = React.useState<boolean>(() => readPrefs().otherStates)
+  /* 面板自己的偏好：读数从设置那一份表单上来，写回也从这条口子出去。设置服务还没接上
+   * 时它给的是出厂那几条，面板照常画。 */
+  const store = props.prefs ?? DEFAULT_SOURCE
+  const preferences = React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  const stored = preferences.prefs
+  const [tab, setTab] = usePreference<ViewId>(stored.tab)
+  const [info, setInfo] = usePreference<InfoLevel>(stored.info)
+  const [sideWidth, setSideWidth] = usePreference<number>(stored.sideWidth)
+  const [otherStates, setOtherStates] = usePreference<boolean>(stored.otherStates)
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
   const [at, setAt] = React.useState<Date>(() => new Date())
   const [tick, setTick] = React.useState(0)
@@ -200,21 +230,36 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     [],
   )
 
+  /* 面板上改的那一下：先按改的来，再把它写回设置文档——两边读同一份表单，所以设置页
+   * 那一行当场也跟着动。写不进去时控件不静默弹回：这条口子的读数里那句话（写回被拒时
+   * 由 `prefs.ts` 摆出来）落在下面那条提示行上，服务没到场时也有自己的一句话。 */
+  const prefNote = React.useRef<string | null>(null)
+  const keep = React.useCallback((field: PrefField, value: unknown): void => {
+    void store.write(field, value).then((accepted) => {
+      const said = accepted ? null : (store.getSnapshot().failure ?? PREFS_NOT_KEPT)
+      const was = prefNote.current
+      prefNote.current = said
+      /* 落定了就把上一句「没保存」收回去，别的提示（写面那几条）不动。 */
+      if (said === null) setNote((held) => (held === was ? null : held))
+      else setNote(said)
+    }, () => undefined)
+  }, [store])
+
   const pickView = React.useCallback((id: ViewId) => {
     setTab(id)
-    saveTab(id)
-  }, [])
+    keep(PANEL_PREF_FIELDS.defaultTab, id)
+  }, [keep])
 
   const pickInfo = React.useCallback((level: InfoLevel) => {
     setInfo(level)
-    saveInfo(level)
-  }, [])
+    keep(PANEL_PREF_FIELDS.infoLevel, level)
+  }, [keep])
 
   /* 问题那一格读的是哪一档：这一下只动面板自己的偏好，记录一个字节都不碰。 */
   const pickOtherStates = React.useCallback((on: boolean) => {
     setOtherStates(on)
-    saveOtherStates(on)
-  }, [])
+    keep(PANEL_PREF_FIELDS.showOtherStates, on)
+  }, [keep])
 
   const active = VIEWS.find((view) => view.id === tab) ?? VIEWS[0] as View
 
@@ -270,7 +315,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
                       aria-pressed={level === info}
                       onClick={() => pickInfo(level)}
                     >
-                      {level === 'lean' ? '精简' : level === 'three' ? '展开' : '铺满'}
+                      {INFO_LABELS[level]}
                     </button>
                   ))}
                 </div>
@@ -317,7 +362,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
               <SplitHandle
                 value={sideWidth}
                 onChange={(px) => setSideWidth(px)}
-                onCommit={(px) => saveSideWidth(px)}
+                onCommit={(px) => keep(PANEL_PREF_FIELDS.sideWidth, clampSide(px))}
               />
               <div className="pf-linemain">
                 <div className="pf-scroll" role="region" aria-label="明细" tabIndex={0}>
@@ -340,6 +385,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
                 <InstructionBook
                   project={project}
                   raw={reading?.instructions ?? []}
+                  showArchived={stored.archived}
                   onArchive={(id) => onWrite(() => port.write('archive', sessionId ?? '', id))}
                   onRevive={(id) => onWrite(() => port.write('revive', sessionId ?? '', id))}
                   onDelete={(instruction) => setDeleting(instruction)}
@@ -691,6 +737,7 @@ function Seat(props: { readonly id: ViewId; readonly label: string; readonly hid
 function InstructionBook(props: {
   readonly project: ProjectReading
   readonly raw: readonly PathfinderInstruction[]
+  readonly showArchived: boolean
   readonly onArchive: (id: string) => void
   readonly onRevive: (id: string) => void
   readonly onDelete: (instruction: InstructionReading) => void
@@ -704,7 +751,12 @@ function InstructionBook(props: {
     return table
   }, [raw])
 
-  const groups = groupInstructions(project)
+  /* 已归档的条目默认收起来：一屏里先看见现在还算数的。设置里那一行打开之后，它们回到
+   * 各自的段里，行右边那枚动作照旧可用（那一条摆的是「复原」）。 */
+  const visible = props.showArchived
+    ? project.instructions
+    : project.instructions.filter((entry) => entry.standing)
+  const groups = groupInstructions(project, visible)
   if (project.instructions.length === 0) {
     return <p className="pf-innone">这份记录里还没有指令。</p>
   }
@@ -713,11 +765,11 @@ function InstructionBook(props: {
       {groups.length === 0
         ? <p className="pf-innone">现在没有生效的指令。</p>
         : groups.map((group) => {
-          const standing = group.entries.filter((entry) => entry.inForce).length
+          const live = group.entries.filter((entry) => entry.inForce).length
           const isFolded = folded[group.key] === true
           const isOpen = open[group.key] === true
-          const hidden = Math.max(0, group.entries.length - standing - NOTES_ROWS)
-          const shown = isOpen ? group.entries : group.entries.slice(0, standing + NOTES_ROWS)
+          const hidden = Math.max(0, group.entries.length - live - NOTES_ROWS)
+          const shown = isOpen ? group.entries : group.entries.slice(0, live + NOTES_ROWS)
           return (
             <section className={`pf-sec${isFolded ? ' is-folded' : ''}`} key={group.key}>
               <button
@@ -728,7 +780,7 @@ function InstructionBook(props: {
               >
                 <span className="pf-rowhead-key">{group.label}</span>
                 <span className="pf-rowhead-figs">
-                  <b className="pf-num">{standing}</b>
+                  <b className="pf-num">{live}</b>
                   {' 生效'}
                   <React.Fragment>{' · '}<b className="pf-num">{group.entries.length}</b>{' 条'}</React.Fragment>
                 </span>
@@ -775,8 +827,13 @@ interface InstructionGroup {
  * 按范围分组：全局在前，然后每条线（在跑的在前），再是不认得的那条线，最后一格。
  *
  * 组内还算数的排在前头、新说的在前——读者先遇到此刻正管着他的那几句。
+ * @param project - 那一刻的项目读数，分组用的几条线从它来。
+ * @param entries - 这一刻真的要摆上页面的那几条；已归档的露不露面由调用方先筛过。
  */
-function groupInstructions(project: ProjectReading): readonly InstructionGroup[] {
+function groupInstructions(
+  project: ProjectReading,
+  entries: readonly InstructionReading[],
+): readonly InstructionGroup[] {
   const groups = new Map<string, { label: string; entries: InstructionReading[] }>()
   const group = (key: string, label: string): { label: string; entries: InstructionReading[] } => {
     const held = groups.get(key)
@@ -790,7 +847,7 @@ function groupInstructions(project: ProjectReading): readonly InstructionGroup[]
   group('cycle:', '未分组')
   group('node', '这一格')
 
-  for (const entry of project.instructions) {
+  for (const entry of entries) {
     const key = entry.scope === 'global'
       ? 'global'
       : entry.scope === 'cycle'

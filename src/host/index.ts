@@ -17,6 +17,9 @@
  * 这份源码按 DSH 的插件写法写成可直接加载的形态，因此既能在构建前由覆盖层按绝对路径
  * 加载，也能在构建后由 `lib/host/index.js` 供别的插件消费。
  *
+ * 这一份还交出 `Config`：DSH 里一条插件行就是一个设置命名空间，面板自己的那几个偏好
+ * 因此住在这条插件行的设置文档里，schema 住在 `config.ts`。
+ *
  * @module dsh-pathfinder/host
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -30,6 +33,7 @@ import { PathfinderRecordsGateway } from './gateway.ts'
 import type { PathfinderRecords } from './contract.ts'
 
 export type * from './contract.ts'
+export { Config } from './config.ts'
 export { PathfinderRecordsGateway, workspaceRootOf, CYCLE_POLICY_KEYS } from './gateway.ts'
 export type { CyclePolicyKey } from './gateway.ts'
 export { runPf } from './write.ts'

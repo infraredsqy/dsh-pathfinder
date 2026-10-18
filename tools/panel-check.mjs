@@ -54,7 +54,7 @@ function detailReadings(scope) {
  * 然后记录里那几条线，再是没认出范围的，最后一格；组内还算数的在前、新说的在前；空组不画。
  * 与面板印出来的组头、各组下面那几条正文逐项比。
  */
-function expectedNoteGroups(project) {
+function expectedNoteGroups(project, showArchived) {
   const groups = new Map()
   const hold = (key, label) => {
     if (!groups.has(key)) groups.set(key, { label, entries: [] })
@@ -65,6 +65,8 @@ function expectedNoteGroups(project) {
   hold('cycle:', '未分组')
   hold('node', '这一格')
   for (const entry of project.instructions) {
+    /* 已归档的条目默认收起来：设置里那一行打开之后才回到各自的段里。 */
+    if (showArchived !== true && entry.standing !== true) continue
     const key = entry.scope === 'global'
       ? 'global'
       : entry.scope === 'cycle'
@@ -281,25 +283,181 @@ styleNode.textContent = client.PANEL_CSS
 window.document.head.appendChild(styleNode)
 
 const provided = {}
-/* 座席那一格给的是个会记下动作的替身：这一层真要往 `slots` 上注册点什么，这里就留得下痕迹。
- * 旧写法问的是夹具自己那份 `get` 返不返回 `undefined`——那是夹具自己没造 `slots`，
- * 面板碰没碰它，那句话管不着，横竖不会红。 */
-const slotCalls = []
-const slotRecorder = new Proxy({}, {
-  get: (_target, key) => (...args) => { slotCalls.push(`${String(key)}/${String(args.length)}`) },
-})
-const clientCtx = {
-  get: (name) => {
-    if (name === 'remote.pathfinderRecords') return remoteFace
-    if (name === 'slots') return slotRecorder
-    return undefined
-  },
-  provide: (key, value) => { provided[key] = value },
+
+/* ---- 设置那一份文档：夹具自己造，形状与 `configForms` 交出来的那一份一致 ------------
+ *
+ * 真部署里这一份由设置服务给：`configForms.get(ns)` 交出一个按修订号理赔的控制器，
+ * 读得出、订得上、写得进。这里造一个同形状的替身，面板与设置页读的就是它——于是
+ * 「翻一行、两边当场跟着变」这件事能在夹具里真的走一趟。 */
+
+/** 一份设置文档的替身。 */
+function fakeSettingsForm(initial) {
+  let value = { ...initial }
+  let revision = 1
+  let refuse = false
+  const listeners = new Set()
+  return {
+    document: () => value,
+    getSnapshot: () => ({ status: 'ready', value, base: undefined, user: undefined, revision, writable: true }),
+    /* m4 那一条要的：接在这份表单上的订阅者有几个——摘除器有没有被还回来，只看这个数。 */
+    watching: () => listeners.size,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    mutate(ops, expected) {
+      /* 修订号对不上就是拒绝：与真控制器同一口径，写回去的那一条路径也照真那份拼。 */
+      if (refuse || (expected !== undefined && expected !== revision)) return Promise.resolve(false)
+      for (const op of ops) if (op.op === 'set') value = { ...value, [op.path[0]]: op.value }
+      revision += 1
+      for (const listener of [...listeners]) listener()
+      return Promise.resolve(true)
+    },
+    /* m1 那一条要的：这份文档一律不收改动，量「两笔都不作数时不许静默」。 */
+    refuse: (on = true) => { refuse = on },
+  }
 }
-client.apply(clientCtx)
-const panel = provided[client.SERVICE_KEY]
+
+/** 设置服务那一侧的替身：按命名空间给表单，并记下谁要过哪一份。 */
+function makeConfigForms(seed) {
+  const held = new Map()
+  const asked = []
+  return {
+    asked,
+    form: (namespace) => held.get(namespace),
+    service: {
+      get(namespace) {
+        asked.push(namespace)
+        if (!held.has(namespace)) held.set(namespace, fakeSettingsForm((seed ?? {})[namespace] ?? {}))
+        return held.get(namespace)
+      },
+    },
+  }
+}
+
+/**
+ * 起一条浏览器半身：服务从 `get` 来，注册经 `inject` 等，落点经 `effect` 挂。
+ *
+ * `slots` 这一份是按真协议写的替身：同一个 id 重复注册会抛（那正是要躲开的那一下），
+ * 注册那一刻记下选项与组件，注册处返回的摘除器能把它收回去。
+ *
+ * `reuse` 那一路给的是「同一份 slots 名册上再起一次」：默认每次新开一份，给了一份就
+ * 跟着用——幂等那一条要两次注册落在同一本名册上才量得出来。
+ * @param backend - 设置服务那一侧的替身。
+ * @param into - `provide` 往哪个对象上落。
+ * @param reuse - 可选的同一份名册与落点记录。
+ */
+function bootClient(backend, into, reuse) {
+  const ledger = reuse?.ledger ?? new Map()
+  const calls = reuse?.calls ?? []
+  const effects = reuse?.effects ?? []
+  const slots = {
+    inject(key, register) {
+      calls.push(`inject/${key}`)
+      const off = register()
+      return typeof off === 'function' ? off : () => undefined
+    },
+    register(options, component) {
+      const id = `${options.name}:${options.id}`
+      calls.push(`register/${id}`)
+      if (ledger.has(id)) throw new Error(`list slot "${options.name}" already has an entry with id "${options.id}"`)
+      ledger.set(id, { options, component })
+      return () => { ledger.delete(id) }
+    },
+  }
+  const ctx = {
+    get(name) {
+      if (name === 'remote.pathfinderRecords') return remoteFace
+      if (name === 'slots') return slots
+      if (name === 'configForms') return backend.service
+      return undefined
+    },
+    inject(names, callback) { callback(ctx) },
+    effect(run, name) {
+      const off = run()
+      const dispose = () => { if (typeof off === 'function') off() }
+      effects.push({ name, run, off: dispose })
+      return dispose
+    },
+    provide(key, value) { into[key] = value },
+  }
+  client.apply(ctx)
+  return { panel: into[client.SERVICE_KEY], ledger, calls, effects }
+}
+
+/* m2 那一条要量的东西：先按旧版那四个键把本地存储塞满，再看「接上设置表单那一刻」有没有
+ * 把它们扫掉。最后第 6c 节那条判据扫的是整个 `dsh-pathfinder.` 前缀——先塞这一步让它对存量
+ * origin 也真的成立，而不只是证「面板从此不再往里写」。 */
+const LEGACY_SEEDED = [
+  'dsh-pathfinder.sideWidth',
+  'dsh-pathfinder.infoLevel',
+  'dsh-pathfinder.defaultTab',
+  'dsh-pathfinder.showOtherStates',
+]
+for (const key of LEGACY_SEEDED) window.localStorage.setItem(key, '1')
+
+const backend = makeConfigForms()
+const booted = bootClient(backend, provided)
+const panel = booted.panel
 check('面板装成了一条服务', panel !== undefined && panel.id === 'pathfinder', `key=${client.SERVICE_KEY} id=${String(panel?.id)}`)
-check('座席注册留给下游：这一层不碰 slots', slotCalls.length === 0, slotCalls.length === 0 ? 'slots 上一个动作都没有' : slotCalls.join(', '))
+/* 这一层现在只注册一样东西：设置里那一节。`main` 与 `sidebar.panellist` 两座席仍然留给
+ * 下游的挂载点那一格——夹具这里问的是「注册了哪些」，一份名册比一句「碰没碰 slots」经得起看。 */
+const registeredIds = [...booted.ledger.keys()]
+check(
+  '这一层只注册了设置里那一节，座席那两排留给下游',
+  registeredIds.length === 1 && registeredIds[0] === `${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`,
+  registeredIds.length === 0 ? 'slots 上一个注册都没有' : `注册=${registeredIds.join(', ')}`,
+)
+
+/* 注册纪律那一节：同一本名册上再起一条插件（profile 重载、HMR 都会走到这里），注册必须是
+ * 幂等的。`slots.register` 碰到同一个 id 已经在册会抛，而那个抛落在槽位登记处的通知里，
+ * React 自己的订阅也在那条通知上——页面上看不出事，鼠标键盘却全死了。所以那一下必须停在
+ * 这一层里面。 */
+const reuse = { ledger: new Map(), calls: [], effects: [] }
+bootClient(backend, {}, reuse)
+bootClient(backend, {}, reuse)
+check(
+  '同一本名册上再起一条插件：没有重复登记，那一下抛也停在这一层里',
+  reuse.ledger.size === 1 && [...reuse.ledger.keys()][0] === `${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`
+    && reuse.calls.filter((call) => call.startsWith('register/')).length === 2,
+  `名册=${[...reuse.ledger.keys()].join(', ') || '（空）'} ｜ 试过注册 ${String(reuse.calls.filter((call) => call.startsWith('register/')).length)} 次`,
+)
+
+/* 同一条 effect 收掉再跑一遍（fiber 重入那一趟）：先撤上一次，再登记回来。
+ * 接设置表单那一手另有一条 effect（m4）：收掉它，接在设置表单上的那个订阅者要跟着还回去。 */
+const sectionEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: settings page')
+const formEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: settings form')
+const sharedForm = backend.form(client.SETTINGS_NAMESPACE)
+check(
+  '接设置表单那一手与登记那一页那一手各是一条 effect',
+  formEffect !== undefined && sectionEffect !== undefined && formEffect !== sectionEffect,
+  `effect=${reuse.effects.map((one) => String(one.name)).join(', ')}`,
+)
+check(
+  '三趟 apply 各在设置表单上接了一个订阅者',
+  sharedForm?.watching() === 3,
+  `订阅者=${String(sharedForm?.watching())}`,
+)
+sectionEffect.off()
+check('收掉那一条 effect：设置那一节从名册上撤下来', reuse.ledger.size === 0, `名册=${[...reuse.ledger.keys()].join(', ') || '（空）'}`)
+sectionEffect.run()
+check(
+  'effect 再跑一遍：又登记回同一条，没有重复',
+  reuse.ledger.size === 1 && [...reuse.ledger.keys()][0] === `${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`,
+  `名册=${[...reuse.ledger.keys()].join(', ') || '（空）'}`,
+)
+formEffect?.off()
+check(
+  '收掉接设置表单那条 effect：接在设置表单上那个订阅者还回去了',
+  sharedForm?.watching() === 2,
+  `订阅者=${String(sharedForm?.watching())}`,
+)
+formEffect?.run()
+check(
+  '它再跑一遍：订阅者又接回来一个',
+  sharedForm?.watching() === 3,
+  `订阅者=${String(sharedForm?.watching())}`,
+)
 
 /* ---- 4. 画出来，逐个看法点开 ------------------------------------------- */
 
@@ -339,7 +497,7 @@ const settle = async () => {
 }
 
 await act(async () => {
-  reactRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId }))
+  reactRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId, prefs: panel.prefs }))
 })
 await settle()
 
@@ -603,6 +761,96 @@ check(
 )
 lines.push(`      等价性：mock/ 那 ${String(SHEETS.length)} 张表 + CARRIED ${String(carriedWanted.length)} 条 → 产物 ${String(productEntries.length)} 条规则，逐条比选择器与声明正文（上面每张表一条读数）`)
 
+/* ---- 4a. 设置那一节：导航行 + 它打开的那一页，与面板读同一份设置表单 -----------
+ *
+ * 这一节住在 DSH 自己的设置面板里，跟主面板不在一棵树上，所以这里把产物注册的那个组件
+ * 单独挂进一份 DOM，当它是一页。判据是「翻一行，面板上对应的读数当场跟着变」——两边读
+ * 的是同一份表单（`configForms.get(ns)` 那一个控制器），这一条走得通才算接对了。 */
+
+const settingsForm = backend.form(client.SETTINGS_NAMESPACE)
+const settingsDoc = () => settingsForm?.document() ?? {}
+const sectionEntry = booted.ledger.get(`${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`)
+check(
+  '注册的 id 就是设置命名空间的字符串，槽位是设置里那一节',
+  sectionEntry?.options.name === client.SECTION_SLOT && sectionEntry?.options.id === client.SETTINGS_NAMESPACE,
+  `name=${String(sectionEntry?.options.name)} id=${String(sectionEntry?.options.id)}`,
+)
+check(
+  '面板与设置页要的是同一份表单',
+  backend.asked.includes(client.SETTINGS_NAMESPACE) && settingsForm !== undefined,
+  `要过的命名空间=${backend.asked.join(',') || '（一个都没有）'}`,
+)
+
+const settingsHost = window.document.createElement('div')
+window.document.body.appendChild(settingsHost)
+const settingsRoot = createRoot(settingsHost)
+await act(async () => {
+  settingsRoot.render(React.createElement(sectionEntry.component, sectionEntry.options.inject()))
+})
+await settle()
+
+const settingRows = () => [...settingsHost.querySelectorAll('.pfset-row')]
+const rowNamed = (label) => settingRows().find((row) => row.querySelector('.pfset-label')?.textContent === label)
+const rowNames = settingRows().map((row) => row.querySelector('.pfset-label')?.textContent ?? '')
+check(
+  '设置里那一页是四行，侧栏宽度不在其中',
+  settingRows().length === 4 && rowNames.join('/') === '默认信息量/默认标签页/指令里显示已归档的/问题池里显示未解决之外的',
+  `四行=${rowNames.join('/') || '（一行都没有）'}`,
+)
+
+const pressSeg = async (label) => {
+  const button = [...(rowNamed('默认信息量')?.querySelectorAll('.pfset-segbtn') ?? [])]
+    .find((one) => one.textContent === label)
+  await act(async () => { button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+  await settle()
+}
+const flipSwitch = async (label) => {
+  const button = rowNamed(label)?.querySelector('.pfset-switch')
+  await act(async () => { button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+  await settle()
+}
+
+/* 默认信息量：三档里翻到「精简」，面板上每列最多一张卡。收尾翻回「展开」，后面的读数
+   与这一趟之前一致。 */
+await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await settle()
+const cardCounts = () => [...container.querySelectorAll('#cols .pf-col')]
+  .map((column) => column.querySelectorAll('.pf-card').length)
+const cardsBefore = cardCounts()
+await pressSeg('精简')
+const cardsAfter = cardCounts()
+check(
+  '翻设置里「默认信息量」那一行：面板上每列的卡片当场跟着换档',
+  JSON.stringify(cardsAfter) === JSON.stringify(cardsBefore.map((n) => Math.min(1, n)))
+    && JSON.stringify(cardsAfter) !== JSON.stringify(cardsBefore)
+    && settingsDoc().infoLevel === 'lean',
+  `翻之前=${JSON.stringify(cardsBefore)} 翻之后=${JSON.stringify(cardsAfter)} ｜ 文档里 infoLevel=${String(settingsDoc().infoLevel)}`,
+)
+await pressSeg('展开')
+check(
+  '翻回「展开」：卡片数回到原来的档，文档里也回到那一档',
+  JSON.stringify(cardCounts()) === JSON.stringify(cardsBefore) && settingsDoc().infoLevel === 'three',
+  `卡片=${JSON.stringify(cardCounts())} ｜ 文档里 infoLevel=${String(settingsDoc().infoLevel)}`,
+)
+
+/* 默认标签页：从设置里挑「指令」，面板当场换到那一格。 */
+const pickOption = async (select, text) => {
+  if (select === undefined || select === null) return
+  const option = [...select.options].find((one) => one.textContent === text)
+  await act(async () => {
+    select.value = option.value
+    select.dispatchEvent(new window.Event('change', { bubbles: true }))
+  })
+  await settle()
+}
+await pickOption(rowNamed('默认标签页')?.querySelector('.pfset-select'), '指令')
+check(
+  '翻设置里「默认标签页」那一行：面板当场停到那一格',
+  container.querySelector('#tab-notes')?.getAttribute('aria-selected') === 'true' && settingsDoc().defaultTab === 'notes',
+  `选中的标签=${String(container.querySelector('.pf-tab[aria-selected="true"]')?.id)} ｜ 文档里 defaultTab=${String(settingsDoc().defaultTab)}`,
+)
+await pickOption(rowNamed('默认标签页')?.querySelector('.pfset-select'), '当前')
+
 /* 明细：这一份记录里没有出局等人的格，「等待处理」那一组就不该出现。 */
 await act(async () => { tabs[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const detailA = detailReadings(container)
@@ -620,7 +868,7 @@ check(
 
 /* 指令那一格：先验「按范围分组」这一层，再归档一条、复原它、把它删掉。 */
 await act(async () => { tabs[2].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-const wantGroups = expectedNoteGroups(project)
+const wantGroups = expectedNoteGroups(project, false)
 const shownGroups = [...container.querySelectorAll('#pane-notes .pf-sec')].map((section) => ({
   label: section.querySelector('.pf-rowhead-key')?.textContent ?? '',
   rows: [...section.querySelectorAll('.pf-ins')].map((row) => row.querySelector('.pf-ins-text')?.textContent ?? ''),
@@ -651,7 +899,22 @@ if (live !== undefined) {
   if (archiveKey !== undefined) await click(archiveKey)
   const archived = JSON.parse(readFileSync(join(record, 'instructions.json'), 'utf8')).instructions.find((entry) => entry.id === live.id)
   check('归档：记录里确实是 withdrawn', archived?.state === 'withdrawn', `state=${String(archived?.state)}`)
-  check('重读之后面板把它读作已归档', (notes()?.textContent ?? '').includes('已归档'), 'notes 上有那一行')
+  check(
+    '归档之后默认不在页面上：设置里那一行是关着的',
+    (notes()?.textContent ?? '').includes(live.text) === false && settingsDoc().showArchived !== true,
+    `notes 上找得到那一行=${String((notes()?.textContent ?? '').includes(live.text))} ｜ 文档里 showArchived=${String(settingsDoc().showArchived)}`,
+  )
+
+  /* 翻设置里「指令里显示已归档的」：归档的条目回到各自的段里，右边那枚动作是「复原」。 */
+  await flipSwitch('指令里显示已归档的')
+  check(
+    '翻设置里「指令里显示已归档的」：已归档的当场回到页面上，右边那枚是复原',
+    (notes()?.textContent ?? '').includes(live.text) === true
+      && (rowOf()?.textContent ?? '').includes('已归档')
+      && buttonOf(rowOf(), '复原') !== undefined
+      && settingsDoc().showArchived === true,
+    `那一行=${(rowOf()?.textContent ?? '（没有这一行）').slice(0, 48)} ｜ 文档里 showArchived=${String(settingsDoc().showArchived)}`,
+  )
 
   /* 复原也是从界面上按：那一行现在摆的是「复原」。 */
   const reviveKey = buttonOf(rowOf(), '复原')
@@ -660,6 +923,13 @@ if (live !== undefined) {
   const revived = JSON.parse(readFileSync(join(record, 'instructions.json'), 'utf8')).instructions.find((entry) => entry.id === live.id)
   check('复原：它又回到 live', revived?.state === 'live', `state=${String(revived?.state)}`)
   check('复原之后面板上不再标已归档', (notes()?.textContent ?? '').includes('已归档') === false, '那一行回到了生效那一堆')
+  /* 收尾把这一行翻回关上：后面几条读数与这一趟开始时同一档。 */
+  await flipSwitch('指令里显示已归档的')
+  check(
+    '翻回关上：归档的收起来，文档里那一格也回到关着',
+    settingsDoc().showArchived === false && (notes()?.textContent ?? '').includes('已归档') === false,
+    `文档里 showArchived=${String(settingsDoc().showArchived)}`,
+  )
 
   /* 删除：先让人看清那条原话，点第二下才动手。 */
   const deleteKey = buttonOf(rowOf(), '删除')
@@ -855,8 +1125,31 @@ if (fullKey !== undefined) await click(fullKey)
 check(
   '问题那一格：「完整」那一档落在面板自己的偏好里，不碰记录',
   fullKey !== undefined && fullKey.getAttribute('aria-pressed') === 'true'
-    && window.localStorage.getItem('dsh-pathfinder.showOtherStates') === '1',
-  `aria-pressed=${String(fullKey?.getAttribute('aria-pressed'))} 本地存储=${String(window.localStorage.getItem('dsh-pathfinder.showOtherStates'))}`,
+    && settingsDoc().showOtherStates === true,
+  `aria-pressed=${String(fullKey?.getAttribute('aria-pressed'))} 设置文档里=${String(settingsDoc().showOtherStates)}`,
+)
+/* 反方向：上一段量的是「面板→文档」这一趟，这一条从设置里那一行翻，量「文档→面板」——
+   翻到关，那一排当场回到「精简」、未解决之外的行从登记簿里退出去；再翻回来还原。 */
+const issueRowIds = () => [...(issuePane?.querySelectorAll('button.pf-row[data-issue]') ?? [])]
+  .map((row) => row.getAttribute('data-issue'))
+const poolAllIds = project.pool.groups.flatMap((group) => group.entries.map((entry) => entry.id))
+const segPressed = (label) => [...(issuePane?.querySelectorAll('.pf-segbtn') ?? [])]
+  .find((button) => button.textContent === label)?.getAttribute('aria-pressed')
+await flipSwitch('问题池里显示未解决之外的')
+check(
+  '翻设置里「问题池里显示未解决之外的」到关：面板当场回到「精简」，未解决之外的行退出去',
+  segPressed('精简') === 'true' && segPressed('完整') === 'false'
+    && settingsDoc().showOtherStates === false
+    && JSON.stringify(issueRowIds()) === JSON.stringify(openIds),
+  `面板上那一档=精简(${String(segPressed('精简'))}) 完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 行=${JSON.stringify(issueRowIds())}`,
+)
+await flipSwitch('问题池里显示未解决之外的')
+check(
+  '翻回开：那一排回到「完整」，未解决之外的行回到登记簿里（收尾还原）',
+  segPressed('完整') === 'true'
+    && settingsDoc().showOtherStates === true
+    && JSON.stringify(issueRowIds()) === JSON.stringify(poolAllIds),
+  `面板上那一档=完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 行数=${String(issueRowIds().length)}（未解决 ${String(openIds.length)} 条，全部 ${String(poolAllIds.length)} 条）`,
 )
 check(
   '两个看法都不落笔：点过一遍，写面一次都没被叫过，记录一个字节没动',
@@ -882,7 +1175,7 @@ check(
 )
 
 /* 再真的拖一下：jsdom 没有指针捕获那三个方法，先给这道缝补上桩，再 pointerdown →
- * pointermove → pointerup。读数落两处——缝上的 aria-valuenow 与本地存储，手写存储不算数。 */
+ * pointermove → pointerup。读数落两处——缝上的 aria-valuenow 与设置文档，手写文档不算数。 */
 const captured = new Set()
 const widthBefore = Number.parseInt(grip?.getAttribute('aria-valuenow') ?? '', 10)
 let widthDragged = widthBefore
@@ -901,15 +1194,16 @@ if (grip !== null) {
   await act(async () => { grip.dispatchEvent(pointerAt('pointerup', 240)) })
   await settle()
 }
-const widthStored = window.localStorage.getItem('dsh-pathfinder.sideWidth')
+const widthStored = settingsDoc().sideWidth
 check(
-  '真的拖一下：读数跟着指针走，松手之后宽度落进本地存储',
-  widthDragged === widthBefore + 40 && widthStored === String(widthDragged),
-  `拖前 ${String(widthBefore)} → 拖到 ${String(widthDragged)} ｜ 本地存储=${String(widthStored)}`,
+  '真的拖一下：读数跟着指针走，松手之后宽度落进设置文档（本地存储一个键都不留）',
+  widthDragged === widthBefore + 40 && widthStored === widthDragged
+    && window.localStorage.getItem('dsh-pathfinder.sideWidth') === null,
+  `拖前 ${String(widthBefore)} → 拖到 ${String(widthDragged)} ｜ 设置文档=${String(widthStored)} ｜ 本地存储=${String(window.localStorage.getItem('dsh-pathfinder.sideWidth'))}`,
 )
 await act(async () => { reactRoot.unmount() })
 const again = createRoot(container)
-await act(async () => { again.render(React.createElement(panel.Panel, { port: trackedPort, sessionId })) })
+await act(async () => { again.render(React.createElement(panel.Panel, { port: trackedPort, sessionId, prefs: panel.prefs })) })
 await settle()
 const gripAgain = container.querySelector('#detail-split')
 check(
@@ -958,7 +1252,7 @@ if (parkedNode !== undefined) {
   )
 
   const parkedRoot = createRoot(container)
-  await act(async () => { parkedRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId: parkedSessionId })) })
+  await act(async () => { parkedRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId: parkedSessionId, prefs: panel.prefs })) })
   await settle()
   await act(async () => { [...container.querySelectorAll('.pf-tab')][1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
   await settle()
@@ -1008,6 +1302,148 @@ if (parkedNode !== undefined) {
   lines.push(`      造那份记录的四步：${echoes.join(' ｜ ')}`)
   await act(async () => { parkedRoot.unmount() })
 }
+
+/* ---- 6a-2. 写回被拒：控件不许静默弹回，那一节现有的提示行要说得出来 --------------
+ *
+ * 同一趟往返里的第二笔踩到的就是这个：手里那个修订号已经过期，宿主把这一笔拒掉，交回来的
+ * 只是一个 `false`（理由吞在它自己那里），面板那几处 `void …write(…)` 又把它丢掉。这一条让
+ * 这份文档一律拒收，再翻一次开关：头一笔带围栏、第二笔摘掉围栏，两笔都不作数时设置页现有
+ * 的那条提示行（`.pfset-msg`）上要摆出一句话。 */
+
+const failureLine = () => [...settingsHost.querySelectorAll('.pfset-msg')]
+  .map((node) => node.textContent ?? '').join(' | ')
+const switchState = () => rowNamed('指令里显示已归档的')?.querySelector('.pfset-switch')?.getAttribute('aria-checked')
+const failureBefore = failureLine()
+settingsForm.refuse(true)
+await flipSwitch('指令里显示已归档的')
+const failureAfter = failureLine()
+check(
+  '两笔都被拒时不静默：设置那一节现有的提示行上摆出一句话',
+  failureAfter.includes('保存失败') && failureAfter !== failureBefore
+    && settingsDoc().showArchived !== true && switchState() === 'false',
+  `拒收前提示行=${failureBefore === '' ? '（空）' : failureBefore} ｜ 拒收后=${failureAfter === '' ? '（空）' : failureAfter} ｜ 文档里 showArchived=${String(settingsDoc().showArchived)}`,
+)
+
+/* 面板上那几样走的是同一条写回（`panel.tsx` 的 `keep`）：拒收时它现有的那条提示行也要说
+ * 得出来，控件不许静默弹回。这一趟 `container` 上那一份已经收掉了，另起一份，读的还是同一
+ * 份设置表单；按的是面板上真看得见的那一枚（标签那一排），台下的控件不按。 */
+const refuseHost = window.document.createElement('div')
+window.document.body.appendChild(refuseHost)
+const refuseRoot = createRoot(refuseHost)
+await act(async () => {
+  refuseRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId, prefs: panel.prefs }))
+})
+await settle()
+const tabBefore = settingsDoc().defaultTab
+await act(async () => { refuseHost.querySelector('#tab-notes')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await settle()
+/* `.pf-innone` 那一类还兼着几处空态字幕，所以按那句话找，不按下标取。 */
+const panelSaid = [...refuseHost.querySelectorAll('.pf-innone')]
+  .map((node) => node.textContent ?? '')
+  .find((text) => text.includes('保存失败')) ?? ''
+check(
+  '面板上那一枚开关被拒时，面板现有的提示行一样说得出来',
+  panelSaid.includes('保存失败') && settingsDoc().defaultTab === tabBefore,
+  `面板提示行=${panelSaid === '' ? '（空）' : panelSaid} ｜ 文档里 defaultTab 翻之前=${String(tabBefore)} 翻之后=${String(settingsDoc().defaultTab)}`,
+)
+await act(async () => { refuseRoot.unmount() })
+
+settingsForm.refuse(false)
+await flipSwitch('指令里显示已归档的')
+const landed = settingsDoc().showArchived
+await flipSwitch('指令里显示已归档的')
+check(
+  '下一笔写成：值落定、那句话跟着收回，收尾翻回关上',
+  landed === true && settingsDoc().showArchived === false && failureLine().includes('保存失败') === false,
+  `落定那一笔之后 showArchived=${String(landed)} ｜ 收尾=${String(settingsDoc().showArchived)} ｜ 提示行=${failureLine() === '' ? '（空）' : failureLine()}`,
+)
+
+/* ---- 6b. 同一份设置文档再挂一次：值还在，读数与刚才一致 --------------------
+ *
+ * 真部署里「重启第二个实例」是另一个进程照同一份 `$DSH_HOME` 配置重新读一遍。夹具这一
+ * 趟能到的最远处是：把刚才那份文档原样当作下一份文档的起点，重新走一遍 `apply`（新的
+ * 上下文、新的注册名册、新的设置口子），再看新挂上来的面板与设置页读出来的是不是那几个
+ * 值。浏览器级的第二实例（真起进程、真重启）不归这一格，见报告里的缺口。 */
+
+const keptPrefs = { ...settingsDoc() }
+check(
+  '设置文档里那几个值都落着',
+  typeof keptPrefs.sideWidth === 'number'
+    && typeof keptPrefs.infoLevel === 'string'
+    && typeof keptPrefs.defaultTab === 'string'
+    && typeof keptPrefs.showOtherStates === 'boolean',
+  JSON.stringify(keptPrefs),
+)
+
+const restarted = makeConfigForms({ [client.SETTINGS_NAMESPACE]: keptPrefs })
+const second = bootClient(restarted, {})
+const secondSection = second.ledger.get(`${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`)
+check(
+  '第二个实例里设置那一节照样注册上',
+  secondSection !== undefined && second.ledger.size === 1,
+  `注册=${[...second.ledger.keys()].join(', ') || '（一个都没有）'}`,
+)
+
+const restartRoot = createRoot(container)
+await act(async () => {
+  restartRoot.render(React.createElement(second.panel.Panel, {
+    port: trackedPort, sessionId, prefs: second.panel.prefs,
+  }))
+})
+await settle()
+
+const restartedTab = container.querySelector('.pf-tab[aria-selected="true"]')?.id
+const restartedSeg = [...container.querySelectorAll('#pane-now .pf-modes .pf-segbtn')]
+  .find((button) => button.getAttribute('aria-pressed') === 'true')?.textContent
+const restartedWidth = container.querySelector('#detail-split')?.getAttribute('aria-valuenow')
+const restartedFull = [...container.querySelectorAll('#pane-issue .pf-segbtn')]
+  .find((button) => button.getAttribute('aria-pressed') === 'true')?.textContent
+const infoWord = { lean: '精简', three: '展开', full: '铺满' }[keptPrefs.infoLevel]
+check(
+  '第二个实例照同一份文档开：标签页、信息量、侧栏宽度、问题池那一档都对上',
+  restartedTab === `tab-${String(keptPrefs.defaultTab)}`
+    && restartedSeg === infoWord
+    && restartedWidth === String(keptPrefs.sideWidth)
+    && restartedFull === (keptPrefs.showOtherStates === true ? '完整' : '精简'),
+  `文档=${JSON.stringify(keptPrefs)} ｜ 面板上 标签=${String(restartedTab)} 信息量=${String(restartedSeg)} 宽度=${String(restartedWidth)} 问题池=${String(restartedFull)}`,
+)
+
+const secondHost = window.document.createElement('div')
+window.document.body.appendChild(secondHost)
+const secondSettingsRoot = createRoot(secondHost)
+await act(async () => {
+  secondSettingsRoot.render(React.createElement(secondSection.component, secondSection.options.inject()))
+})
+await settle()
+const secondRow = (label) => [...secondHost.querySelectorAll('.pfset-row')]
+  .find((row) => row.querySelector('.pfset-label')?.textContent === label)
+const secondSwitch = (label) => secondRow(label)?.querySelector('.pfset-switch')?.getAttribute('aria-checked')
+check(
+  '第二个实例的设置页摆的还是文档里那几个值',
+  secondRow('默认标签页')?.querySelector('.pfset-select')?.value === keptPrefs.defaultTab
+    && secondSwitch('指令里显示已归档的') === String(keptPrefs.showArchived === true)
+    && secondSwitch('问题池里显示未解决之外的') === String(keptPrefs.showOtherStates),
+  `下拉=${String(secondRow('默认标签页')?.querySelector('.pfset-select')?.value)} 已归档=${String(secondSwitch('指令里显示已归档的'))} 未解决之外=${String(secondSwitch('问题池里显示未解决之外的'))}`,
+)
+
+/* ---- 6c. 浏览器本地存储：面板自己的键一个都没有 --------------------------- */
+
+const localKeys = []
+try {
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index)
+    if (key !== null) localKeys.push(key)
+  }
+} catch (error) {
+  /* 读不出来就是空的：这一条判的是「有没有面板自己的键」，读不出来也一样没有。 */
+}
+const mine = localKeys.filter((key) => key.startsWith('dsh-pathfinder.'))
+const seededLeft = localKeys.filter((key) => LEGACY_SEEDED.includes(key)).length
+check(
+  '浏览器本地存储里面板自己的键一个都没有',
+  mine.length === 0,
+  `本地存储 ${String(localKeys.length)} 个键${localKeys.length === 0 ? '' : `：${localKeys.join(', ')}`} ｜ 面板自己的 ${String(mine.length)} 个 ｜ 夹具先塞的 ${String(LEGACY_SEEDED.length)} 个旧键剩 ${String(seededLeft)} 个`,
+)
 
 /* ---- 7. 控制台 ---------------------------------------------------------- */
 
