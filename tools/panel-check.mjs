@@ -843,6 +843,16 @@ check(
   `工作区=${poorWorkspace.replace(root, '.')}（只有问题池） ｜ 五格=${JSON.stringify(poorSaid)} ｜ 页头计数 ${String(poorHost.querySelectorAll('#census').length)} 处、六格 ${String(poorHost.querySelectorAll('.pf-pane').length)} 格 ｜ 问题那一格 ${String(poorIssues)} 条`,
 )
 
+/* 只剩一句话的那几格：模块撑满地界。不撑满时舞台把模块上下居中，那句话就漂在当中、还比页头那
+ * 条左缘右一步（1400 宽的窗口里量过：左缘右 300px、标签线下 317px）；撑满之后它落在这一格自己
+ * 的左上角，与另外五格同一处。jsdom 不排版，这里量的是那枚记号。 */
+const poorFrame = poorHost.querySelector('#frame')
+check(
+  '只剩一句话的那几格：模块撑满地界（那句话因此落在这一格自己的左上角）',
+  poorFrame !== null && poorFrame.classList.contains('is-fill'),
+  `模块 class=${JSON.stringify(poorFrame?.className ?? null)}`,
+)
+
 /* 读得回来的那一份照旧：标签、计数与六格都在，正文里没有那句话。 */
 check(
   '这一份记录读得回来：六格标签、右上那排计数与六格正文照旧画着，正文里没有那句话',

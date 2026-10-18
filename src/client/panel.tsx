@@ -393,7 +393,9 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
 
       {nothing === null ? (
       <div className="pf-stage" ref={stageRef}>
-        <div className={`pf-frame${active.fill ? ' is-fill' : ''}`} id="frame">
+        {/* 只剩一句话的那一屏也撑满：舞台把不撑满的模块上下居中，那句话就漂在当中、还比页头
+            那条左缘右一步；撑满之后它跟另外五格同处——这一格自己的左上角。 */}
+        <div className={`pf-frame${active.fill || noNodes ? ' is-fill' : ''}`} id="frame">
           <section
             className="pf-pane pf-board"
             id="pane-now"
