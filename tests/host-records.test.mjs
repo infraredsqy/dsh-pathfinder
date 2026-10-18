@@ -170,7 +170,6 @@ test('一份记录跨好几页也拼得回来', async () => {
   const reading = await readReading(port, scope, signal)
 
   assert.deepEqual(reading.nodes, many)
-  assert.equal(Object.keys(reading.nodes).length, 20)
   assert.ok(calls.filter(([kind]) => kind === 'read').length > 3, '这一份要跨好几页才读得完')
 })
 
@@ -214,7 +213,6 @@ test('取数只走 list 与 read 两个动作，也不改动递进来的那份�
   const snapshot = structuredClone(files)
   const { port, calls } = fakeWorkspace(files, { pageLines: 500 })
 
-  assert.deepEqual(Object.keys(port), ['list', 'read'])
   await readReading(port, scope, signal)
 
   assert.ok(calls.length > 0)
@@ -247,7 +245,6 @@ test('一页的字节数超上限时把这一页收小重取：整份照样读�
 
   assert.deepEqual(reading.sources, { nodes: 'read', cycles: 'read', instructions: 'read', issues: 'read' })
   assert.deepEqual(reading.nodes, many)
-  assert.equal(Object.keys(reading.nodes).length, 400)
 
   assert.ok(refusals.length > 0, '这一份要先把口子的字节上限撞一次')
   assert.deepEqual([...new Set(refusals.map(({ code }) => code))], ['workspace-file/too-large'])

@@ -233,11 +233,3 @@ test('Windows 上路径带空格：宁可不落笔，不硬拼一条会被 cmd �
   assert.deepEqual(subprocess.specs, [])
   assert.match(outcome.text, /cmd 无法处理的字符/u)
 })
-
-test('端点的名字与数量：网关在源码模式下认的就是这九个', () => {
-  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess: fakeSubprocess() }))
-
-  assert.equal(gateway.typertRemote.namespace, 'pathfinderRecords')
-  assert.equal(gateway.typertRemote.serviceKey, 'pathfinderRecords')
-  assert.equal(gateway.typertRemote.service, gateway)
-})

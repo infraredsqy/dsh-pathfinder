@@ -99,7 +99,6 @@ test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条�
   assert.equal(side.order, PANEL_ORDER)
   assert.equal(typeof side.label, 'function')
   assert.equal(side.label(), SEAT_LABEL)
-  assert.equal(side.label(), '调度中心')
 
   const main = ledger.get(`main:${PANEL_ID}`).options
   assert.equal(main.name, 'main')

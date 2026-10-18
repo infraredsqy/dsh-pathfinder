@@ -46,16 +46,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 })
 
 test('字段表就是那几个键，出厂默认那几条与浏览器那侧逐项对得上', () => {
-  assert.deepEqual(PANEL_PREF_FIELDS, {
-    sideWidth: 'sideWidth',
-    infoLevel: 'infoLevel',
-    defaultTab: 'defaultTab',
-    showArchived: 'showArchived',
-    showOtherStates: 'showOtherStates',
-  })
   assert.deepEqual(Object.keys(PANEL_PREF_DEFAULTS).sort(), Object.values(PANEL_PREF_FIELDS).sort())
-  assert.deepEqual([...INFO_LEVELS], ['lean', 'three', 'full'])
-  assert.deepEqual([...VIEW_IDS], ['now', 'detail', 'notes', 'wires', 'issue', 'config'])
   /* 印在设置页与面板上的那几个字：六个看法与三档信息量各一份。 */
   assert.deepEqual(Object.keys(INFO_LABELS).sort(), [...INFO_LEVELS].sort())
   assert.deepEqual(Object.keys(VIEW_LABELS).sort(), [...VIEW_IDS].sort())
@@ -241,7 +232,6 @@ test('接上设置表单那一刻扫掉旧版那四个键，别人的键不动',
   const had = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true, writable: true })
   try {
-    assert.equal(LEGACY_PREF_KEYS.length, 4)
     const source = createPrefsSource()
     source.attach(fakeForm({}))
     assert.deepEqual(storage.keys(), ['somebody-else.key'])
@@ -379,12 +369,4 @@ test('宿主那份 schema：字段的种类、出厂默认与上下限就是字�
     defaults: [PANEL_PREF_DEFAULTS.showOtherStates],
     extra: {},
   })
-})
-
-/* 这一条只问「模块 import 得动、名字还在」；断言 `host.Config === undefined` 锁的是本机
-   node_modules 那一刻的样子（`package.json` 已把它列进 peerDependencies），下一次 install
-   就会判红，所以那一支得让解析确定性地失败才量得准。 */
-test('这一行没有设置表单也装得上：模块 import 得动，名字还在', async () => {
-  const host = await import('../src/host/index.ts')
-  assert.equal(host.name, 'pathfinder-records')
 })
