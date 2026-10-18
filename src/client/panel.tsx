@@ -1221,9 +1221,9 @@ function DeleteConfirm(props: {
           <button type="button" className="pf-mini" onClick={props.onCancel}>关闭</button>
         </div>
         <blockquote className="pf-del-said">{props.said}</blockquote>
-        <p className="pf-del-word">
-          {'这一条连同正文一起从记录里拿走，只留下 id 与时刻，不再出现在任何读数里；删掉之后放不回来——复原不是撤销删除的办法。'}
-        </p>
+        <div className="pf-del-warn">
+          <p>{'此次删除将移除该指令的存在痕迹。'}</p>
+        </div>
         <div className="pf-modal-acts">
           <button type="button" className="pf-btn" onClick={props.onCancel}>取消</button>
           <button type="button" className="pf-btn" onClick={props.onConfirm}>删除</button>

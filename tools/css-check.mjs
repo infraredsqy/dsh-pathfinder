@@ -531,6 +531,10 @@ const MARKS = [
   { what: '计数胶囊方记号 · 进行中', where: '.pf-cell.is-running', property: 'background', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-base', tier: null },
   { what: '问题池记号 · 未解决', where: '.pf-cell.is-open', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-base', tier: null },
   { what: '线路记号 · 阻塞的点', where: '.pf-linemark.is-blocked::before', property: 'background', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-base', tier: null },
+  /* The delete dialog's alert zone: the bar is the mark, and the layer the dialog
+   * itself stands on is its ground — the amber tint under the sentence is 8%, so the
+   * bar reads against that layer and the check can keep saying so. */
+  { what: '删除这一条 · 警报区的左缘', where: '.pf-del-warn', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-layer-2', tier: null },
   { what: '会话栏的点', where: '.pf-side-dot', property: 'background', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-base', tier: null },
   { what: '主题自己的空闲点（1.5 那一档的依据）', where: null, property: null, ink: 'var(--dsw-alias-state-idle-primary)', ground: '--dsw-alias-bg-base', tier: null },
 ]
