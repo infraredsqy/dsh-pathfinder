@@ -1,7 +1,10 @@
 /* 写面那一段：锁的是「一条动作对应哪一条命令」，以及那道参数闸。
  *
- * 这一层不碰记录本身，落笔全靠递出去的那条命令行，所以锁住的就是那条命令行：五个端点
+ * 这一层不碰记录本身，落笔全靠递出去的那条命令行，所以锁住的就是那条命令行：六个端点
  * 各起哪一条 `pf` 命令、参数闸把什么样的输入挡在外面、Windows 上那条命令行拼成什么样。
+ *
+ * 「记下一条」带的是用户的原话，过不了那道闸，于是它另有一条 argv：解释器 + `pf.py`，整句
+ * 作为一个参数递进去——那条命令行里 `&` 还是 `&`，所以这几条把它单锁一遍。
  *
  *   node --test tests/
  */
@@ -9,11 +12,24 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 
-function fakeSubprocess({ executable = 'C:\\tools\\bin\\pf.cmd', exitCode = 0, stdout = '', stderr = '' } = {}) {
+function fakeSubprocess({
+  executable = 'C:\\tools\\bin\\pf.cmd',
+  python = 'C:\\python\\python.exe',
+  py = 'C:\\Windows\\py.exe',
+  exitCode = 0,
+  stdout = '',
+  stderr = '',
+} = {}) {
   const specs = []
+  const found = (name, path) => {
+    if (path === null) throw new Error(`${name} 不在 PATH 上`)
+    return path
+  }
   return {
     specs,
-    async resolveExecutable() {
+    async resolveExecutable(command) {
+      if (command === 'python') return found('python', python)
+      if (command === 'py') return found('py', py)
       return executable
     },
     spawn(spec) {
@@ -80,6 +96,80 @@ test('删一条：pf instruction rm <id>', async () => {
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['instruction', 'rm', 'i-0007'])
 })
 
+test('记下一条：pf instruction add --scope <范围> --text，原话整句作为一个参数', async () => {
+  const subprocess = fakeSubprocess()
+  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
+  const said = '先看一眼记录再动手 & 别猜'
+  const outcome = await gateway.addInstruction('s1', '', said, 'global', '', '')
+
+  assert.equal(outcome.ok, true)
+  assert.deepEqual(
+    subprocess.specs[0].argv.slice(-6),
+    ['instruction', 'add', '--scope', 'global', '--text', said],
+  )
+})
+
+test('记下一条：绑哪条线、绑哪一格各自点名，另外那两个范围一个都不带', async () => {
+  const subprocess = fakeSubprocess()
+  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
+  await gateway.addInstruction('s1', '', '跟着这条线走', 'cycle', 'panel-to-plugin', '')
+  await gateway.addInstruction('s1', '', '这一格先停下', 'node', '', '3fac279b')
+
+  assert.deepEqual(
+    subprocess.specs[0].argv.slice(-8),
+    ['instruction', 'add', '--scope', 'cycle', '--cycle', 'panel-to-plugin', '--text', '跟着这条线走'],
+  )
+  assert.deepEqual(
+    subprocess.specs[1].argv.slice(-8),
+    ['instruction', 'add', '--scope', 'node', '--node', '3fac279b', '--text', '这一格先停下'],
+  )
+})
+
+test('记下一条：Windows 上那一次起的是解释器，不经过 cmd', { skip: process.platform !== 'win32' }, async () => {
+  const subprocess = fakeSubprocess()
+  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
+  await gateway.addInstruction('s1', '', '有 & 的一句', 'global', '', '')
+
+  assert.deepEqual(
+    subprocess.specs[0].argv,
+    ['C:\\python\\python.exe', '-X', 'utf8', 'C:\\tools\\bin\\pf.py', 'instruction', 'add', '--scope', 'global', '--text', '有 & 的一句'],
+  )
+})
+
+test('记下一条：`python` 不在就换 `py -3`，两条路都留着', { skip: process.platform !== 'win32' }, async () => {
+  const subprocess = fakeSubprocess({ python: null })
+  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
+  const outcome = await gateway.addInstruction('s1', '', '一句话', 'global', '', '')
+
+  assert.equal(outcome.ok, true)
+  assert.deepEqual(
+    subprocess.specs[0].argv.slice(0, 5),
+    ['C:\\Windows\\py.exe', '-3', '-X', 'utf8', 'C:\\tools\\bin\\pf.py'],
+  )
+})
+
+test('记下一条：两种叫法都不在这台机器上，宁可不落笔，如实说', async () => {
+  const subprocess = fakeSubprocess({ python: null, py: null })
+  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
+  const outcome = await gateway.addInstruction('s1', '', '一句话', 'global', '', '')
+
+  assert.equal(outcome.ok, false)
+  assert.deepEqual(subprocess.specs, [])
+  assert.match(outcome.text, /解释器/u)
+})
+
+test('记下一条：空话与不认识的范围当场说清，命令一条都不递', async () => {
+  const subprocess = fakeSubprocess()
+  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
+  const blank = await gateway.addInstruction('s1', '', '   ', 'global', '', '')
+  const odd = await gateway.addInstruction('s1', '', '一句话', 'everywhere', '', '')
+
+  assert.equal(blank.ok, false)
+  assert.equal(odd.ok, false)
+  assert.match(odd.text, /无法识别的范围/u)
+  assert.deepEqual(subprocess.specs, [])
+})
+
 test('一个策略数：pf cycle policy <线> <键> <值>', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
@@ -144,7 +234,7 @@ test('Windows 上路径带空格：宁可不落笔，不硬拼一条会被 cmd �
   assert.match(outcome.text, /cmd 无法处理的字符/u)
 })
 
-test('端点的名字与数量：网关在源码模式下认的就是这五个', () => {
+test('端点的名字与数量：网关在源码模式下认的就是这九个', () => {
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess: fakeSubprocess() }))
 
   assert.equal(gateway.typertRemote.namespace, 'pathfinderRecords')

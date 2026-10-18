@@ -149,26 +149,25 @@ const { readProject } = await import(pathToFileURL(join(root, 'src', 'model', 'i
 
 /** 起进程那一侧的最小替身：与宿主那份一样走 execFile，一样隐藏窗口。 */
 function spawner() {
-  let foundExecutable = null
+  /* 真部署里这条口子按名字解一次就记着；夹具这一趟要叫十几条命令，每条都去 `where`
+   * 一遍是白花的。名字各记各的：`pf` 之外还有带原话那一次要用的解释器。 */
+  const found = new Map()
+  const whereIs = (command) => new Promise((resolve, reject) => {
+    execFile('where', [command], { encoding: 'utf8', windowsHide: true }, (error, stdout) => {
+      if (error !== null) {
+        reject(error)
+        return
+      }
+      const hits = String(stdout).split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0)
+      /* PATH 上那个同名的 sh 垫片排在 `.cmd` 前面，起得来的只有带可执行扩展名的那个。 */
+      const runnable = hits.find((line) => /\.(cmd|exe|bat|com)$/iu.test(line))
+      resolve(runnable ?? hits[0] ?? command)
+    })
+  })
   return {
     async resolveExecutable(command) {
-      /* 真部署里这条口子按 PATH 解一次就记着；夹具这一趟要叫十几条命令，每条都去 `where`
-       * 一遍是白花的。 */
-      if (foundExecutable === null) {
-        foundExecutable = await new Promise((resolve, reject) => {
-          execFile('where', [command], { encoding: 'utf8', windowsHide: true }, (error, stdout) => {
-            if (error !== null) {
-              reject(error)
-              return
-            }
-            const found = String(stdout).split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0)
-            /* PATH 上那个同名的 sh 垫片排在 `.cmd` 前面，起得来的只有带可执行扩展名的那个。 */
-            const runnable = found.find((line) => /\.(cmd|exe|bat|com)$/iu.test(line))
-            resolve(runnable ?? found[0] ?? command)
-          })
-        })
-      }
-      return foundExecutable
+      if (!found.has(command)) found.set(command, await whereIs(command))
+      return found.get(command)
     },
     spawn(spec) {
       const collected = {}
@@ -255,6 +254,7 @@ const wrapped = (run) => async (...values) => {
 const remoteFace = {
   read: wrapped((...values) => track(gateway.read(...values))),
   readSessions: wrapped((...values) => track(gateway.readSessions(...values))),
+  addInstruction: wrapped((...values) => gateway.addInstruction(...values)),
   archiveInstruction: wrapped((...values) => gateway.archiveInstruction(...values)),
   reviveInstruction: wrapped((...values) => gateway.reviveInstruction(...values)),
   removeInstruction: wrapped((...values) => gateway.removeInstruction(...values)),
@@ -583,6 +583,10 @@ const trackedPort = {
     writeCalls.push(`write/${verb}`)
     return track(panel.port.write(verb, id, workspaceRoot, target))
   },
+  say(id, workspaceRoot, text, scope, cycle, node) {
+    writeCalls.push(`say/${scope}`)
+    return track(panel.port.say(id, workspaceRoot, text, scope, cycle, node))
+  },
   setPolicy(id, workspaceRoot, cycle, key, value) {
     writeCalls.push(`setPolicy/${key}`)
     return track(panel.port.setPolicy(id, workspaceRoot, cycle, key, value))
@@ -803,8 +807,10 @@ await act(async () => {
 })
 await settle()
 
-const spaceSelect = () => spaceHost.querySelector('.pf-pick select')
-const spaceOptions = () => [...spaceHost.querySelectorAll('.pf-pick select option')]
+/* 这两条收在页头那一枚上：`.pf-pick` 不止一处（指令那一格那枚范围字段与它是同一个对象），
+   不收窄就会把那一枚的候选一起算进工作区名单里。 */
+const spaceSelect = () => spaceHost.querySelector('.pf-head .pf-pick select')
+const spaceOptions = () => [...spaceHost.querySelectorAll('.pf-head .pf-pick select option')]
 check(
   '顶上那枚选择器：名单就是 DSH 那份清单的标题，末尾一档是「未分组」，默认停在会话落的那个桶',
   spaceSelect() !== null
@@ -1237,6 +1243,43 @@ if (live !== undefined) {
   check('删掉的那条不再出现在面板上', (notes()?.textContent ?? '').includes(live.text) === false, 'notes 上找不到了')
   const restore = await gateway.reviveInstruction(sessionId, '', live.id)
   check('删除之后复原拿不回来', restore.ok === false, `revive=${restore.ok ? 'ok' : restore.text.split('\n')[0].slice(0, 60)}`)
+}
+
+/* 记下一条：从这一行里写一句进去——面板 → 宿主 → 工具 → 记录，再读回页面。
+   挑全局那一项：这一条量的是那条路通不通，绑哪条线的读数另有一条在管。 */
+const said = '先看一眼记录再动手 & 别猜'
+const addRow = container.querySelector('#pane-notes .pf-add')
+check(
+  '指令那一格最上头摆着「记下一条」那一行：范围那一枚、原话那个框、添加那一枚',
+  addRow !== null
+    && addRow.querySelector('select')?.getAttribute('aria-label') === '这句话管到哪儿'
+    && addRow.querySelector('input')?.getAttribute('placeholder') === '原话照抄'
+    && [...addRow.querySelectorAll('.pf-btn')].some((button) => button.textContent === '添加'),
+  addRow === null ? '没有这一行' : `范围=${String(addRow.querySelector('select')?.value)} 占位=${String(addRow.querySelector('input')?.getAttribute('placeholder'))}`,
+)
+if (addRow !== null) {
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+  const field = addRow.querySelector('input')
+  await act(async () => {
+    setValue.call(field, said)
+    field.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  const go = [...addRow.querySelectorAll('.pf-btn')].find((button) => button.textContent === '添加')
+  if (go !== undefined) {
+    await act(async () => { go.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    await settle()
+  }
+  const added = JSON.parse(readFileSync(join(record, 'instructions.json'), 'utf8')).instructions.find((entry) => entry.text === said)
+  check(
+    '添加：记录里多出这一句，说的是全局、当场生效',
+    added !== undefined && added.scope === 'global' && added.state === 'live',
+    `id=${String(added?.id)} scope=${String(added?.scope)} state=${String(added?.state)} ｜ 面板上那句话=${[...container.querySelectorAll('.pf-innone')].map((one) => one.textContent).join(' ｜ ')}`,
+  )
+  check(
+    '添加：那一句回到页面上，框里的原话收走了',
+    field.value === '' && (container.querySelector('#pane-notes')?.textContent ?? '').includes(said),
+    `框里=${field.value} ｜ 页面上找得到=${String((container.querySelector('#pane-notes')?.textContent ?? '').includes(said))}`,
+  )
 }
 
 /* 策略数：从线路设置那枚模态里改一个，读数跟着变。 */

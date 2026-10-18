@@ -3,8 +3,12 @@
  *
  * 这里不拼 JSON、不碰 `.pf` 下的文件，只把一条命令递出去再把输出收回来，工具自己会把拒绝的
  * 理由打出来。命令一律不经 shell 解释：每个参数先过一道字符闸，再交给 `ctx.subprocess`。
+ *
+ * 用户的原话是唯一过不了那道闸的东西——它可以是任意一句中文，带空格、带标点。这样一句在
+ * Windows 上不能走 cmd 那条命令行（见 `launchArgs`），所以带话的那一次单独有一条 argv。
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { dirname, join } from 'node:path'
 /* 起进程的口子在 `@deepseek-ai/dsh-subprocess` 的包入口上，只为把 `subprocess` 挂到
  * Context 上：类型引用，运行时什么都不进。 */
 import type {} from '@deepseek-ai/dsh-subprocess'
@@ -15,7 +19,7 @@ export interface PfOutcome {
   readonly text: string
 }
 
-/** 参数闸：命令、子命令、id、键名、值都只会是这些字符里的组合。 */
+/** 参数闸：命令、子命令、id、键名、值都只会是这些字符里的组合；原话在闸外，见 `runPf`。 */
 const SAFE_ARG = /^[A-Za-z0-9_.:+-]{1,200}$/
 
 /** 一次落笔最多等多久。工具这几条都是读一份小 JSON 再写回去。 */
@@ -30,6 +34,7 @@ const MAX_BYTES = 64 * 1024
  * @param workspaceRoot - 记录所在的那个工作区根，命令就跑在那里。
  * @param args - 命令与参数，逐项过闸。
  * @param signal - 调用方取消。
+ * @param said - 用户的原话，接在命令末尾原样递过去；给了它就换一条不经 shell 的 argv。
  * @returns 工具退出码是不是 0，以及它说了什么。
  */
 export async function runPf(
@@ -37,6 +42,7 @@ export async function runPf(
   workspaceRoot: string,
   args: readonly string[],
   signal: AbortSignal,
+  said?: string,
 ): Promise<PfOutcome> {
   const unsafe = args.find((arg) => !SAFE_ARG.test(arg))
   if (unsafe !== undefined) return { ok: false, text: `该参数不能进入命令：${unsafe}` }
@@ -46,7 +52,7 @@ export async function runPf(
 
   let argv: readonly string[]
   try {
-    argv = await launchArgs(subprocess, args, signal)
+    argv = await launchArgs(subprocess, args, signal, said)
   } catch (error) {
     return { ok: false, text: messageOf(error) }
   }
@@ -99,11 +105,16 @@ interface Spawner {
  * 这一条命令行里的路径不能加引号：Node 在 Windows 上按 C 运行时的规矩重新拼一遍命令行，
  * 加上的引号会变成 `\"`，cmd 认不出那个程序（实测：裸路径 exit 0，加引号 exit 1）。路径里真
  * 带空格或 cmd 元字符时，这一手就落不了笔，如实说出来，不硬拼。
+ *
+ * 带原话的那一次不走这条命令行：cmd 会把那句按空格拆开，还会执行句里的 `&`（实测：
+ * `--text a & echo x` 真会跑起第二句）。它直接起 `pf.cmd` 并排躺着的那份 `pf.py`，整句作为
+ * 一个参数交给解释器——参数由 Node 自己按 C 运行时的规矩引号，`&` 到了那边还是 `&`。
  */
 async function launchArgs(
   subprocess: Spawner,
   args: readonly string[],
   signal: AbortSignal,
+  said: string | undefined,
 ): Promise<readonly string[]> {
   let pf: string
   try {
@@ -113,7 +124,8 @@ async function launchArgs(
      * 两句话分开说：混成一句，读者会照着第一句去装一个已经装好了的命令。 */
     throw new Error(`未找到 pf 命令：${messageOf(error)}`)
   }
-  if (process.platform !== 'win32') return [pf, ...args]
+  if (process.platform !== 'win32') return said === undefined ? [pf, ...args] : [pf, ...args, said]
+  if (said !== undefined) return [...(await scriptArgs(subprocess, pf, signal)), ...args, said]
   if (!CMD_SAFE_PATH.test(pf)) {
     throw new Error(`pf 命令的路径中含有 cmd 无法处理的字符（${pf}），无法执行这次写入。`)
   }
@@ -123,6 +135,33 @@ async function launchArgs(
 
 /** 路径里只认这些字符；逗号、空格、引号、cmd 的元字符都在闸外。 */
 const CMD_SAFE_PATH = /^[A-Za-z0-9_.:\\/-]+$/
+
+/** `pf.cmd` 旁边那份 python 入口：`pf.cmd` 到头来就是把参数交给它。 */
+const PF_SCRIPT = 'pf.py'
+
+/** 解释器那两种叫法，与 `pf.cmd` 自己那道探测同一个次序，`-X utf8` 与它那两处对齐。 */
+const INTERPRETERS: readonly (readonly [string, ...string[]])[] = [
+  ['python', '-X', 'utf8'],
+  ['py', '-3', '-X', 'utf8'],
+]
+
+/**
+ * 带原话那一条的开头：解释器、它的开关、`pf.py`。
+ * @param subprocess - 起进程那一侧；解释器的路径问它。
+ * @param pf - 解析出来的 `pf` 路径，`pf.py` 与它并排躺着。
+ * @param signal - 调用方取消。
+ * @returns 这一条 argv 的前几项，原话与参数由调用方接在后头。
+ */
+async function scriptArgs(subprocess: Spawner, pf: string, signal: AbortSignal): Promise<readonly string[]> {
+  for (const [command, ...flags] of INTERPRETERS) {
+    try {
+      return [await subprocess.resolveExecutable(command, undefined, signal), ...flags, join(dirname(pf), PF_SCRIPT)]
+    } catch (error) {
+      /* 这一种叫法这台机器上没有：换下一种。两种都没有时，下面那一句才是要说的。 */
+    }
+  }
+  throw new Error('这台机器上没有能把原话送进 pf 的解释器：`python` 与 `py` 都不在 PATH 上。')
+}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

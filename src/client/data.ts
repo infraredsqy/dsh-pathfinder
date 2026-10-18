@@ -8,7 +8,7 @@ import type { PathfinderReading } from '../host/contract.ts'
 import type { PathfinderConfigReading } from '../host/project-config.ts'
 import type { PathfinderSessionsReading } from '../host/sessions.ts'
 import type { PfOutcome } from '../host/write.ts'
-import type { CyclePolicyKey } from '../host/gateway.ts'
+import type { CyclePolicyKey, InstructionScope } from '../host/gateway.ts'
 
 /** 命名空间，与宿主半身那条服务键同名。 */
 export const NAMESPACE = 'pathfinderRecords'
@@ -37,6 +37,8 @@ export interface PanelPort {
   read(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderReading>
   /** 点名那个工作区里每一格最近开过的那条会话：卡上那一下要去的地方。 */
   readSessions(sessionId: string, workspaceRoot: string): Promise<PathfinderSessionsReading>
+  /** 记下一条指令：把用户的原话与范围递给工具。 */
+  say(sessionId: string, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<PfOutcome>
   /** 归档 / 复原 / 删除一条指令。 */
   write(verb: WriteVerb, sessionId: string, workspaceRoot: string, id: string): Promise<PfOutcome>
   /** 写一条线自己的一个策略数。 */
@@ -145,6 +147,10 @@ function remotePort(namespace: Service): PanelPort {
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
+    async say(sessionId, workspaceRoot, text, scope, cycle, node) {
+      const answer = await call<PfOutcome>('addInstruction', { sessionId, workspaceRoot, text, scope, cycle, node })
+      return answer.ok ? answer.value : { ok: false, text: answer.message }
+    },
     async write(verb, sessionId, workspaceRoot, id) {
       const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
@@ -187,6 +193,10 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
+    async say(sessionId, workspaceRoot, text, scope, cycle, node) {
+      const answer = await call<PfOutcome>('addInstruction', { sessionId, workspaceRoot, text, scope, cycle, node })
+      return answer.ok ? answer.value : { ok: false, text: answer.message }
+    },
     async write(verb, sessionId, workspaceRoot, id) {
       const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
@@ -213,7 +223,7 @@ function absentPort(): PanelPort {
     throw new Error('该部署未连接寻路记录服务，无法读取记录。')
   }
   const refused = async (): Promise<PfOutcome> => ({ ok: false, text: '该部署没有可用的写入通道。' })
-  return { source: 'none', read: missing, readSessions: missing, write: refused, setPolicy: refused, readConfig: missing, setConfig: refused }
+  return { source: 'none', read: missing, readSessions: missing, say: refused, write: refused, setPolicy: refused, readConfig: missing, setConfig: refused }
 }
 
 /** 把 `{ ok, value }` 那一副脸摊成这一层用的两分支。 */

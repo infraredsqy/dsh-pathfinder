@@ -6,7 +6,7 @@
  */
 import * as React from 'react'
 import type { PathfinderInstruction, PathfinderReading, PathfinderSourceState } from '../host/contract.ts'
-import type { CyclePolicyKey } from '../host/gateway.ts'
+import type { CyclePolicyKey, InstructionScope } from '../host/gateway.ts'
 import type { CycleReading, InstructionReading, NodeReading, ProjectReading } from '../model/index.ts'
 import { clock, dayLabel, duration, elapsedSince, readProject } from '../model/index.ts'
 import type { InfoLevel, PrefField, PrefsSource, ViewId } from './prefs.ts'
@@ -271,15 +271,22 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     setFullCap(Math.max(1, Math.min(FULL_MAX, rows)))
   }, [info, tab, project, fullCap])
 
+  /* 面板上落笔的那几处都走这一手：把那句话原样摆到提示行上，写成了就再读一次（`tick` 一动，
+   * 上面那条读数的口子就重跑）。交回「成了没有」是给「记下一条」那一行用的——写成的那一句才
+   * 把框里清空，工具拒了的话，原话留在框里等人接着改。 */
   const onWrite = React.useCallback(
-    (run: () => Promise<{ ok: boolean; text: string }>) => {
+    (run: () => Promise<{ ok: boolean; text: string }>): Promise<boolean> => {
       setNote(null)
-      run().then(
+      return run().then(
         (outcome) => {
           setNote(outcome.text.length > 0 ? outcome.text : null)
           if (outcome.ok) setTick((value) => value + 1)
+          return outcome.ok
         },
-        (error: unknown) => { setNote(error instanceof Error ? error.message : String(error)) },
+        (error: unknown) => {
+          setNote(error instanceof Error ? error.message : String(error))
+          return false
+        },
       )
     },
     [],
@@ -463,14 +470,23 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             data-fill=""
             hidden={tab !== 'notes'}
           >
+            {project === null ? null : (
+              <InstructionAdd
+                cycles={cycles}
+                inHand={project.columns.running[0] ?? null}
+                onAdd={(text, scope, cycle, node) => (
+                  onWrite(() => port.say(sessionId ?? '', workspaceRoot, text, scope, cycle, node))
+                )}
+              />
+            )}
             <div className="pf-scroll" id="notes-scroll" role="region" aria-label="用户指令" tabIndex={0}>
               {project === null ? null : (
                 <InstructionBook
                   project={project}
                   raw={reading?.instructions ?? []}
                   showArchived={stored.archived}
-                  onArchive={(id) => onWrite(() => port.write('archive', sessionId ?? '', workspaceRoot, id))}
-                  onRevive={(id) => onWrite(() => port.write('revive', sessionId ?? '', workspaceRoot, id))}
+                  onArchive={(id) => { void onWrite(() => port.write('archive', sessionId ?? '', workspaceRoot, id)) }}
+                  onRevive={(id) => { void onWrite(() => port.write('revive', sessionId ?? '', workspaceRoot, id)) }}
                   onDelete={(instruction) => setDeleting(instruction)}
                 />
               )}
@@ -835,6 +851,92 @@ function DetailGroup(props: { readonly group: Group; readonly nodes: readonly No
         </div>
       ))}
     </section>
+  )
+}
+
+/** 范围那一枚挑出来的三样：范围词、绑哪条线、绑哪一格。 */
+interface ScopeChoice {
+  readonly value: string
+  readonly label: string
+  readonly scope: InstructionScope
+  readonly cycle: string
+  readonly node: string
+}
+
+/** 全局那一项：范围表上的头一项，挑过的那条线不在了就退到它。 */
+const GLOBAL_CHOICE: ScopeChoice = { value: 'global', label: '全局', scope: 'global', cycle: '', node: '' }
+
+/**
+ * 范围那一列摆哪几项：全局、记录里那几条线、此刻在手里的那一格。
+ *
+ * 蓝本那一行也只摆这三样，只是它每回只点得到最上面那个在跑着的格；真面板里在手里的是哪
+ * 一格由记录自己说，没有就是没有这一项。
+ * @param cycles - 那一刻记录里那几条线。
+ * @param inHand - 此刻在手里的那一格；没有就只留前两样。
+ */
+function scopeChoices(cycles: readonly CycleReading[], inHand: NodeReading | null): readonly ScopeChoice[] {
+  const out: ScopeChoice[] = [GLOBAL_CHOICE]
+  for (const cycle of cycles) {
+    out.push({ value: `cycle:${cycle.id}`, label: cycle.id, scope: 'cycle', cycle: cycle.id, node: '' })
+  }
+  if (inHand !== null) {
+    const name = inHand.title ?? inHand.id
+    const short = name.length > 12 ? `${name.slice(0, 12)}…` : name
+    out.push({ value: `node:${inHand.id}`, label: `这一格 · ${short}`, scope: 'node', cycle: '', node: inHand.id })
+  }
+  return out
+}
+
+/**
+ * 「记下一条」那一行：范围点名 + 原话照抄，站在这一格的最上头。
+ *
+ * 写成了才把那句话从框里收走：工具拒了的话，用户自己那句原话还留在原处等着改。
+ */
+function InstructionAdd(props: {
+  readonly cycles: readonly CycleReading[]
+  readonly inHand: NodeReading | null
+  readonly onAdd: (text: string, scope: InstructionScope, cycle: string, node: string) => Promise<boolean>
+}): React.ReactElement {
+  const [text, setText] = React.useState('')
+  const [picked, setPicked] = React.useState(GLOBAL_CHOICE.value)
+  const box = React.useRef<HTMLInputElement | null>(null)
+  const choices = scopeChoices(props.cycles, props.inHand)
+  const chosen = choices.find((one) => one.value === picked) ?? GLOBAL_CHOICE
+
+  const submit = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    const said = text.trim()
+    if (said.length === 0) {
+      box.current?.focus()
+      return
+    }
+    void props.onAdd(said, chosen.scope, chosen.cycle, chosen.node).then((accepted) => {
+      if (accepted) setText('')
+    })
+  }
+
+  return (
+    <form className="pf-add" id="add" onSubmit={submit}>
+      <span className="pf-pick">
+        <select
+          aria-label="这句话管到哪儿"
+          value={chosen.value}
+          onChange={(event) => setPicked(event.target.value)}
+        >
+          {choices.map((one) => <option key={one.value} value={one.value}>{one.label}</option>)}
+        </select>
+      </span>
+      <input
+        ref={box}
+        type="text"
+        placeholder="原话照抄"
+        aria-label="原话照抄"
+        autoComplete="off"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+      <button type="submit" className="pf-btn">添加</button>
+    </form>
   )
 }
 

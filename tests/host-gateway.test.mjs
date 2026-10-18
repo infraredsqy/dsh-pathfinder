@@ -15,9 +15,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 
-/** 八个端点，与 `gateway.ts` 里那张表同一份口径。 */
+/** 九个端点，与 `gateway.ts` 里那张表同一份口径。 */
 const ENDPOINTS = [
   'read',
+  'addInstruction',
   'archiveInstruction',
   'reviveInstruction',
   'removeInstruction',
@@ -123,7 +124,7 @@ async function liveGateway(root) {
   }
 }
 
-test('七个端点在源码模式下逐个叫得动：签名这一关先过，别的错另算', { skip: !wired }, async () => {
+test('九个端点在源码模式下逐个叫得动：签名这一关先过，别的错另算', { skip: !wired }, async () => {
   const root = syntheticWorkspace()
   const { ctx, call } = await liveGateway(root)
   try {
@@ -188,6 +189,24 @@ test('会话笔记那一条：这一层目录不在时交回一份空清单，�
     assert.equal(answer.ok, true, String(answer.message))
     assert.equal(answer.value.state, 'missing')
     assert.deepEqual(answer.value.sessions, {})
+  } finally {
+    await ctx.stop?.()
+  }
+})
+
+test('记下一条那条端点：原话过网关这一关，落成工具那一句', { skip: !wired }, async () => {
+  const root = syntheticWorkspace()
+  const { ctx, call } = await liveGateway(root)
+  try {
+    const answer = await call('addInstruction', {
+      sessionId: 's1',
+      workspaceRoot: '',
+      text: '先看一眼记录再动手 & 别猜',
+      scope: 'global',
+      cycle: '',
+      node: '',
+    })
+    assert.equal(answer.ok, true, String(answer.message))
   } finally {
     await ctx.stop?.()
   }

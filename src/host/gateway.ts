@@ -22,6 +22,12 @@ import { runPf, type PfOutcome } from './write.ts'
 /** 一条线自己那三个策略数里能写的那几个键。 */
 export type CyclePolicyKey = 'parallel' | 'test_seconds_limit' | 'issue_pool_weight_limit'
 
+/** 指令能绑的三个范围：全局 / 说给某条线 / 说给某一格。 */
+export type InstructionScope = 'global' | 'cycle' | 'node'
+
+/** 这一类落笔认得的三个范围，与工具那边的写法逐字相同。 */
+export const INSTRUCTION_SCOPES: readonly InstructionScope[] = ['global', 'cycle', 'node']
+
 /** 这一类落笔认得的那几个键，与工具那边的写法逐字相同。 */
 export const CYCLE_POLICY_KEYS: readonly CyclePolicyKey[] = [
   'parallel',
@@ -32,6 +38,7 @@ export const CYCLE_POLICY_KEYS: readonly CyclePolicyKey[] = [
 /** 端点表：左边是类上的方法名，右边是浏览器半身叫的那个名字。 */
 const REMOTE_METHODS: readonly (readonly [string, string])[] = [
   ['read', 'read'],
+  ['addInstruction', 'addInstruction'],
   ['archiveInstruction', 'archiveInstruction'],
   ['reviveInstruction', 'reviveInstruction'],
   ['removeInstruction', 'removeInstruction'],
@@ -99,6 +106,34 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
     const signal = options?.signal ?? new AbortController().signal
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
     return readReading(this.ctx.workspaceFiles, { sessionId, workspaceRoot: root }, signal)
+  }
+
+  /**
+   * 记下一条指令：用户的原话照抄，范围点名。
+   *
+   * 这一条与另外三条走的路不同：原话不过参数闸（它可以是任意一句中文），所以整句作为一个
+   * 参数交给解释器，不经 cmd——见 `write.ts`。范围绑哪条线、哪一格面板说了算，点名就传，
+   * 不点名则由工具按记录里的状态自己认。
+   *
+   * 参数表写在一行里、末尾不留逗号：网关按方法源码切参数，理由与下面那条 `setCyclePolicy`
+   * 一样。
+   * @param sessionId - 会话身份。
+   * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
+   * @param text - 用户的原话，原样。
+   * @param scope - 三个范围里的一个。
+   * @param cycle - 绑哪条线，给线身份；别的范围传空字符串。
+   * @param node - 绑哪一格，给格身份；别的范围传空字符串。
+   * @returns 工具说了什么。
+   */
+  async addInstruction(sessionId: SessionId, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<PfOutcome> {
+    if (!INSTRUCTION_SCOPES.includes(scope)) return { ok: false, text: `无法识别的范围：${scope}` }
+    if (typeof text !== 'string' || text.trim().length === 0) return { ok: false, text: '空话不落笔：先写一句原话。' }
+    const args = ['instruction', 'add', '--scope', scope]
+    if (scope === 'cycle' && cycle.length > 0) args.push('--cycle', cycle)
+    if (scope === 'node' && node.length > 0) args.push('--node', node)
+    /* `--text` 站在最后一项：它后面那一项就是原话，别的开关排在它前面。 */
+    args.push('--text')
+    return this.pf(sessionId, workspaceRoot, args, text)
   }
 
   /**
@@ -207,9 +242,9 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
     return readSessionNotes(this.ctx.workspaceFiles, { sessionId, workspaceRoot: root }, new AbortController().signal)
   }
 
-  private async pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[]): Promise<PfOutcome> {
+  private async pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[], said?: string): Promise<PfOutcome> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
-    return runPf(this.ctx, root, args, new AbortController().signal)
+    return runPf(this.ctx, root, args, new AbortController().signal, said)
   }
 }
 
