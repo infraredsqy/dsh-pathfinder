@@ -16,20 +16,16 @@ const work = join(root, '.tmp', 'panel-check')
 const workspace = join(work, 'workspace')
 const record = join(workspace, '.pf')
 const sessionId = 'panel-check-session'
-/** 第二趟那份记录（多一条线、一个出局等人的格）落在哪儿、由哪条会话指着。 */
-const parkedWorkspace = join(work, 'parked')
-const parkedRecord = join(parkedWorkspace, '.pf')
-const parkedSessionId = 'panel-check-parked'
-/** 第三份工作区：空的，`.pf` 都不建——「当前工作区没有 pathfinder 的记录」那一档的实景。 */
+/** 第二份工作区：空的，`.pf` 都不建——「当前工作区没有 pathfinder 的记录」那一档的实景。 */
 const emptyWorkspace = join(work, 'empty')
 const emptySessionId = 'panel-check-empty'
-/** 第四份工作区：`.pf` 与四份文件都在，但没有一份是可读的 JSON——「记录读不动」那一档的实景。 */
+/** 第三份工作区：`.pf` 与四份文件都在，但没有一份是可读的 JSON——「记录读不动」那一档的实景。 */
 const brokenWorkspace = join(work, 'broken')
 const brokenSessionId = 'panel-check-broken'
-/** 第五份工作区：管线三份都在、问题池那一份不在——问题那一格收成一句话那一档的实景。 */
+/** 第四份工作区：管线三份都在、问题池那一份不在——问题那一格收成一句话那一档的实景。 */
 const bareWorkspace = join(work, 'bare')
 const bareSessionId = 'panel-check-bare'
-/** 第六份工作区：只有问题池（`pf issue scan` 在一个自己还没有管线的仓里写下的就是这份），
+/** 第五份工作区：只有问题池（`pf issue scan` 在一个自己还没有管线的仓里写下的就是这份），
  * 管线三份都不在——看板收成一句话那一档的实景。 */
 const poorWorkspace = join(work, 'poor')
 const poorSessionId = 'panel-check-poor'
@@ -241,10 +237,9 @@ function workspaceFiles(fallbackRoot) {
 
 const hostProcesses = spawner()
 
-/* 会话身份与工作区的对应：真宿主由会话头里的 `cwd` 解析；后面点卡切会话那一节会往里补。 */
+/* 会话身份与工作区的对应：真宿主由会话头里的 `cwd` 解析。 */
 const sessionWorkspaces = new Map([
   [sessionId, workspace],
-  [parkedSessionId, parkedWorkspace],
   [emptySessionId, emptyWorkspace],
   [brokenSessionId, brokenWorkspace],
   [bareSessionId, bareWorkspace],
@@ -373,45 +368,11 @@ function makeConfigForms(seed) {
   }
 }
 
-/* ---- 那条导航口子与「活动会话」 ---------------------------------------------
- *
- * 真部署里 `ctx.uiWorkspace.openSession(target)` 换掉活动会话、会话清单那条 hook 跟着通知
- * 出去，面板与 DSH 的中央栏一起重画；夹具按同一个次序写一份替身。名册 `liveList.known` 是
- * 「这台机器上此刻有哪些会话」，面板拿它对记录里那条会话在不在本机上。 */
-const liveList = {
-  current: sessionId,
-  known: [sessionId],
-  listeners: new Set(),
-  snapshot: null,
-  build() {
-    const byId = {}
-    for (const id of liveList.known) byId[id] = { id, retainedBy: id === liveList.current ? { mainView: 1 } : {} }
-    liveList.snapshot = { ids: [...liveList.known], byId, phase: 'ready', projectionsBySession: {} }
-    return liveList.snapshot
-  },
-  switchTo(target) {
-    liveList.current = target
-    liveList.build()
-    for (const listener of [...liveList.listeners]) listener()
-  },
-}
-liveList.build()
+/* ---- 那条导航口子的替身 ------------------------------------------------------ */
 
-const navCalls = []
+/** 真部署里面板点卡走的是 `ctx.uiWorkspace.openSession`：口子在册，卡片才有去处。 */
 const navigationFace = {
-  openSession(target) {
-    navCalls.push(target)
-    liveList.switchTo(target)
-  },
-}
-
-/** 会话清单那条 hook：真形状是**带投影的**，整份快照靠恒等投影取回来。 */
-function liveUseSessions(select) {
-  return React.useSyncExternalStore(
-    (listener) => { liveList.listeners.add(listener); return () => { liveList.listeners.delete(listener) } },
-    () => select(liveList.snapshot),
-    () => select(liveList.snapshot),
-  )
+  openSession: () => undefined,
 }
 
 /**
@@ -1614,33 +1575,8 @@ check(
   `记录里 ${String(namesWant.length)} 个名字 ｜ 面板上 ${String(cardNames.length)} 张卡，头三个 ${cardNames.slice(0, 3).join(' / ')}`,
 )
 
-/* 最上面那一档：卡片上多一行「还等不等、等几件」。期望值从读数自己那几栏现算，不抄实现
-   的判据：`ready` 就是「可开工」那一栏，进行中的格子（`running`）两样都不印。照
-   `state === 'todo'` 数会把进行中的那一格一起算进来——那一份期望值与被测实现同源，跑多少
-   遍都是绿的。 */
 await click(zoomKey(wiresPane, '放大'))
 const fullCards = [...(wiresPane?.querySelectorAll('.pf-zcard.is-full') ?? [])]
-const metaCount = fullCards.filter((card) => card.querySelector('.pf-zmeta') !== null).length
-const metaWant = project.nodes.filter((node) => node.ready || (node.state === 'todo' && !node.running && node.openDependencies.length > 0)).length
-check(
-  '依赖那一格：最上面那一档，可开工的与还欠着前置的那几格各多一行前置读数',
-  fullCards.length === project.nodes.length && metaCount === metaWant && metaWant > 0,
-  `卡片 ${String(fullCards.length)} 张（该带那一行 ${String(metaWant)} 格）｜ 带那一行 ${String(metaCount)} 张`,
-)
-
-/* 进行中的那一格不许印「可开工」：读数里 `ready` 与 `running` 互斥，卡片上那行与悬停说的是
-   同一件事。 */
-const inHand = project.nodes.filter((node) => node.running)
-const inHandCards = inHand.map((node) => fullCards.find((card) => card.getAttribute('data-id') === node.id))
-check(
-  '依赖那一格：进行中的格子不印「可开工」，悬停照旧说「进行中」',
-  inHand.length > 0
-    && inHandCards.every((card) => card !== undefined
-      && card.querySelector('.pf-zmeta') === null
-      && (card.getAttribute('title') ?? '').includes('进行中')
-      && (card.getAttribute('title') ?? '').includes('可开工') === false),
-  `记录里进行中 ${String(inHand.length)} 格（${inHand.map((node) => `${node.id.slice(0, 8)} 欠前置 ${String(node.openDependencies.length)}`).join('、')}）｜ 这几张卡带那一行的 ${String(inHandCards.filter((card) => card?.querySelector('.pf-zmeta') !== null).length)} 张 ｜ 悬停 ${inHandCards.map((card) => card?.getAttribute('title') ?? '（没有这张卡）').join(' / ')}`,
-)
 
 /* 抠出来看：双击一格，只留它自己、它欠的、欠它的。 */
 const hub = project.graph.edges[0]?.from
@@ -2037,355 +1973,6 @@ check(
   `aria-valuenow=${String(gripAgain?.getAttribute('aria-valuenow'))}（拖出来的是 ${String(widthDragged)}）`,
 )
 await act(async () => { again.unmount() })
-
-/* ---- 6. 第二份记录：出局等人的格与换线路 ---------------------------------
- * 「`等待处理`只在真有出局等人的时候出现」与「换一条线路时右侧清单跟着换」这两条要两份
- * 记录对照：本仓这一份里没有出局等人的格，也只有一条线。第二份从同一份记录复制，再经真
- * 工具造出第二条线、把一个格搁出去；造出来的都是记录里的事实，面板读的就是它。 */
-
-mkdirSync(parkedWorkspace, { recursive: true })
-copyRecord(parkedRecord)
-
-const parkedBefore = readProject({ ...(await gateway.read(parkedSessionId, '', {})), at: new Date() })
-const parkedLine = 'lab-line'
-/* 挑一个还没人走过的格：`blocked` 那一列就是「没在跑、也没人握着的」。 */
-const parkedNode = parkedBefore.columns.blocked[0]?.id
-check('第二份记录里挑得出一个能搁出去的格', parkedNode !== undefined, `blocked=${String(parkedBefore.columns.blocked.length)} 取=${String(parkedNode)}`)
-
-if (parkedNode !== undefined) {
-  /* 底下四步走真工具（`runPf` 就是面板写面那一条命令口子）；本仓那份记录库一个字节不动。 */
-  const signal = new AbortController().signal
-  const acts = [
-    ['cycle', 'create', parkedLine, '--tags', 'coding', '--force'],
-    ['cycle', 'hold', parkedLine, parkedNode],
-    ['cycle', 'close', parkedLine, parkedNode, '--result', 'failed'],
-    ['dag', 'status', parkedNode, 'shelved'],
-  ]
-  const echoes = []
-  for (const args of acts) {
-    const outcome = await runPf(hostCtx, parkedWorkspace, args, signal)
-    echoes.push(`${args.slice(0, 2).join(' ')}：${outcome.ok ? 'ok' : 'FAIL'}`)
-    check(`第二份记录：pf ${args.slice(0, 2).join(' ')} 落了笔`, outcome.ok, outcome.text.split('\n').slice(0, 2).join(' / ').slice(0, 140))
-  }
-
-  const parkedProject = readProject({ ...(await gateway.read(parkedSessionId, '', {})), at: new Date() })
-  const parkedShelved = parkedProject.columns.shelved.find((node) => node.id === parkedNode)
-  check(
-    '第二份记录里那个格确实出局等人、且挂在这条线上',
-    parkedShelved !== undefined && parkedShelved.cycleIds[0] === parkedLine,
-    `出局等人=${parkedProject.columns.shelved.map((node) => `${node.id.slice(0, 8)}@${String(node.cycleIds[0])}`).join(',') || '（空）'} 线数=${String(parkedProject.cycles.length)}`,
-  )
-
-  const parkedRoot = createRoot(container)
-  await act(async () => { parkedRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId: parkedSessionId, prefs: panel.prefs })) })
-  await settle()
-  await act(async () => { [...container.querySelectorAll('.pf-tab')][1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-  await settle()
-
-  const lineButton = (id) => [...container.querySelectorAll('#pane-detail .pf-linepick')]
-    .find((button) => button.querySelector('.pf-cycle')?.textContent === id)
-  const lineNames = [...container.querySelectorAll('#pane-detail .pf-linepick .pf-cycle')].map((node) => node.textContent)
-  const firstLine = parkedProject.cycles[0]?.id
-  check(
-    '第二份记录的两条线都摆出来了，默认停在第一条',
-    lineNames.length === parkedProject.cycles.length && lineNames.includes(parkedLine) && lineNames[0] === firstLine,
-    `侧栏=${lineNames.join('/')} 记录里的线=${parkedProject.cycles.map((cycle) => cycle.id).join('/')}`,
-  )
-
-  const onFirst = detailReadings(container)
-  check(
-    '另一条线那一侧没有「等待处理」',
-    onFirst.map((group) => group.label).includes('等待处理') === false
-      && onFirst.every((group) => group.rows.some((row) => row.id === parkedNode) === false),
-    `组头=${onFirst.map((group) => `${group.label}(${String(group.rows.length)})`).join('/') || '（空）'}`,
-  )
-
-  await act(async () => { lineButton(parkedLine)?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-  await settle()
-  const onParked = detailReadings(container)
-  const parkedGroup = onParked.find((group) => group.label === '等待处理')
-  check(
-    '换到这条线上，「等待处理」露面、排最前、行就是那个格',
-    onParked[0]?.label === '等待处理' && parkedGroup?.rows.length === 1 && parkedGroup?.rows[0]?.id === parkedNode,
-    `组头=${onParked.map((group) => `${group.label}(${String(group.rows.length)})`).join('/')} 行=${parkedGroup?.rows.map((row) => row.id).join(',') ?? '（没有这一组）'}`,
-  )
-  check(
-    '换一条线路时右侧清单确实跟着换了',
-    JSON.stringify(onFirst) !== JSON.stringify(onParked),
-    `前=${onFirst.map((group) => `${group.label}(${String(group.rows.length)})`).join('/')} 后=${onParked.map((group) => `${group.label}(${String(group.rows.length)})`).join('/')}`,
-  )
-
-  await act(async () => { lineButton(firstLine)?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-  await settle()
-  const back = detailReadings(container)
-  check(
-    '换回原来那条线，「等待处理」跟着收回去',
-    back.map((group) => group.label).includes('等待处理') === false && JSON.stringify(back) === JSON.stringify(onFirst),
-    `组头=${back.map((group) => `${group.label}(${String(group.rows.length)})`).join('/') || '（空）'}`,
-  )
-
-  lines.push(`      造那份记录的四步：${echoes.join(' ｜ ')}`)
-  await act(async () => { parkedRoot.unmount() })
-}
-
-/* ---- 6a-1. 点一张卡切到那一格的会话 ----------------------------------------
- * 这一格交出去的是「点一张卡，活动会话切到记录里指出的那一条」。链条上每一环都按真形状
- * 接着：四份记录与会话笔记都由真宿主半身那两条端点交回来、会话清单是那条带投影的 hook、
- * 跳转走 DSH 那条导航口子（面板只把身份递出去）。
- *
- * 三件事分别量：有去处的卡片点下去会话真的换了、那一屏换成那条会话自己的工作区；没有去处
- * 的卡片点不动；切走再切回来，面板自己那几个状态还在。
- */
-
-/* 往这一份拷贝里加一格（真工具落的笔）：它还没人开过，笔记与记录本体两处都没有它的会话
- * ——「这一格还没有会话」那一档的实景。它没有前置，落在「即将进线」那一列，看板上因此多
- * 出第五张卡。 */
-const ADDED_TITLE = 'panel-check-no-session'
-const addedOutcome = await runPf(hostCtx, workspace, ['dag', 'add', ADDED_TITLE, '--tags', 'coding'], new AbortController().signal)
-const beforeProject = readProject({ ...(await gateway.read(sessionId, '', {})), at: new Date() })
-const added = beforeProject.nodes.find((node) => node.title === ADDED_TITLE)?.id
-check(
-  '往这份拷贝里加一格：还没开过，记录与笔记里都没有它的会话',
-  addedOutcome.ok && added !== undefined,
-  `新格=${String(added)} ｜ ${addedOutcome.text.split('\n').slice(0, 2).join(' / ').slice(0, 140)}`,
-)
-
-/* 哪一格最近开在哪条会话上：真宿主半身那条端点读回来的。 */
-const notesReading = await gateway.readSessions(sessionId, '')
-check(
-  '会话笔记读得回来：每一格最近开过的那条会话都在清单上',
-  notesReading.state === 'read' && Object.keys(notesReading.sessions).length > 0,
-  `那一层=${notesReading.state} 有笔记的格=${String(Object.keys(notesReading.sessions).length)}`,
-)
-
-/* 看板上会摆哪几张卡：与面板同一份读数先算一遍（每列三张），再从里面挑这一节要的五档。
- * 照记录先算好，是因为有两档要先在这份拷贝上造出来才看得见。 */
-const visible = (list) => list.slice(0, 3).map((node) => node.id)
-const boardNodes = [
-  ...visible([...beforeProject.columns.shelved, ...beforeProject.columns.running]),
-  ...visible(beforeProject.columns.completed),
-  ...visible(beforeProject.columns.ready),
-]
-const sessionOfNode = (nodeId) => notesReading.sessions[nodeId] ?? ''
-const withNote = boardNodes.filter((nodeId) => sessionOfNode(nodeId).length > 0)
-const jumpNode = withNote[0]
-const backNode = withNote[1]
-const farNode = withNote[2]
-const recordNode = withNote[3]
-/* 新加的那一格当「哪儿都没写会话」那一档：工具加它的时候替它记下了创建它的那条会话，那
- * 一份笔记下面会摘掉（再没有第二次落笔会替它补上）。 */
-const bareNode = added
-const labelOf = (nodeId) => `${(nodeId ?? '').slice(0, 8)}@${sessionOfNode(nodeId ?? '').slice(0, 18) || '（没有会话）'}`
-check(
-  '看板上挑得出这一节要的五张卡：去的那一张、回的那一张、一条不在这台机器上的会话、记录本体上写着会话的、哪儿都没写会话的',
-  jumpNode !== undefined && backNode !== undefined && farNode !== undefined && recordNode !== undefined && bareNode !== undefined
-    && bareNode === added
-    && new Set([sessionOfNode(jumpNode), sessionOfNode(backNode), sessionOfNode(farNode), sessionOfNode(recordNode)]).size === 4,
-  `卡片=${boardNodes.map(labelOf).join(' ')} ｜ 新加的那一格=${added.slice(0, 8)}`,
-)
-
-/* 这一节要的两条会话：去的那条开在第二份记录那个工作区，回的那条开在这一份。名册里只放
- * 这三条（当前这条、去的那条、回的那条），别人的会话在这台机器上就没有落点。 */
-const jumpSession = sessionOfNode(jumpNode ?? '')
-const backSession = sessionOfNode(backNode ?? '')
-sessionWorkspaces.set(jumpSession, parkedWorkspace)
-sessionWorkspaces.set(backSession, workspace)
-liveList.known = [sessionId, jumpSession, backSession]
-liveList.build()
-
-/* 三档要在这份拷贝上先造出来（本仓那份记录里每一格都有笔记，也没有哪个节点身上带着记录
- * 本体那个字段）：
- *   - `recordNode`：把它的笔记拿掉、在记录本体上给它写一条会话——旧一版记录把会话写在节
- *     点身上，这一档照那个字段点得动；
- *   - `bareNode`（新加的那一格）：把工具替它记下的那一份也摘掉，记录本体上也不写——笔记
- *     与记录两处都没有它，这一档没有去处。
- * 三处都在下面那一次渲染之前改完，面板读到的就是改过之后的记录与笔记。 */
-const recordNote = join(record, 'meta', 'sessions', `${recordNode ?? ''}.json`)
-const hadRecordNote = existsSync(recordNote)
-check('那条要摘的笔记本来就在这份拷贝上', hadRecordNote, recordNote.replace(root, '.'))
-if (hadRecordNote) rmSync(recordNote, { force: true })
-const addedNote = join(record, 'meta', 'sessions', `${added ?? ''}.json`)
-check('工具加那一格时替它记下的那一份笔记也在（要摘掉才量得出「哪儿都没写会话」那一档）', existsSync(addedNote), addedNote.replace(root, '.'))
-rmSync(addedNote, { force: true })
-const ideasPath = join(record, 'ideas.json')
-const ideas = JSON.parse(readFileSync(ideasPath, 'utf8'))
-ideas.nodes[recordNode].dsh_session = backSession
-delete ideas.nodes[added].dsh_session
-writeFileSync(ideasPath, `${JSON.stringify(ideas, null, 2)}\n`)
-const notesAfter = await gateway.readSessions(sessionId, '')
-check(
-  '三档摆在拷贝上：记录本体上写着会话的那一格、笔记与记录两处都没写的那一格',
-  JSON.parse(readFileSync(ideasPath, 'utf8')).nodes[recordNode].dsh_session === backSession
-    && JSON.parse(readFileSync(ideasPath, 'utf8')).nodes[added].dsh_session === undefined
-    && Object.hasOwn(notesReading.sessions, recordNode)
-    && notesAfter.sessions[recordNode] === undefined
-    && notesAfter.sessions[added] === undefined,
-  `${(recordNode ?? '').slice(0, 8)}：记录本体上=${backSession} ｜ 摘之前笔记里=${String(notesReading.sessions[recordNode])} ｜ 摘之后=${String(notesAfter.sessions[recordNode])} ｜ ${String(added).slice(0, 8)}：工具原来记的=${String(notesReading.sessions[added])}，摘掉之后=${String(notesAfter.sessions[added])}`,
-)
-
-const goHost = window.document.createElement('div')
-window.document.body.appendChild(goHost)
-const goRoot = createRoot(goHost)
-const goMain = booted.ledger.get(`main:${client.PANEL_ID}`)
-const clickOn = async (node) => {
-  await act(async () => { node?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-  await settle()
-}
-await act(async () => {
-  goRoot.render(React.createElement(goMain.component, { ...goMain.options.inject(), useSessions: liveUseSessions }))
-})
-await settle()
-/* 面板自己的标签页与信息量跟着设置文档走（前面几节翻过），这一节先拨到要量的那一档。 */
-await clickOn(goHost.querySelector('#tab-now'))
-const infoSeg = (label) => [...goHost.querySelectorAll('#pane-now .pf-modes .pf-segbtn')]
-  .find((button) => button.textContent === label)
-await clickOn(infoSeg('展开'))
-
-const homeProject = readProject({ ...(await gateway.read(sessionId, '', {})), at: new Date() })
-const boardOf = (host) => ({
-  pills: [...host.querySelectorAll('#census .pf-pill')].map((pill) => [
-    pill.getAttribute('title'),
-    Number.parseInt((pill.querySelector('.pf-num')?.textContent ?? '').replace(/[^\d]/gu, ''), 10),
-  ]),
-  columns: [...host.querySelectorAll('#cols .pf-col')].map((column) => column.querySelectorAll('.pf-card').length),
-})
-const expectedBoard = (project, cap) => ({
-  pills: [
-    ...(project.columns.shelved.length > 0 ? [['等待处理', project.columns.shelved.length]] : []),
-    ['已交付', project.columns.completed.length],
-    ['进行中', project.columns.running.length],
-    ['未开始', project.columns.todo.length],
-  ],
-  columns: [
-    Math.min(cap, project.columns.shelved.length + project.columns.running.length),
-    Math.min(cap, project.columns.completed.length),
-    Math.min(cap, project.columns.ready.length),
-  ],
-})
-const homeBoard = boardOf(goHost)
-const cardFor = (nodeId) => [...goHost.querySelectorAll('#cols .pf-card')]
-  .find((card) => card.getAttribute('data-id') === nodeId)
-/** 有去处的那一身：按得动、键盘也够得着。 */
-const lived = (card) => card !== undefined && card.getAttribute('role') === 'button'
-  && card.getAttribute('tabindex') === '0' && card.className.includes('is-inert') === false
-/** 没有去处的那一身：不挂按钮，那两下也收着。 */
-const quiet = (card) => card !== undefined && card.getAttribute('role') === null
-  && card.hasAttribute('tabindex') === false && card.className.includes('is-inert')
-const pressedInfo = () => [...goHost.querySelectorAll('#pane-now .pf-modes .pf-segbtn')]
-  .find((button) => button.getAttribute('aria-pressed') === 'true')?.textContent
-
-check(
-  '起始这一屏：看板上的数与这条会话自己的工作区逐项对上',
-  JSON.stringify(homeBoard) === JSON.stringify(expectedBoard(homeProject, 3)),
-  `看板上=${JSON.stringify(homeBoard)} ｜ 记录现算=${JSON.stringify(expectedBoard(homeProject, 3))}`,
-)
-/* 卡片上印的是记录里那段标题：这一格是记录的一张脸，读者要认的就是那一句。 */
-const boardCards = [...goHost.querySelectorAll('#cols .pf-card')]
-const cardNode = (card) => homeProject.nodeById[card.getAttribute('data-id') ?? '']
-const titledCards = boardCards.filter((card) => cardNode(card)?.title !== undefined)
-check(
-  '看板每一张卡印的是记录里那段标题',
-  titledCards.length > 0
-    && titledCards.every((card) => (card.querySelector('.pf-card-title')?.textContent ?? '') === cardNode(card)?.title),
-  `带标题的卡=${String(titledCards.length)} 头两张=${titledCards.slice(0, 2).map((card) => (card.querySelector('.pf-card-title')?.textContent ?? '').slice(0, 18)).join(' ｜ ')}`,
-)
-
-const jumpCard = cardFor(jumpNode ?? '')
-const recordCard = cardFor(recordNode ?? '')
-const farCard = cardFor(farNode ?? '')
-const bareCard = cardFor(bareNode ?? '')
-check(
-  '这五张卡都在看板上，一个一个找得到',
-  jumpCard !== undefined && recordCard !== undefined && farCard !== undefined && bareCard !== undefined,
-  `屏上=${[...goHost.querySelectorAll('#cols .pf-card')].map((card) => (card.getAttribute('data-id') ?? '').slice(0, 8)).join(' ')}`,
-)
-check(
-  '记录里那条会话在本机上：这一张卡挂得住那两下（按钮那一身 + 手上那一档）',
-  lived(jumpCard),
-  `${labelOf(jumpNode)} ｜ role=${String(jumpCard?.getAttribute('role'))} tabindex=${String(jumpCard?.getAttribute('tabindex'))} class=${String(jumpCard?.className)}`,
-)
-check(
-  '旧一版记录把会话写在节点身上：笔记里没有它，卡片照样点得动',
-  lived(recordCard) && notesAfter.sessions[recordNode ?? ''] === undefined,
-  `${(recordNode ?? '').slice(0, 8)}@记录本体上=${backSession} ｜ 笔记里=${String(notesAfter.sessions[recordNode ?? ''])} ｜ role=${String(recordCard?.getAttribute('role'))} class=${String(recordCard?.className)}`,
-)
-check(
-  '那条会话不在这台机器上：卡片安安静静地摆着，不给按钮那一身',
-  quiet(farCard),
-  `${labelOf(farNode)} ｜ role=${String(farCard?.getAttribute('role'))} tabindex=${String(farCard?.getAttribute('tabindex'))} class=${String(farCard?.className)}`,
-)
-check(
-  '这一格还没有会话（笔记与记录本体两处都没写）：卡片同样没有去处',
-  quiet(bareCard),
-  `${(bareNode ?? '').slice(0, 8)} ｜ 笔记里=${String(notesAfter.sessions[bareNode ?? ''])} ｜ 记录本体上=${String(JSON.parse(readFileSync(ideasPath, 'utf8')).nodes[bareNode ?? ''].dsh_session)} ｜ role=${String(bareCard?.getAttribute('role'))} class=${String(bareCard?.className)}`,
-)
-
-/* 一屏十几张卡：能点的那些，名字要各自带着自己那一格的身份，读屏用户才分得开。 */
-const liveNames = [...goHost.querySelectorAll('#cols .pf-card')]
-  .filter((card) => card.getAttribute('role') === 'button')
-  .map((card) => [
-    card.getAttribute('data-id') ?? '',
-    card.getAttribute('aria-label') ?? '',
-  ])
-check(
-  '能点的卡片，名字各自带着自己那一格的身份（一屏上彼此分得开）',
-  liveNames.length > 0
-    && liveNames.every(([nodeId, name]) => name.includes(nodeId.slice(0, 8)))
-    && new Set(liveNames.map(([, name]) => name)).size === liveNames.length,
-  `可点的卡片=${liveNames.map(([nodeId, name]) => `${nodeId.slice(0, 8)}→${JSON.stringify(name)}`).join(' ')}`,
-)
-
-/* 没有去处的卡片点下去：什么也不发生，控制台那条 error 由最后一节统一量。 */
-const navBeforeInert = navCalls.length
-const beforeInert = liveList.current
-await clickOn(farCard)
-await clickOn(bareCard)
-check(
-  '没有去处的卡片点下去什么都不发生：会话没换，导航口子没被叫到',
-  liveList.current === beforeInert && navCalls.length === navBeforeInert,
-  `会话=${liveList.current}（点之前 ${beforeInert}）｜ 口子收过 ${String(navCalls.length)} 次（点之前 ${String(navBeforeInert)} 次）`,
-)
-
-/* 留一手面板自己的状态：信息量拨到「铺满」，切走再回来时它该还在。 */
-await clickOn(infoSeg('铺满'))
-const infoBeforeJump = pressedInfo()
-
-await clickOn(jumpCard)
-const targetProject = readProject({ ...(await gateway.read(jumpSession, '', {})), at: new Date() })
-const targetBoard = expectedBoard(targetProject, 3)
-check(
-  '点一张卡：活动会话切到记录里指出的那一条',
-  liveList.current === jumpSession && navCalls[navCalls.length - 1] === jumpSession,
-  `那一格写的是=${jumpSession} ｜ 活动会话=${liveList.current} ｜ 口子收过的=${navCalls.join(', ')}`,
-)
-check(
-  '那一格的内容确实是它自己的：看板换成那条会话自己的工作区，与另一条会话的读数分得开',
-  JSON.stringify(boardOf(goHost)) === JSON.stringify(targetBoard)
-    && JSON.stringify(targetBoard) !== JSON.stringify(homeBoard),
-  `前一条会话=${JSON.stringify(homeBoard)} ｜ 这一条会话自己的=${JSON.stringify(targetBoard)} ｜ 屏上=${JSON.stringify(boardOf(goHost))}`,
-)
-
-/* 切回来：那一条会话自己的工作区里也有这一格，回车与鼠标一样算数。 */
-const backCard = cardFor(backNode ?? '')
-check(
-  '切过去之后，回程那一张卡照样是能点的',
-  lived(backCard),
-  `${labelOf(backNode)} ｜ role=${String(backCard?.getAttribute('role'))}`,
-)
-await act(async () => { backCard?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
-await settle()
-check(
-  '回车也算数：切回原来那一条会话',
-  liveList.current === backSession,
-  `活动会话=${liveList.current}（要的是 ${backSession}）`,
-)
-check(
-  '切走再回来：那一屏又是这条会话自己的工作区，面板自己那几个状态还在',
-  JSON.stringify(boardOf(goHost)) === JSON.stringify(expectedBoard(homeProject, 3))
-    && pressedInfo() === infoBeforeJump,
-  `看板上=${JSON.stringify(boardOf(goHost))} ｜ 记录现算=${JSON.stringify(expectedBoard(homeProject, 3))} ｜ 信息量=${String(pressedInfo())}（切走之前 ${String(infoBeforeJump)}）`,
-)
-await act(async () => { goRoot.unmount() })
 
 /* ---- 6a-2. 写回被拒：控件不许静默弹回，那一节现有的提示行要说得出来 --------------
  * 手里那个修订号已经过期，宿主把这一笔拒掉，交回来的只是一个 `false`（理由吞在它自己
