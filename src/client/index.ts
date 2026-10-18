@@ -31,7 +31,7 @@
  */
 import * as React from 'react'
 import { createPanelPort, type PanelPort } from './data.ts'
-import { currentSessionOf, registerSeats, sessionsSnapshotOf } from './mount.ts'
+import { currentSessionOf, knownSessionsOf, registerSeats, sessionsSnapshotOf } from './mount.ts'
 import { PathfinderPanel } from './panel.tsx'
 import { createPrefsSource, type PrefsStore } from './prefs.ts'
 import { dropSettingsStyle, registerSettingsSection } from './settings.tsx'
@@ -67,11 +67,13 @@ export {
 
 /**
  * 调度中心那四处的身份，供自证夹具对着读；`currentSessionOf` 与
- * `sessionsSnapshotOf` 是四处座席挑会话那一套，`Entry` 用的是同一套。
+ * `sessionsSnapshotOf` 是四处座席挑会话那一套，`knownSessionsOf` 是同一份快照交出的
+ * 会话名册（卡上那一下的去处），`Entry` 用的是同一套。
  */
 export {
   currentSessionOf,
   FOOTER_ORDER,
+  knownSessionsOf,
   NOTICE_ORDER,
   PANEL_ORDER,
   PENDING_NOTICE_ID,
@@ -105,6 +107,8 @@ export interface PanelArgs {
   readonly sessionId?: string | undefined
   /** 面板自己的偏好住哪份设置文档；不给就按出厂那几条画。 */
   readonly prefs?: PrefsStore | undefined
+  /** 卡上那一下的去处：DSH 那条导航口子。不给就点不动。 */
+  readonly openSession?: ((target: string) => void) | undefined
 }
 
 /** 插件体：把面板装成一条服务，再把设置那一节与调度中心那四处接上去。 */
@@ -138,7 +142,8 @@ export function apply(ctx: unknown): void {
  *
  * 它比 {@link PathfinderPanel} 多一件事：会话身份。中央栏那一格是根作用域、不注入
  * `sessionId`，所以这一层从现成的 `useSessions` 快照里挑当前那一条；座席要是自己
- * 递了 `sessionId`，那个说话。
+ * 递了 `sessionId`，那个说话。同一份快照还交出一份名册：这台机器上此刻有哪些会话——
+ * 卡上那条记录指向的会话在不在里面，面板拿它对。
  * @param props - 座席递过来的几样。
  * @returns 面板本体。
  */
@@ -147,7 +152,14 @@ function Entry(props: PanelArgs & { readonly useSessions?: unknown }): React.Rea
   /* `useSessions` 是真 hook：快照无条件取回来，挑哪条会话才轮到 `??`。 */
   const snapshot = sessionsSnapshotOf(props.useSessions)
   const sessionId = props.sessionId ?? currentSessionOf(snapshot)
-  return React.createElement(PathfinderPanel, { port: props.port, sessionId, prefs: props.prefs })
+  const knownSessions = React.useMemo(() => knownSessionsOf(snapshot), [snapshot])
+  return React.createElement(PathfinderPanel, {
+    port: props.port,
+    sessionId,
+    prefs: props.prefs,
+    openSession: props.openSession,
+    knownSessions,
+  })
 }
 
 /** 一条警告；面板的装配出了岔子不该静悄悄。 */

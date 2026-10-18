@@ -234,7 +234,7 @@ export function noticeLine(reading: SeatReading): SeatLine | null {
   return null
 }
 
-/* ---- 会话身份 ------------------------------------------------------------ */
+/* ---- 会话身份与去处 ------------------------------------------------------ */
 
 /**
  * 座席标准 props 里那个 `useSessions` 快照。
@@ -294,6 +294,79 @@ export function currentSessionOf(snapshot: unknown): string | undefined {
     if (first !== undefined) return first
   }
   return undefined
+}
+
+/**
+ * 会话清单那一刻的快照里，这台机器上有哪些会话。
+ *
+ * 两处都算数：`ids` 是宿主清单的次序，`byId` 是清单行加上本地留着的那些（副会话的地址也
+ * 住在里面）。面板拿这份名册比对记录里那条会话在不在本机上——两处都没有它，卡上那一下
+ * 就没有去处。
+ * @param snapshot - `useSessions` 那一刻的快照。
+ * @returns 会话身份的名册；快照拿不到就是空的一份。
+ */
+export function knownSessionsOf(snapshot: unknown): ReadonlySet<string> {
+  const known = new Set<string>()
+  if (typeof snapshot !== 'object' || snapshot === null) return known
+  const held = snapshot as { readonly ids?: unknown; readonly byId?: unknown }
+  if (Array.isArray(held.ids)) {
+    for (const id of held.ids) if (typeof id === 'string' && id.length > 0) known.add(id)
+  }
+  if (typeof held.byId === 'object' && held.byId !== null) {
+    for (const id of Object.keys(held.byId)) if (id.length > 0) known.add(id)
+  }
+  return known
+}
+
+/** DSH 那条导航口子上这一层用得着的一手。 */
+interface NavigationFace {
+  readonly openSession?: (target: string) => void
+}
+
+/** 切会话那一手：面板拿到的是一个身份，把它递出去。 */
+export interface SessionNav {
+  /**
+   * 切到那一条会话。
+   * @param target - 会话身份。
+   */
+  open(target: string): void
+}
+
+/**
+ * 切会话那一手：DSH 现成的导航口子（`ctx.uiWorkspace.openSession`）的薄壳。
+ *
+ * 那个口子只管切，给不出结论——记录里那条会话在不在本机，由面板拿会话清单自己对出来。
+ * 所以这一层只做一件事：把身份递给它。它到得比这一层晚时（插件先装好、工作区那一层
+ * 后到）先什么都不做，等它到场再算；两处都只取一次。
+ * @param ctx - 浏览器半身那一个插件上下文。
+ * @returns 那一手；口子始终没到场时点下去什么也不发生。
+ */
+export function createSessionNav(ctx: unknown): SessionNav {
+  let face: NavigationFace | undefined
+  const take = (owner: unknown): void => {
+    const found = serviceAt(owner, 'uiWorkspace')
+    /* 取到的那一份是个代理：那一手上写得对不对，只有这一刻问得出来。 */
+    if (found !== undefined && typeof found.openSession === 'function') face = found as NavigationFace
+  }
+  take(ctx)
+  if (face === undefined) {
+    const holder = ctx as { inject?: (names: readonly string[], callback: (owner: unknown) => void) => unknown } | null | undefined
+    try {
+      holder?.inject?.(['uiWorkspace'], take)
+    } catch (error) {
+      report('那条导航口子没接上', error)
+    }
+  }
+  return {
+    open(target) {
+      if (face === undefined) return
+      try {
+        face.openSession?.(target)
+      } catch (error) {
+        report('切会话没切过去', error)
+      }
+    },
+  }
 }
 
 /* ---- 四处座席各自的样子 -------------------------------------------------- */
@@ -499,8 +572,9 @@ export function registerSeats(
         const slots = serviceAt(owner, 'slots') as SlotsService | undefined
         if (slots === undefined || typeof slots.inject !== 'function' || typeof slots.register !== 'function') return
         const readings = createSeatReadings(api.port)
+        const nav = createSessionNav(ctx)
         const serve = (): (() => void) => {
-          const disposers = contribute(slots, api, readings)
+          const disposers = contribute(slots, api, readings, nav)
           return () => {
             for (const dispose of disposers.reverse()) dispose()
             readings.dispose()
@@ -531,9 +605,10 @@ export function registerSeats(
  * @param slots - `slots` 服务。
  * @param api - 面板。
  * @param readings - 两处告示状座席共用的那份读数。
+ * @param nav - 卡上那一下的去处：交给中央栏那一格。
  * @returns 收到的那几个摘除器，次序就是注册的次序。
  */
-function contribute(slots: SlotsService, api: PathfinderPanelApi, readings: SeatReadings): (() => void)[] {
+function contribute(slots: SlotsService, api: PathfinderPanelApi, readings: SeatReadings, nav: SessionNav): (() => void)[] {
   const disposers: (() => void)[] = []
   const put = (what: string, run: () => unknown): void => {
     try {
@@ -552,7 +627,7 @@ function contribute(slots: SlotsService, api: PathfinderPanelApi, readings: Seat
   put('中央栏那一格', () => slots.inject?.('main', () => slots.register?.({
     name: 'main',
     key: api.id,
-    inject: () => ({ port: api.port, prefs: api.prefs }),
+    inject: () => ({ port: api.port, prefs: api.prefs, openSession: nav.open }),
   }, api.Panel)))
   put('页脚徽标', () => slots.inject?.('sidebar.footer.action', () => slots.register?.({
     name: 'sidebar.footer.action',

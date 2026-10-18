@@ -28,6 +28,7 @@ import type { TypertGatewayBinding } from '@deepseek-ai/dsh-typert-protocol'
 import type { PathfinderReading, PathfinderReadOptions, PathfinderRecords } from './contract.ts'
 import { CONFIG_KEYS, parseConfigList, type ConfigKey, type PathfinderConfigReading } from './project-config.ts'
 import { readReading } from './records.ts'
+import { readSessionNotes, type PathfinderSessionsReading } from './sessions.ts'
 import { runPf, type PfOutcome } from './write.ts'
 
 /** 一条线自己那三个策略数里能写的那几个键。 */
@@ -49,6 +50,7 @@ const REMOTE_METHODS: readonly (readonly [string, string])[] = [
   ['setCyclePolicy', 'setCyclePolicy'],
   ['readConfig', 'readConfig'],
   ['setConfig', 'setConfig'],
+  ['readSessions', 'readSessions'],
 ]
 
 /**
@@ -195,6 +197,19 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   async setConfig(sessionId: SessionId, key: string, value: string): Promise<PfOutcome> {
     if (!CONFIG_KEYS.includes(key as ConfigKey)) return { ok: false, text: `不认得这个设置键：${key}` }
     return this.pf(sessionId, ['config', 'set', key, value])
+  }
+
+  /**
+   * 把这个工作区里每一格的会话笔记读出来。
+   *
+   * 读的是记录库里那一层按节点分的小份笔记——会话身份住在这台机器自己的笔记上（一条会话
+   * 只在开它的那台机器上活着）。它与四份记录一样住在工作区里，所以走同一条只读口子。
+   * @param sessionId - 会话身份；工作区根由它自己的会话头解析。
+   * @returns 每一格最近开过的那条会话，连同这一层笔记的结局。
+   */
+  async readSessions(sessionId: SessionId): Promise<PathfinderSessionsReading> {
+    const workspaceRoot = await workspaceRootOf(this.ctx, sessionId)
+    return readSessionNotes(this.ctx.workspaceFiles, { sessionId, workspaceRoot }, new AbortController().signal)
   }
 
   /** 一条写命令：现算工作区根，再交给工具那一层。 */

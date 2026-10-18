@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 
-/** 七个端点，与 `gateway.ts` 里那张表同一份口径。 */
+/** 八个端点，与 `gateway.ts` 里那张表同一份口径。 */
 const ENDPOINTS = [
   'read',
   'archiveInstruction',
@@ -25,6 +25,7 @@ const ENDPOINTS = [
   'setCyclePolicy',
   'readConfig',
   'setConfig',
+  'readSessions',
 ]
 
 /** 装得上那一对可选依赖就先问一声。 */
@@ -34,8 +35,8 @@ const wired = await Promise.all([
   import('@deepseek-ai/dsh-typert-registry').then(() => true, () => false),
 ]).then((flags) => flags.every(Boolean))
 
-/** 造一份最小的记录：四份里各有一点东西，够读数认出来。 */
-function syntheticWorkspace() {
+/** 造一份最小的记录：四份里各有一点东西，够读数认出来；另造一格会话笔记。 */
+function syntheticWorkspace({ note = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'pf-gateway-'))
   mkdirSync(join(root, '.pf', 'issues'), { recursive: true })
   writeFileSync(join(root, '.pf', 'ideas.json'), JSON.stringify({
@@ -49,10 +50,22 @@ function syntheticWorkspace() {
     instructions: [{ id: 'i-1', text: '一句话', scope: 'global', state: 'live', at: '2026-10-01T00:00:00Z' }],
   }))
   writeFileSync(join(root, '.pf', 'issues', 'issues.json'), JSON.stringify({ issues: {} }))
+  if (note) {
+    mkdirSync(join(root, '.pf', 'meta', 'sessions'), { recursive: true })
+    writeFileSync(join(root, '.pf', 'meta', 'sessions', 'n-1.json'), JSON.stringify({
+      node: 'n-1',
+      v: 1,
+      discussion: [{ session: 'session-talk', at: '2026-10-01T00:00:00Z' }],
+      run: [{ session: 'session-run', at: '2026-10-02T00:00:00Z' }],
+    }))
+  }
   return root
 }
 
-/** 一个装上读取口、网关与注册表的真 cordis 上下文。 */
+/**
+ * 一个装上读取口、网关与注册表的真 cordis 上下文。
+ * @param root - 这个工作区的根。
+ */
 async function liveGateway(root) {
   const { Context } = await import('@deepseek-ai/cordis')
   const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
@@ -139,6 +152,33 @@ test('取数那一条：网关把那条会话的工作区读成一份真读数',
     assert.deepEqual(answer.value.sources, { nodes: 'read', cycles: 'read', instructions: 'read', issues: 'read' })
     assert.deepEqual(Object.keys(answer.value.nodes), ['n-1'])
     assert.equal(answer.value.cycles.length, 1)
+  } finally {
+    await ctx.stop?.()
+  }
+})
+
+test('会话笔记那一条：网关把那一层按节点分的小份笔记读成每一格的会话', { skip: !wired }, async () => {
+  const root = syntheticWorkspace()
+  const { ctx, call } = await liveGateway(root)
+  try {
+    const answer = await call('readSessions', { sessionId: 's1' })
+    assert.equal(answer.ok, true, String(answer.message))
+    assert.equal(answer.value.project, root)
+    assert.equal(answer.value.state, 'read')
+    assert.deepEqual(answer.value.sessions, { 'n-1': 'session-run' })
+  } finally {
+    await ctx.stop?.()
+  }
+})
+
+test('会话笔记那一条：这一层目录不在时交回一份空清单，不抛', { skip: !wired }, async () => {
+  const root = syntheticWorkspace({ note: false })
+  const { ctx, call } = await liveGateway(root)
+  try {
+    const answer = await call('readSessions', { sessionId: 's1' })
+    assert.equal(answer.ok, true, String(answer.message))
+    assert.equal(answer.value.state, 'missing')
+    assert.deepEqual(answer.value.sessions, {})
   } finally {
     await ctx.stop?.()
   }

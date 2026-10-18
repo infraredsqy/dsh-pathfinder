@@ -111,7 +111,17 @@ export interface PanelProps {
   readonly sessionId?: string | undefined
   /** 面板自己的偏好住哪份设置文档。不给就按出厂那几条画。 */
   readonly prefs?: PrefsSource | undefined
+  /** 卡上那一下的去处：DSH 那条导航口子。不给就点不动。 */
+  readonly openSession?: ((target: string) => void) | undefined
+  /** 这台机器上此刻有哪些会话；卡上那条记录指向的会话在不在里面，由它说了算。 */
+  readonly knownSessions?: ReadonlySet<string> | undefined
 }
+
+/** 还没有会话的笔记：哪一格都没有去处。 */
+const NO_NOTES: Readonly<Record<string, string>> = Object.freeze({})
+
+/** 一枚会话都没有的名册。 */
+const NO_SESSIONS: ReadonlySet<string> = new Set<string>()
 
 /** 一条读数走到哪一步了。 */
 type Load =
@@ -142,7 +152,7 @@ function usePreference<T>(stored: T): [T, (next: T) => void] {
  * @returns 这一格的版面。
  */
 export function PathfinderPanel(props: PanelProps): React.ReactElement {
-  const { port, sessionId } = props
+  const { port, sessionId, openSession, knownSessions } = props
   /* 面板自己的偏好：读数从设置那一份表单上来，写回也从这条口子出去。设置服务还没接上
    * 时它给的是出厂那几条，面板照常画。 */
   const store = props.prefs ?? DEFAULT_SOURCE
@@ -153,6 +163,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const [sideWidth, setSideWidth] = usePreference<number>(stored.sideWidth)
   const [otherStates, setOtherStates] = usePreference<boolean>(stored.otherStates)
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
+  const [notes, setNotes] = React.useState<Readonly<Record<string, string>>>(NO_NOTES)
   const [at, setAt] = React.useState<Date>(() => new Date())
   const [tick, setTick] = React.useState(0)
   const [note, setNote] = React.useState<string | null>(null)
@@ -184,6 +195,38 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     )
     return () => { live = false }
   }, [port, sessionId, tick])
+
+  /* 会话笔记：这一格最近开过的那条会话住在记录库那一层按节点分的小份笔记上，由宿主半身
+   * 那条端点交回来。只有当前那一格（看板）有卡片要点，所以只在这一格露面那一趟去读；
+   * 读不回来就按空画——卡片照旧在，那一下没有去处。写面那几条（归档 / 复原 / 删除 /
+   * 策略 / 设置）动不到笔记，`tick` 不跟。 */
+  React.useEffect(() => {
+    if (tab !== 'now' || sessionId === undefined || sessionId.length === 0) {
+      setNotes(NO_NOTES)
+      return undefined
+    }
+    let live = true
+    port.readSessions(sessionId).then(
+      (reading) => { if (live) setNotes(reading.sessions) },
+      () => { if (live) setNotes(NO_NOTES) },
+    )
+    return () => { live = false }
+  }, [port, sessionId, tab])
+
+  /* 卡上那一下：记录里那条会话此刻在本机上，卡片才点得动。两处都认——先看这台机器自己的
+   * 笔记（新一版记录把会话放在那儿），再看记录本体上那个字段（旧一版把它写在节点身上）。
+   * 名册或导航口子缺一样，这一屏的卡片就都安安静静地摆着。 */
+  const cardGo = React.useMemo<CardGo | null>(() => {
+    if (openSession === undefined) return null
+    const known = knownSessions ?? NO_SESSIONS
+    return {
+      targetOf: (node) => {
+        const session = notes[node.id] ?? node.session
+        return session !== undefined && session.length > 0 && known.has(session) ? session : null
+      },
+      open: openSession,
+    }
+  }, [notes, knownSessions, openSession])
 
   const reading = load.phase === 'ok' ? load.reading : null
   const project = React.useMemo(
@@ -324,7 +367,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
               </div>
             </div>
             <div className="pf-cols" id="cols" ref={colsRef}>
-              {project === null ? null : <BoardColumns project={project} cap={capOf(info, fullCap)} />}
+              {project === null ? null : <BoardColumns project={project} cap={capOf(info, fullCap)} go={cardGo} />}
             </div>
           </section>
 
@@ -485,53 +528,91 @@ function Pill(props: { readonly cls: string; readonly n: number; readonly label:
   )
 }
 
-/** 三列看板：进行中（等待处理的排在上头）、刚完成、即将进线。 */
-function BoardColumns(props: { readonly project: ProjectReading; readonly cap: number }): React.ReactElement {
+/**
+ * 三列看板：进行中（等待处理的排在上头）、刚完成、即将进线。
+ * @param props - 那一刻的读数、每列几张卡，以及卡上那一下的去处。
+ */
+function BoardColumns(props: { readonly project: ProjectReading; readonly cap: number; readonly go: CardGo | null }): React.ReactElement {
   const { columns } = props.project
-  const first = gatesFirst(columns.shelved, 'shelved').concat(gatesFirst(columns.running, 'run'))
+  const first = gatesFirst(columns.shelved, 'shelved', props.go).concat(gatesFirst(columns.running, 'run', props.go))
   return (
     <React.Fragment>
-      <Column items={first} cap={props.cap} />
-      <Column items={gatesFirst(columns.completed, 'done')} cap={props.cap} />
-      <Column items={gatesFirst(columns.ready, 'next')} cap={props.cap} />
+      <Column items={first} cap={props.cap} go={props.go} />
+      <Column items={gatesFirst(columns.completed, 'done', props.go)} cap={props.cap} go={props.go} />
+      <Column items={gatesFirst(columns.ready, 'next', props.go)} cap={props.cap} go={props.go} />
     </React.Fragment>
   )
 }
 
-/** 等人优先：有闸的格排到前面，其余的保持记录给的那个次序。 */
-function gatesFirst(list: readonly NodeReading[], kind: CardKind): readonly Paired[] {
+/** 等人优先：有闸的格排到前面，其余的保持记录给的那个次序。顺手把每张卡的去处定下来。 */
+function gatesFirst(list: readonly NodeReading[], kind: CardKind, go: CardGo | null): readonly Paired[] {
   return list
-    .map((node) => ({ node, kind }))
+    .map((node) => ({ node, kind, target: go === null ? null : go.targetOf(node) }))
     .slice()
     .sort((left, right) => (left.node.gate === null ? 1 : 0) - (right.node.gate === null ? 1 : 0))
 }
 
-/** 一张卡连同它此刻的读法。 */
+/** 一张卡连同它此刻的读法：`target` 是点下去要去的那条会话，没有去处就是 `null`。 */
 interface Paired {
   readonly node: NodeReading
   readonly kind: CardKind
+  readonly target: string | null
+}
+
+/** 卡上那一下：记录里那条会话在本机上时，这一手把它递给 DSH 那条导航口子。 */
+interface CardGo {
+  /** 这一张卡要去哪条会话；这一格没有去处就是 `null`。 */
+  targetOf(node: NodeReading): string | null
+  /** 切过去。 */
+  open(target: string): void
 }
 
 /** 卡片在列表里的那一档读法。 */
 type CardKind = 'shelved' | 'run' | 'next' | 'done'
 
 /** 一列卡片：一张卡都没有的列，底下什么也不印。 */
-function Column(props: { readonly items: readonly Paired[]; readonly cap: number }): React.ReactElement {
+function Column(props: { readonly items: readonly Paired[]; readonly cap: number; readonly go: CardGo | null }): React.ReactElement {
   return (
     <section className="pf-col">
-      {props.items.slice(0, props.cap).map((item) => <Card key={`${item.kind}:${item.node.id}`} {...item} />)}
+      {props.items.slice(0, props.cap).map((item) => <Card key={`${item.kind}:${item.node.id}`} {...item} go={props.go} />)}
     </section>
   )
 }
 
-/** 一张卡。 */
-function Card(props: Paired): React.ReactElement {
-  const { node, kind } = props
+/**
+ * 一张卡。
+ *
+ * 记录里记着这一格的会话、而那条会话此刻就在这台机器上时，点它切到那一格去：卡片上
+ * 挂得住那两下（指针是手、悬停与按住提一档描边），键盘上回车与空格按下去等于点一下。
+ *
+ * 记录里没写会话、或那条会话不在这台机器上时，这一格在这台机器上没有去处：卡片照旧
+ * 摆着，只是没有可点的样子。屏上不给一句解释——去处没了这件事，卡片自己说得出。
+ * @param props - 这一格、它的读法、它的去处，以及叫哪一手。
+ * @returns 这张卡。
+ */
+function Card(props: Paired & { readonly go: CardGo | null }): React.ReactElement {
+  const { node, kind, target, go } = props
   const cls = kind === 'shelved' ? 'shelved' : kind === 'run' ? 'run' : kind === 'next' ? 'next' : 'done'
   const loud = node.gate !== null && node.state !== 'todo'
   const id = shortId(node.id)
+  /* 去处分两截备好：没有去处时那个 `null` 让下面整批属性一个都不落。 */
+  const jump = target === null || go === null ? null : { target, open: go.open }
   return (
-    <article className={`pf-card is-${cls}${loud ? ' is-gate' : ''}`}>
+    <article
+      className={`pf-card is-${cls}${loud ? ' is-gate' : ''}${jump === null ? ' is-inert' : ''}`}
+      {...(jump === null ? {} : {
+        role: 'button',
+        tabIndex: 0,
+        /* 名字带上这一格的身份：一屏十几张卡，同一句名字读屏用户分不出是哪一张。 */
+        'aria-label': `${id} 的会话`,
+        onClick: () => jump.open(jump.target),
+        onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          jump.open(jump.target)
+        },
+      })}
+    >
       <div className="pf-card-meta">
         <span className="pf-card-cycle">{node.cycleIds[0] ?? ''}</span>
       </div>

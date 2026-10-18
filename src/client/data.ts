@@ -12,6 +12,7 @@
  */
 import type { PathfinderReading } from '../host/contract.ts'
 import type { PathfinderConfigReading } from '../host/project-config.ts'
+import type { PathfinderSessionsReading } from '../host/sessions.ts'
 import type { PfOutcome } from '../host/write.ts'
 import type { CyclePolicyKey } from '../host/gateway.ts'
 
@@ -39,6 +40,8 @@ export interface PanelPort {
   readonly source: 'remote' | 'carrier' | 'none'
   /** 那条会话所在工作区里的四份记录。 */
   read(sessionId: string, signal?: AbortSignal): Promise<PathfinderReading>
+  /** 这个工作区里每一格最近开过的那条会话：卡上那一下要去的地方。 */
+  readSessions(sessionId: string): Promise<PathfinderSessionsReading>
   /** 归档 / 复原 / 删除一条指令。 */
   write(verb: WriteVerb, sessionId: string, id: string): Promise<PfOutcome>
   /** 写一条线自己的一个策略数。 */
@@ -150,6 +153,11 @@ function remotePort(namespace: Service): PanelPort {
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
+    async readSessions(sessionId) {
+      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId })
+      if (!answer.ok) throw new Error(answer.message)
+      return answer.value
+    },
     async write(verb, sessionId, id) {
       const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, id })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
@@ -187,6 +195,11 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
+    async readSessions(sessionId) {
+      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId })
+      if (!answer.ok) throw new Error(answer.message)
+      return answer.value
+    },
     async write(verb, sessionId, id) {
       const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, id })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
@@ -213,7 +226,7 @@ function absentPort(): PanelPort {
     throw new Error('这个部署上没接上寻路记录的远程端，读数取不回来。')
   }
   const refused = async (): Promise<PfOutcome> => ({ ok: false, text: '这个部署上没有落笔那条口子。' })
-  return { source: 'none', read: missing, write: refused, setPolicy: refused, readConfig: missing, setConfig: refused }
+  return { source: 'none', read: missing, readSessions: missing, write: refused, setPolicy: refused, readConfig: missing, setConfig: refused }
 }
 
 /** 把 `{ ok, value }` 那一副脸摊成这一层用的两分支。 */

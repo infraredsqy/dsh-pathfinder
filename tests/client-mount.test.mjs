@@ -33,7 +33,9 @@ import {
   READY_BADGE_ID,
   SEAT_LABEL,
   createSeatReadings,
+  createSessionNav,
   currentSessionOf,
+  knownSessionsOf,
   noticeLine,
   readyBadgeLine,
   registerSeats,
@@ -51,10 +53,11 @@ function entryKey(options) {
 
 /**
  * 一架替身上下文：`slots`、`effect`、`inject` 三样都在，形状与真部署一致。
- * @param options - `effect: false` 时摘掉 `effect`，量「没有 effect 的上下文」那一条路。
+ * @param options - `effect: false` 时摘掉 `effect`，量「没有 effect 的上下文」那一条路；
+ *   `services` 是这条上下文上另外挂着的服务（例如那条导航口子）。
  * @returns 名册、调用记录、effect 记录、以及把插件挂上去的那一手。
  */
-function harness({ withEffect = true } = {}) {
+function harness({ withEffect = true, services = {} } = {}) {
   const ledger = new Map()
   const calls = []
   const effects = []
@@ -73,7 +76,7 @@ function harness({ withEffect = true } = {}) {
     },
   }
   const ctx = {
-    get: (name) => (name === 'slots' ? slots : undefined),
+    get: (name) => (name === 'slots' ? slots : services[name]),
     inject: (names, callback) => callback(ctx),
     provide: () => undefined,
   }
@@ -185,15 +188,29 @@ test('四处注册：槽位、id / key、order、侧栏那一行的名字逐条�
   for (const [, entry] of ledger) assert.equal(typeof entry.component, 'function')
 })
 
-test('中央栏那一格交的是这次 apply 装的那块面板，口子与偏好都是它的', () => {
-  const { ledger, ctx } = harness()
+test('中央栏那一格交的是这次 apply 装的那块面板，口子、偏好与卡上那一下的去处都是它的', () => {
+  const opened = []
+  const { ledger, ctx } = harness({ services: { uiWorkspace: { openSession: (target) => opened.push(target) } } })
   const panel = fakePanel()
 
   registerSeats(ctx, panel, () => undefined)
 
   const main = ledger.get(`main:${PANEL_ID}`)
   assert.equal(main.component, panel.Panel)
-  assert.deepEqual(main.options.inject(), { port: panel.port, prefs: panel.prefs })
+  const given = main.options.inject()
+  assert.deepEqual({ port: given.port, prefs: given.prefs }, { port: panel.port, prefs: panel.prefs })
+  assert.equal(typeof given.openSession, 'function')
+  given.openSession('session-7')
+  assert.deepEqual(opened, ['session-7'])
+})
+
+test('那条导航口子还没到场：卡上那一下点下去什么也不发生，这一层不抛', () => {
+  const { ledger, ctx } = harness()
+  registerSeats(ctx, fakePanel(), () => undefined)
+
+  const given = ledger.get(`main:${PANEL_ID}`).options.inject()
+  assert.equal(typeof given.openSession, 'function')
+  assert.doesNotThrow(() => { given.openSession('session-7') })
 })
 
 test('收掉那条 effect：四条从名册上撤下来，两张样式标签跟着摘掉', () => {
@@ -408,4 +425,57 @@ test('座席标准 props 里的 useSessions 是一条带投影的 hook，整份�
   /* 这个部署上没有这条 hook 时什么都不是，不许抛。 */
   assert.equal(sessionsSnapshotOf(undefined), undefined)
   assert.equal(currentSessionOf(undefined), undefined)
+})
+
+test('会话名册：宿主清单与本地清单行两处都算数，其余的不许进册', () => {
+  const snapshot = {
+    ids: ['s1', '', 's2'],
+    byId: {
+      s2: { id: 's2', retainedBy: {} },
+      s3: { id: 's3', retainedBy: { mainView: 1 } },
+      '': { id: '', retainedBy: {} },
+    },
+    phase: 'ready',
+  }
+
+  assert.deepEqual([...knownSessionsOf(snapshot)].sort(), ['s1', 's2', 's3'])
+  /* 空身份各处都不进册：记录里那条会话是空串时，卡片照样没有去处。 */
+  assert.equal(knownSessionsOf(snapshot).has(''), false)
+  /* 快照拿不到、或者 `ids` / `byId` 的形状不对时，交回一份空名册。 */
+  assert.deepEqual([...knownSessionsOf(undefined)], [])
+  assert.deepEqual([...knownSessionsOf({ ids: 's1', byId: null })], [])
+})
+
+test('切会话那一手：接上导航口子就把身份递过去，没接上就安安静静', () => {
+  const opened = []
+  const nav = createSessionNav({
+    get: (name) => (name === 'uiWorkspace' ? { openSession: (target) => opened.push(target) } : undefined),
+  })
+  nav.open('session-7')
+  assert.deepEqual(opened, ['session-7'])
+
+  /* 口子晚一层到：这一层先在 `inject` 上等它，到了场就接上。 */
+  const late = []
+  let arrived
+  const waiting = createSessionNav({
+    get: () => undefined,
+    inject: (names, callback) => { arrived = () => callback({ get: (name) => (name === 'uiWorkspace' ? { openSession: (target) => late.push(target) } : undefined) }) },
+  })
+  waiting.open('session-early')
+  assert.deepEqual(late, [])
+  arrived()
+  waiting.open('session-late')
+  assert.deepEqual(late, ['session-late'])
+
+  /* 口子上那一手自己抛：停在这一层里，不往上带，那一下留一条警告。 */
+  const warned = []
+  const realWarn = console.warn
+  console.warn = (...args) => { warned.push(args.map(String).join(' ')) }
+  try {
+    const noisy = createSessionNav({ get: (name) => (name === 'uiWorkspace' ? { openSession: () => { throw new Error('切不动') } } : undefined) })
+    assert.doesNotThrow(() => { noisy.open('session-7') })
+  } finally {
+    console.warn = realWarn
+  }
+  assert.match(warned.join('\n'), /切不动/u)
 })

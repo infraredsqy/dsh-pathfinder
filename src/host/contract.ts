@@ -31,6 +31,14 @@ export const RECORD_SOURCES = {
   issues: `${RECORD_DIR}/issues/issues.json`,
 } as const
 
+/**
+ * 会话笔记住的那一层目录，工作区相对：一格一份小文件，文件名就是节点身份。
+ *
+ * 会话身份是这台机器自己的事，所以它不住在记录本体上——换一台机器、新克隆一份记录，
+ * 这一层目录都不跟着走（它挡在版本库外），面板据此把那几格读作「这台机器上没有去处」。
+ */
+export const RECORD_SESSIONS = `${RECORD_DIR}/meta/sessions`
+
 /** 一份来源这一趟的取值结局。 */
 export type PathfinderSourceState =
   /** 取到了，集合里是它的内容。 */

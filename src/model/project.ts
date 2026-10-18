@@ -278,6 +278,7 @@ function readNode(
   const recordStatus = text(node.status)
   const mode = text(node.mode)
   const title = text(node.title)
+  const session = text(node.dsh_session)
   const line = facts.walkedBy[0]
   const lineLast = line === undefined ? undefined : cut.find((item) => item.id === line)?.lastStep ?? null
   const gate = gateOf({
@@ -311,6 +312,7 @@ function readNode(
     ...(title !== undefined ? { title } : {}),
     ...(recordStatus !== undefined ? { recordStatus } : {}),
     ...(mode !== undefined ? { mode } : {}),
+    ...(session !== undefined ? { session } : {}),
   }
 }
 

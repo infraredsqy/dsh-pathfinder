@@ -14,7 +14,7 @@ import { createPanelPort } from '../src/client/data.ts'
 function fakeNamespace(answer = { ok: true, value: { workspaceRoot: 'C:\\ws' } }) {
   const calls = []
   const namespace = {}
-  for (const method of ['read', 'archiveInstruction', 'reviveInstruction', 'removeInstruction', 'setCyclePolicy', 'readConfig', 'setConfig']) {
+  for (const method of ['read', 'readSessions', 'archiveInstruction', 'reviveInstruction', 'removeInstruction', 'setCyclePolicy', 'readConfig', 'setConfig']) {
     namespace[method] = async (...values) => {
       calls.push({ method, values })
       return answer
@@ -106,6 +106,15 @@ test('远程那一层取数失败：读数照抛，不编一份空的', async ()
   await assert.rejects(() => port.read('s1'), /读不动/u)
 })
 
+test('会话笔记那一条：端点叫 readSessions(sessionId)，解出来的表原样带回来', async () => {
+  const { calls, namespace } = fakeNamespace({ ok: true, value: { project: 'C:\\ws', recordPath: '.pf/meta/sessions', state: 'read', sessions: { 'n-1': 'session-7' } } })
+  const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? namespace : undefined) })
+
+  const reading = await port.readSessions('s1')
+  assert.deepEqual(reading.sessions, { 'n-1': 'session-7' })
+  assert.deepEqual(calls, [{ method: 'readSessions', values: ['s1'] }])
+})
+
 test('命名空间没装上：退到载体那一层，端点与参数都指名道姓', async () => {
   const { calls, carrier } = fakeCarrier()
   const port = createPanelPort({ get: (name) => (name === 'connection' ? carrier : undefined) })
@@ -132,6 +141,10 @@ test('命名空间没装上：退到载体那一层，端点与参数都指名�
   await port.setConfig('s1', 'issue_repair', 'off')
   assert.equal(calls[4].endpoint, 'pathfinderRecords/setConfig')
   assert.deepEqual(calls[4].payload, { args: { sessionId: 's1', key: 'issue_repair', value: 'off' } })
+
+  await port.readSessions('s1')
+  assert.equal(calls[5].endpoint, 'pathfinderRecords/readSessions')
+  assert.deepEqual(calls[5].payload, { args: { sessionId: 's1' } })
 })
 
 test('两条都没接上：口子说实话，读不出来就是读不出来', async () => {
@@ -140,6 +153,7 @@ test('两条都没接上：口子说实话，读不出来就是读不出来', as
   assert.equal(port.source, 'none')
   await assert.rejects(() => port.read('s1'), /没接上/u)
   await assert.rejects(() => port.readConfig('s1'), /没接上/u)
+  await assert.rejects(() => port.readSessions('s1'), /没接上/u)
   const outcome = await port.write('archive', 's1', 'i-1')
   assert.equal(outcome.ok, false)
   const refused = await port.setConfig('s1', 'test_tier', 'minimal')

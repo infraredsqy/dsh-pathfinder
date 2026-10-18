@@ -3,7 +3,7 @@
 > 本文件是路牌，上限 30 行：只写这一层有什么、什么时候看。
 
 这个仓现在是一个插件包（`dsh-pathfinder`，`type: module`）：**宿主半身**已经在跑——按当前会话
-所在的工作区把那份记录读进来，装成 `ctx.pathfinderRecords`，七条端点经 DSH 的网关交给浏览器半身；
+所在的工作区把那份记录读进来，装成 `ctx.pathfinderRecords`，那几手端点经 DSH 的网关交给浏览器半身；
 **浏览器半身**是 `src/client/` 那份主面板（六格标签、当前 / 明细 / 指令 / 依赖 / 问题五格接真记录，设置那一格读这个工作区自己的项目设置——四行值取自 `pf config list`，改一处经 `pf config set` 写回本项目那一层、写完重读；写面都经 `pf` 落笔）。
 面板自己的偏好（侧栏宽度 / 默认信息量 / 默认标签页 / 指令里显示已归档的 / 问题池里显示未解决之外的）住 DSH 的设置：宿主半身照
 `cordis.patch.yml` 那条行 id `pathfinder` 交出 `Config`，浏览器半身在设置里注册一节（`src/client/settings.tsx`），本地存储里不留键。

@@ -293,6 +293,20 @@ test('数据桥递进来的那份载荷能直接当输入', () => {
   assert.deepEqual(reading.cycles.map((item) => item.id), ['c1'])
 })
 
+test('记录本体上写着会话的那一版：会话原样带出来，没写的格没有这个字段', () => {
+  const reading = readProject(record({
+    nodes: {
+      n1: node({ dsh_session: 'session-7' }),
+      n2: node({ dsh_session: '' }),
+      n3: node(),
+    },
+  }))
+
+  assert.equal(reading.nodeById.n1.session, 'session-7')
+  assert.equal(reading.nodeById.n2.session, undefined)
+  assert.equal(reading.nodeById.n3.session, undefined)
+})
+
 test('读一遍不改递给它的那份记录', () => {
   const input = record({
     nodes: { n1: node({ dependencies: ['n2'] }), n2: node({ status: 'completed', completed_at: '2026-03-10T09:00:00.000Z' }) },

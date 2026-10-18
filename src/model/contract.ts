@@ -92,6 +92,13 @@ export interface NodeReading {
   readonly recordStatus?: string
   /** 这一格跑的模式，原样；没写就没有。 */
   readonly mode?: string
+  /**
+   * 这一格开在哪条会话上：记录本体上写着这个字段就带出来，没写就没有。
+   *
+   * 新一版记录把会话身份挪进了按机器分的小份笔记（一条会话只在开它的那台机器上活着），
+   * 旧一版把它写在节点自己身上。两处都认：面板先看笔记，再看这个字段。
+   */
+  readonly session?: string
   /** 记录里写的依赖，原样（一个都不丢）。 */
   readonly dependencies: readonly string[]
   /** 那一刻还没交付的那几个依赖：依赖里没有一条算交付了。 */
