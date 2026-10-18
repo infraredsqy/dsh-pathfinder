@@ -1,12 +1,10 @@
 /**
  * 浏览器半身这一个插件的入口。
  *
- * 它交出去的是两样东西。
+ * 它交出去的是三样东西。
  *
- * 第一样是**一块一挂就能用的主面板**。中央栏那一格（`main` 的 key）与侧栏那一排
- * （`sidebar.panellist`）归下游的挂载点那一格——重复注册会抛，两边抢同一把钥匙没有好处。
- * 所以这里把面板、它的 id、那条与宿主说话的口子、以及面板读设置的那条口子装成一条服务
- * `ctx.pathfinderPanel`，谁要挂就照下面那几行挂：
+ * 第一样是**一块一挂就能用的主面板**：面板、它的 id、那条与宿主说话的口子、以及面板读
+ * 设置的那条口子装成一条服务 `ctx.pathfinderPanel`，谁要挂就照下面那几行挂：
  *
  * ```js
  * const panel = ctx.pathfinderPanel
@@ -17,7 +15,11 @@
  * ```
  *
  * 第二样是**设置里那一节**：`settings.section` 上的一条注册，它既是导航行，也是它打开的
- * 那一页（见 `settings.tsx`）。这一层只注册这一样东西，座席那两排仍然留给挂载点那一格。
+ * 那一页（见 `settings.tsx`）。
+ *
+ * 第三样是**调度中心那四处挂载点**（见 `mount.ts`）：侧栏一项、页脚徽标、浮层提示与中央栏
+ * 那一格。四处都由这一层挂，`mount.ts` 只管注册与卸载，两条样式表各留一条摘除口子给它的
+ * 清理路径。
  *
  * 读数从口子上来，`src/model` 那套纯函数把它读成那一刻的读数，面板只负责画。面板自己那
  * 几个偏好从设置上来、也写回设置里去（`prefs.ts`），浏览器本地存储里不留键。
@@ -29,10 +31,11 @@
  */
 import * as React from 'react'
 import { createPanelPort, type PanelPort } from './data.ts'
+import { currentSessionOf, registerSeats, sessionsSnapshotOf } from './mount.ts'
 import { PathfinderPanel } from './panel.tsx'
 import { createPrefsSource, type PrefsStore } from './prefs.ts'
-import { registerSettingsSection } from './settings.tsx'
-import { ensureStyle } from './styles.ts'
+import { dropSettingsStyle, registerSettingsSection } from './settings.tsx'
+import { dropStyle, ensureStyle } from './styles.ts'
 
 /** 面板的身份：中央栏那一格用它作 key，侧栏那一排用它作 id。 */
 export const PANEL_ID = 'pathfinder'
@@ -62,6 +65,24 @@ export {
   SettingsSection,
 } from './settings.tsx'
 
+/**
+ * 调度中心那四处的身份，供自证夹具对着读；`currentSessionOf` 与
+ * `sessionsSnapshotOf` 是四处座席挑会话那一套，`Entry` 用的是同一套。
+ */
+export {
+  currentSessionOf,
+  FOOTER_ORDER,
+  NOTICE_ORDER,
+  PANEL_ORDER,
+  PENDING_NOTICE_ID,
+  READY_BADGE_ID,
+  SEAT_LABEL,
+  sessionsSnapshotOf,
+} from './mount.ts'
+
+/** 两张注入的样式表在文档里的记号：卸载之后 document 里不该剩下它们。 */
+export { PANEL_STYLE_ID, SETTINGS_STYLE_ID } from './style-tags.ts'
+
 /** 交出去的那条服务。 */
 export interface PathfinderPanelApi {
   /** 面板的身份。 */
@@ -86,7 +107,7 @@ export interface PanelArgs {
   readonly prefs?: PrefsStore | undefined
 }
 
-/** 插件体：把面板装成一条服务，再把设置那一节接上去。 */
+/** 插件体：把面板装成一条服务，再把设置那一节与调度中心那四处接上去。 */
 export function apply(ctx: unknown): void {
   const port = createPanelPort(ctx)
   const prefs = createPrefsSource()
@@ -104,6 +125,12 @@ export function apply(ctx: unknown): void {
     report('面板这一格没装上去', error)
   }
   registerSettingsSection(ctx, prefs)
+  /* 四处座席的卸载挂在 `mount.ts` 里那条 `effect` 上（真部署的上下文都带 `effect`）：
+   * 这一行只负责把四处挂上去，它不交回任何东西，也没东西可接。 */
+  registerSeats(ctx, api, () => {
+    dropStyle()
+    dropSettingsStyle()
+  })
 }
 
 /**
@@ -117,41 +144,10 @@ export function apply(ctx: unknown): void {
  */
 function Entry(props: PanelArgs & { readonly useSessions?: unknown }): React.ReactElement {
   ensureStyle()
-  const hooks = props.useSessions
-  const snapshot = typeof hooks === 'function' ? (hooks as () => unknown)() : undefined
+  /* `useSessions` 是真 hook：快照无条件取回来，挑哪条会话才轮到 `??`。 */
+  const snapshot = sessionsSnapshotOf(props.useSessions)
   const sessionId = props.sessionId ?? currentSessionOf(snapshot)
   return React.createElement(PathfinderPanel, { port: props.port, sessionId, prefs: props.prefs })
-}
-
-/**
- * 从会话清单那一刻的快照里挑当前那一条。
- *
- * 记录里有这个数的时候用记录里那个；没有的时候退到清单第一行——面板总得对着某个
- * 工作区才画得出东西来。
- * @param snapshot - `useSessions` 那一刻的快照。
- * @returns 会话身份，挑不出来就是 `undefined`。
- */
-export function currentSessionOf(snapshot: unknown): string | undefined {
-  if (typeof snapshot !== 'object' || snapshot === null) return undefined
-  const held = snapshot as {
-    readonly selectedId?: unknown
-    readonly currentId?: unknown
-    readonly activeId?: unknown
-    readonly ids?: unknown
-    readonly byId?: unknown
-  }
-  for (const value of [held.selectedId, held.currentId, held.activeId]) {
-    if (typeof value === 'string' && value.length > 0) return value
-  }
-  if (Array.isArray(held.ids)) {
-    const first = held.ids.find((id): id is string => typeof id === 'string' && id.length > 0)
-    if (first !== undefined) return first
-  }
-  if (typeof held.byId === 'object' && held.byId !== null) {
-    const first = Object.keys(held.byId)[0]
-    if (first !== undefined && first.length > 0) return first
-  }
-  return undefined
 }
 
 /** 一条警告；面板的装配出了岔子不该静悄悄。 */

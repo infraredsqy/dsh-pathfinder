@@ -19,6 +19,7 @@ import { INFO_LEVELS, PANEL_PREF_FIELDS, VIEW_IDS } from '../host/settings-field
 import { DEFAULT_SOURCE, INFO_LABELS, VIEW_LABELS } from './prefs.ts'
 import type { PrefField, PrefsForm, PrefsSource, PrefsStore } from './prefs.ts'
 import { serviceAt } from './data.ts'
+import { SETTINGS_STYLE_ID, dropStyleTag, ensureStyleTag } from './style-tags.ts'
 
 /**
  * 这一节占的设置槽位：一条注册既是导航行，也是它打开的那一页。
@@ -44,7 +45,7 @@ export const SECTION_ORDER = 60
 export const SECTION_LABEL = '寻路面板'
 
 /** 这份表在文档里的记号。 */
-const STYLE_ID = 'dsh-pathfinder-settings-style'
+const STYLE_ID = SETTINGS_STYLE_ID
 
 /**
  * 这一节的样式。
@@ -80,15 +81,12 @@ body[data-ds-dark-theme] .pfset-select{color-scheme:dark}
 
 /** 把这一节的表挂进文档一次。 */
 export function ensureSettingsStyle(): void {
-  try {
-    if (document.getElementById(STYLE_ID) !== null) return
-    const style = document.createElement('style')
-    style.id = STYLE_ID
-    style.textContent = CSS
-    document.head.appendChild(style)
-  } catch (error) {
-    /* 一张挂不上的表也比不上一页本身。 */
-  }
+  ensureStyleTag(STYLE_ID, CSS)
+}
+
+/** 把这一节的表从文档里摘掉；没挂上时这一下当没有这回事。 */
+export function dropSettingsStyle(): void {
+  dropStyleTag(STYLE_ID)
 }
 
 /** 这一页拿到的那几样。 */
