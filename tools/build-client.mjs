@@ -18,16 +18,20 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
  * 主面板那一层只加前缀。依赖与问题那两张表多两件事，都因为蓝本里它们是**两份独立文档**、
  * 进了面板却是同一棵树下的一格：
  *
- * - 前缀走 `:where()`：蓝本那些「嵌入时让位」的规矩是靠比基础规则高一档特异性取胜的
- *   （`.is-embed .pf-band` 压 `.pf-band`）。前缀要是直接写类名，两边被拉成同一档，胜负改成
- *   按源次序，而基础规则恰好写在让位规则后面——顶上就多出一截留白。
+ * - 前缀是这一格的页记号（`.pf-wires` / `.pf-issue`），不带 `:where()`：蓝本里这一页那份表是
+ *   它那份文档里唯一的表，进了面板它得和面板那几张表争同一个元素（明细那一行 `.pf-row`、主
+ *   面板那个 `.pf-head` 都同名）。它赢在「同档但排在后面」——这张表的次序在最后。前缀把档位
+ *   降下去，那些同名的规矩就反超了。
+ * - 表里自己写的让位规矩（`.is-embed X`）再抬一档，写成 `.is-embed.pf-issue X`：蓝本写这两行
+ *   借的就是「比基础规则高一档」，这一档丢了，顶上那一段留白就回来了。
  * - 两张表各挂各的记号，不共用一枚：共用的话一张表的规矩会落在另一格上（问题池那个
  *   `padding: 0` 会盖掉依赖那页的下边距）。
  *
- * 记号挂在面板里那两个 `.pf-pane` 上，与蓝本各文档的 `is-embed` 是同一个位置。
+ * 记号挂在面板里那两个 `.pf-pane` 上，与蓝本各文档的 `is-embed` 是同一个位置：`.is-embed` 那
+ * 枚照旧留着，页记号跟在它后面。
  */
 const pageLayer = (root) => ({ root, add: root })
-const embedLayer = (root) => ({ root, add: `:where(${root})`, marker: 'is-embed' })
+const embedLayer = (root) => ({ root, add: root, marker: 'is-embed' })
 
 /** 次序就是蓝本 `<link>` 的次序。 */
 const SHEETS = [
@@ -128,8 +132,7 @@ function mapRules(css, rewrite) {
 
 /**
  * 这一段选择器里有没有这一层那枚类名——切段之后逐段比，不看子串：先按组合子切开，
- * 每段再按 `.` / `#` / `:` / `[` 与括号切出记号，整枚记号等于 `pf-page` 才算数。括号也要切，
- * 是因为前缀有一种写法是函数伪类（`:where(.pf-wires)`），里面的类名得单独成枚才认得出。
+ * 每段再按 `.` / `#` / `:` / `[` 切出记号，整枚记号等于 `pf-page` 才算数。
  *
  * 子串那一版（`part.includes('.pf-page')`）会把 `.pf-pagewrap`、`.pf-pagefoot` 这类名字
  * 认成「已经在面板那一层里了」，那条规则整条漏出去落在页面根上；这些名字切出来的记号是
@@ -141,7 +144,7 @@ function mapRules(css, rewrite) {
 function hasScopeClass(part, className) {
   return part
     .split(/[\s>+~]+/u)
-    .flatMap((segment) => segment.split(/[.#:()[\]]/u))
+    .flatMap((segment) => segment.split(/[.#:[\]]/u))
     .some((token) => token === className)
 }
 
@@ -156,10 +159,10 @@ function markerPattern(marker) {
  * @returns 收拢后的那几段（`*` 这类要拆成两段：这一层自己 + 后代）。
  */
 function scopeSelector(part, scope) {
-  /* 表里自己写着「嵌入」那枚记号的规矩，换成这一层的页面记号：它比基础规则高一档的地位
-     正是蓝本写这两行时借的东西，换成 `add`（带 `:where()` 的那一版）就没有了。 */
+  /* 表里自己写着「嵌入」那枚记号的规矩：换成「这一枚 + 这一格的页记号」——蓝本靠它比基础
+     规则高一档，两枚类名把这一档还给它，同时只落在这一格上。 */
   if (scope.marker !== undefined && hasScopeClass(part, scope.marker)) {
-    return [part.replace(markerPattern(scope.marker), scope.root)]
+    return [part.replace(markerPattern(scope.marker), `.${scope.marker}${scope.root}`)]
   }
   if (hasScopeClass(part, scope.root.slice(1))) return [part]
   if (PAGE_SELECTORS.has(part.toLowerCase())) return [scope.root]

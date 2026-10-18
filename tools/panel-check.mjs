@@ -991,8 +991,8 @@ const SHEETS = [
   { sheet: 'styles/detail.css', scope: pageLayer('.pf-page') },
   { sheet: 'styles/notes.css', scope: pageLayer('.pf-page') },
   /* 依赖与问题那两张表在蓝本里各自是一份独立文档，靠 `.is-embed` 把页头与页边距让给宿主；
-     进面板之后各挂各的页记号（面板里那两格 `.pf-pane`），前缀走 `:where()`——蓝本那些让位
-     规矩借的是「比基础规则高一档特异性」，加了类名前缀会把两边拉平。 */
+     进面板之后各挂各的页记号（面板里那两格 `.pf-pane`）：前缀是这一格的页记号，表里那枚让位
+     记号连页记号一起带上——两处高低差都得留住，一处管顶上那一段，一处管与面板同名的那些规矩。 */
   { sheet: 'styles/field.css', scope: embedLayer('.pf-wires') },
   { sheet: 'styles/register.css', scope: embedLayer('.pf-issue') },
 ]
@@ -1044,16 +1044,17 @@ function ruleEntries(css, wrap = []) {
 function alreadyScoped(part, className) {
   return part
     .split(/[\s>+~]+/u)
-    .flatMap((segment) => segment.split(/[.#:()[\]]/u))
+    .flatMap((segment) => segment.split(/[.#:[\]]/u))
     .some((token) => token === className)
 }
 
 /** 这一段选择器进包之后该长成哪几段——这张表与构建口各写一份，不 import 它那一份。 */
 function expectedPart(part, scope) {
   const low = part.toLowerCase()
-  /* 表里自己写着「嵌入」那枚记号的：换成这一层的页记号，特异性不动。 */
+  /* 表里自己写着「嵌入」那枚记号的：换成「这一枚 + 这一格的页记号」，把它比基础规则高的一档
+     一起带上，同时只落在这一格上。 */
   if (scope.marker !== undefined && alreadyScoped(part, scope.marker)) {
-    return [part.replace(new RegExp(`\\.${scope.marker}(?![\\w-])`, 'gu'), scope.root)]
+    return [part.replace(new RegExp(`\\.${scope.marker}(?![\\w-])`, 'gu'), `.${scope.marker}${scope.root}`)]
   }
   if (alreadyScoped(part, scope.root.slice(1))) return [part]
   if (low === '*') return [scope.root, `${scope.root} *`]
@@ -1065,8 +1066,8 @@ function expectedPart(part, scope) {
 /** 主面板那一层：只加前缀。 */
 function pageLayer(root) { return { root, add: root } }
 
-/** 嵌入那两格那一层：前缀走 `:where()`（收拢不改特异性），表里的嵌入记号换成这一层的根。 */
-function embedLayer(root) { return { root, add: `:where(${root})`, marker: 'is-embed' } }
+/** 嵌入那两格那一层：前缀是这一格的页记号，表里的嵌入记号连它一起带上（高一档）。 */
+function embedLayer(root) { return { root, add: root, marker: 'is-embed' } }
 
 function expectedPrelude(prelude, scope) {
   const parts = prelude
@@ -1142,20 +1143,24 @@ check(
 lines.push(`      等价性：mock/ 那 ${String(SHEETS.length)} 张表 + CARRIED ${String(carriedWanted.length)} 条 → 产物 ${String(productEntries.length)} 条规则，逐条比选择器与声明正文（上面每张表一条读数）`)
 
 /* ---- 3c. 落点：同一批规矩在产物里谁赢，蓝本那一侧要一样 -------------------
- * 3b 比的是字面（选择器与声明一条不差），比不出「同一条属性的两条规矩谁赢」：蓝本那两张嵌入
- * 表靠 `.is-embed X` 压 `X` 一档取胜，收拢的前缀若把两边拉平，胜负就改成按源次序，而基础规
- * 则恰好写在让位规则后面——顶上那一段留白与页根那两条内边距就是这么变的。
+ * 3b 比的是字面（选择器与声明一条不差），比不出「同一条属性的两条规矩谁赢」。蓝本那两张嵌入
+ * 表里有两处高低差，收拢时动到哪一处，读出来的东西就换一个样子：
+ *
+ * - 表里自己写的让位规矩（`.is-embed X`）比基础规则高一档——这一档丢了，顶上那一段留白回来；
+ * - 这一页那份表与**面板那几张表**同名的那些元素（明细那一行的 `.pf-row`、主面板那个
+ *   `.pf-head`），蓝本里各在各的文档、没有对手，进了面板靠「同档但排在后面」取胜——这一档
+ *   被收拢改掉，问题池那一排的列宽就归明细那一行管。
  *
  * 所以这里量落点：把面板里那两格的子树原样搬进蓝本各自那份文档（页面根挂 `is-embed`、只挂它
- * 自己那一张表），同一条属性两边各走一遍级联，比最后谁赢。尺子按 (特异性, 次序) 走，`:where()`
- * 算 0——收拢拿它加前缀，正为不动蓝本那一档高低；jsdom 不做级联、也不拆简写，两样都自己来。
+ * 自己那一张表），同一条属性两边各走一遍级联，比最后谁赢。jsdom 不做级联、也不拆简写，两样
+ * 都自己来。
  */
 const SHORTHAND = {
   padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
   margin: ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
 }
 
-/** 一条选择器的特异性：`::` 与 `:where()` 都不算，`:where()` 里那一档记 0。 */
+/** 一条选择器的特异性：`::` 不算；`:where()` 里那一档记 0（产物里现在没有它，尺子留着这一条）。 */
 function specificityOf(selector) {
   const bare = selector.replace(/:where\((?:[^()]|\([^()]*\))*\)/gu, '').replace(/::[\w-]+/gu, '')
   const ids = (bare.match(/#[\w-]+/gu) ?? []).length
@@ -1219,6 +1224,11 @@ const EMBED_PROBES = [
   { pane: '#pane-wires', sheet: 'styles/field.css', group: '顶上那一段', at: '.pf-bar', properties: ['margin-top'] },
   { pane: '#pane-issue', sheet: 'styles/register.css', group: '页根那两条内边距', at: '.pf-page', properties: SHORTHAND.padding },
   { pane: '#pane-wires', sheet: 'styles/field.css', group: '页根那两条内边距', at: '.pf-page', properties: SHORTHAND.padding },
+  /* 与面板那几张表同名的元素：蓝本里它们在各自的文档里没有对手，进了面板却要和明细那一行
+     （`detail.css` 的 `.pf-row`）、主面板那个组头（`main.css` 的 `.pf-head`）争——这一页那份表
+     靠「同档但排在后面」赢，这一档被收拢改掉，列宽与那道线就跟着换主人。 */
+  { pane: '#pane-issue', sheet: 'styles/register.css', group: '同名规矩那一处', at: '.pf-register .pf-row', properties: ['grid-template-columns', 'column-gap', 'height', ...SHORTHAND.padding] },
+  { pane: '#pane-issue', sheet: 'styles/register.css', group: '同名规矩那一处', at: '.pf-register .pf-head', properties: ['grid-template-columns', 'column-gap', 'align-items', 'padding-top'] },
 ]
 
 const embedReadings = []
@@ -1240,6 +1250,7 @@ for (const probe of EMBED_PROBES) {
 for (const [group, what] of [
   ['顶上那一段', '嵌入那两格顶上那一段'],
   ['页根那两条内边距', '嵌入那两格的页根内边距'],
+  ['同名规矩那一处', '嵌入那两格里与面板同名的那些规矩'],
 ]) {
   const rows = embedReadings.filter((one) => one.group === group)
   check(
