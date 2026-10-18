@@ -55,15 +55,16 @@ interface Group {
   readonly label: string
   readonly cls: string
   readonly deps: boolean
-  readonly folded: boolean
 }
 
+/* 五组一律摊开：这一格叫明细，读者点进来要看的就是那几行。折起来那一手还留着，
+ * 由读者按下去。 */
 const GROUPS: readonly Group[] = [
-  { key: 'shelved', label: '等待处理', cls: 'is-shelved', deps: false, folded: false },
-  { key: 'run', label: '进行中', cls: 'is-running', deps: false, folded: false },
-  { key: 'ready', label: '可开工', cls: 'is-todo', deps: false, folded: false },
-  { key: 'wait', label: '未开始', cls: 'is-todo', deps: true, folded: false },
-  { key: 'done', label: '已交付', cls: 'is-done', deps: false, folded: true },
+  { key: 'shelved', label: '等待处理', cls: 'is-shelved', deps: false },
+  { key: 'run', label: '进行中', cls: 'is-running', deps: false },
+  { key: 'ready', label: '可开工', cls: 'is-todo', deps: false },
+  { key: 'wait', label: '未开始', cls: 'is-todo', deps: true },
+  { key: 'done', label: '已交付', cls: 'is-done', deps: false },
 ]
 
 /** 收起归档时，一组里最多露几行不算数的。 */
@@ -646,17 +647,18 @@ function Card(props: Paired & { readonly go: CardGo | null }): React.ReactElemen
   const { node, kind, target, go } = props
   const cls = kind === 'shelved' ? 'shelved' : kind === 'run' ? 'run' : kind === 'next' ? 'next' : 'done'
   const loud = node.gate !== null && node.state !== 'todo'
-  const id = shortId(node.id)
   /* 去处分两截备好：没有去处时那个 `null` 让下面整批属性一个都不落。 */
   const jump = target === null || go === null ? null : { target, open: go.open }
   return (
     <article
       className={`pf-card is-${cls}${loud ? ' is-gate' : ''}${jump === null ? ' is-inert' : ''}`}
+      data-id={node.id}
       {...(jump === null ? {} : {
         role: 'button',
         tabIndex: 0,
-        /* 名字带上这一格的身份：一屏十几张卡，同一句名字读屏用户分不出是哪一张。 */
-        'aria-label': `${id} 的会话`,
+        /* 名字带上这一格的身份：一屏十几张卡，同一句名字读屏用户分不出是哪一张；身份就是
+         * 悬停里那段八字的把手，这句话与卡片上那一行同源。 */
+        'aria-label': `${nodeHover(node)} 的会话`,
         onClick: () => jump.open(jump.target),
         onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
           if (event.key !== 'Enter' && event.key !== ' ') return
@@ -668,7 +670,7 @@ function Card(props: Paired & { readonly go: CardGo | null }): React.ReactElemen
       <div className="pf-card-meta">
         <span className="pf-card-cycle">{node.cycleIds[0] ?? ''}</span>
       </div>
-      <h2 className="pf-card-title" title={node.id}>{id}</h2>
+      <h2 className="pf-card-title" title={nodeHover(node)}>{nodeName(node)}</h2>
       <div className="pf-card-run">
         <StateMark node={node} kind={kind} />
         {node.gate === null ? null : (
@@ -684,6 +686,17 @@ function Card(props: Paired & { readonly go: CardGo | null }): React.ReactElemen
       </div>
     </article>
   )
+}
+
+/** 一格的标题：记录里那段标题；记录里没写标题的格才轮到 id 的短写。 */
+function nodeName(node: NodeReading): string {
+  return node.title ?? shortId(node.id)
+}
+
+/** 一格的悬停：全名，后面跟一段八字把手；名字本身就是那八个字时不重复一遍。 */
+function nodeHover(node: NodeReading): string {
+  const short = shortId(node.id)
+  return node.title === undefined || node.title === short ? nodeName(node) : `${node.title} · ${short}`
 }
 
 function shortId(id: string): string {
@@ -823,10 +836,10 @@ function nodesOf(key: Group['key'], cycle: CycleReading, project: ProjectReading
     .sort((left, right) => (right.completedAt?.getTime() ?? 0) - (left.completedAt?.getTime() ?? 0))
 }
 
-/** 一组的组头与它下面的行；已交付那组默认折着。 */
+/** 一组的组头与它下面的行。 */
 function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[] }): React.ReactElement {
   const { group } = props
-  const [folded, setFolded] = React.useState(group.folded)
+  const [folded, setFolded] = React.useState(false)
   return (
     <section className={`pf-sec${folded ? ' is-folded' : ''}`}>
       <button
@@ -841,9 +854,9 @@ function DetailGroup(props: { readonly group: Group; readonly nodes: readonly No
           : null}
       </button>
       {props.nodes.map((node) => (
-        <div className={`pf-row ${group.cls}`} key={node.id} title={gateTitle(node)}>
+        <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(node)}>
           <StateMark node={node} kind={group.key} />
-          <span className="pf-rowtitle" title={node.id}>{node.id}</span>
+          <span className="pf-rowtitle" title={nodeHover(node)}>{nodeName(node)}</span>
           <span className="pf-rowfigs">{group.deps ? <DepsChip node={node} /> : null}</span>
           {node.gate !== null && node.gate.word !== group.label
             ? <span className={`pf-gate pf-rowgate${node.state === 'todo' ? ' is-quiet' : ''}`}>{node.gate.word}</span>
