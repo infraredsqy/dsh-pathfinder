@@ -1,17 +1,5 @@
 // 面板的自证夹具：真记录 → 真宿主半身 → 真面板，三样都在这一趟里跑。
-//
-// 一趟做的事：
-//   1. 把本仓 `.pf` 复制成一份**可写的临时工作区**（`.tmp/panel-check/workspace`，
-//      本仓的 `.pf` 一个字节都不动），合成一条会话指到它。
-//   2. 用真宿主半身（`src/host/gateway.ts`）读那份记录——写面也走它，命令经
-//      `pf` 那条 CLI 落笔（这一层自己起进程，隐藏窗口）。
-//   3. 把 `lib/client.js`（构建出来的浏览器半身）挂进 jsdom，接上这一份读数，
-//      逐个看法地点开、点一次写面、再重开一次读数。
-//   4. 每一项都印读数；控制台里出现 error 就是失败。
-//
-// 另有一趟：把同一份记录再复制一份，经真工具造出「一个出局等人的格 + 第二条线路」
-// ——「`等待处理`只在真有出局等人的时候出现」与「换一条线路时右侧清单跟着换」这两条
-// 判据要两份记录对照，本仓这一份里没有那样的格、也只有一条线。
+// 每一项都印读数；控制台里出现 error 就是失败。
 //
 //   node tools/panel-check.mjs
 import { execFile } from 'node:child_process'
@@ -20,9 +8,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { JSDOM } from 'jsdom'
 
-// React 在**装载那一刻**摸一次 window/document，摸不到就走它那条给 IE8/9 的老路
-// （那条路会去叫 `attachEvent`，在这个环境里必炸）。所以它不能跟别的 import 一起
-// 摆在文件头上：先把 jsdom 立起来，再把它请进来。
+// React 在装载那一刻摸一次 window/document，摸不到就走它那条给 IE8/9 的老路（去叫
+// `attachEvent`，在这个环境里必炸），所以它要等 jsdom 立好才进来。
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = join(root, '.tmp', 'panel-check')
@@ -47,16 +34,14 @@ function check(what, ok, reading) {
   if (!ok) failures.push(what)
 }
 
-/* 取数那一趟的完成通知：每一次读都把那个 promise 交到这里，夹具等的是**那些** promise
- * 本身，不猜它多久回来。面板那一格也走这条口子，所以下面那份远程替身也交一份——面板读
- * 一趟，全都等得到。 */
+/* 取数那一趟的完成通知：每一次读都把那个 promise 交到这里，夹具等的是那些 promise 本身，
+ * 不猜它多久回来。面板那一格也走这条口子。 */
 const inFlight = []
 const track = (promise) => {
   inFlight.push(promise.catch(() => undefined))
   return promise
 }
 
-/** 明细那一格的读数：每组的组头，以及它下面那些行的 id。 */
 function detailReadings(scope) {
   return [...scope.querySelectorAll('#pane-detail .pf-sec')].map((section) => ({
     label: section.querySelector('.pf-rowhead-key')?.textContent ?? '',
@@ -65,9 +50,8 @@ function detailReadings(scope) {
 }
 
 /**
- * 指令那一格该长哪几组：拿那一刻的记录现算一遍。次序照蓝本那一格的读者次序——全局在前，
- * 然后记录里那几条线，再是没认出范围的，最后一格；组内还算数的在前、新说的在前；空组不画。
- * 与面板印出来的组头、各组下面那几条正文逐项比。
+ * 指令那一格该长哪几组：拿那一刻的记录现算一遍，次序照蓝本那一格的读者次序——全局在前，
+ * 然后记录里那几条线，再是没认出范围的，最后一格；空组不画。
  */
 function expectedNoteGroups(project, showArchived) {
   const groups = new Map()
@@ -103,8 +87,8 @@ function expectedNoteGroups(project, showArchived) {
 }
 
 /**
- * 产物那张表里最后落在某个元素上的那几条声明：同一条属性按后到的胜。
- * jsdom 不做标准属性的级联，这里按 DOM 逐个匹配再走一遍；带壳的规则（@media）往里走一层。
+ * 产物那张表里最后落在某个元素上的声明，同一条属性按后到的胜：jsdom 不做级联，这里按 DOM
+ * 逐个匹配再走一遍；带壳的规则（@media）往里走一层。
  */
 function winningDeclarations(element, properties) {
   const won = {}
@@ -147,7 +131,7 @@ for (const path of ['ideas.json', 'state.json', 'instructions.json', join('issue
 copyRecord(record)
 check('记录拷贝就位', existsSync(join(record, 'instructions.json')), record.replace(root, '.'))
 
-/** 一份记录当下的样子：每份文件的路径与字节数。两个新看法不落笔，靠它比一遍。 */
+/** 一份记录当下的样子：两个新看法不落笔，靠它比一遍。 */
 function recordDigest() {
   const walk = (dir) => readdirSync(dir, { withFileTypes: true })
     .flatMap((entry) => (entry.isDirectory()
@@ -169,7 +153,7 @@ function spawner() {
   return {
     async resolveExecutable(command) {
       /* 真部署里这条口子按 PATH 解一次就记着；夹具这一趟要叫十几条命令，每条都去 `where`
-       * 一遍是白花的。解出来的那个名字一次就够。 */
+       * 一遍是白花的。 */
       if (foundExecutable === null) {
         foundExecutable = await new Promise((resolve, reject) => {
           execFile('where', [command], { encoding: 'utf8', windowsHide: true }, (error, stdout) => {
@@ -178,8 +162,7 @@ function spawner() {
               return
             }
             const found = String(stdout).split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0)
-            /* PATH 上那个同名的 sh 垫片排在 `.cmd` 前面，两者都不是这里要的那一个：
-             * 起得来的只有带可执行扩展名的那个。 */
+            /* PATH 上那个同名的 sh 垫片排在 `.cmd` 前面，起得来的只有带可执行扩展名的那个。 */
             const runnable = found.find((line) => /\.(cmd|exe|bat|com)$/iu.test(line))
             resolve(runnable ?? found[0] ?? command)
           })
@@ -239,9 +222,7 @@ function workspaceFiles(fallbackRoot) {
 
 const hostProcesses = spawner()
 
-/* 会话身份与工作区的对应：真宿主由会话头里的 `cwd` 解析（`workspaceRootOf` 那条路）。
- * 前四条是这一趟合成的那四条会话；后面那一段（点卡切会话）会给记录里读出来的会话补上
- * 落点——补一条会话就是补一句「它开在这个工作区里」。 */
+/* 会话身份与工作区的对应：真宿主由会话头里的 `cwd` 解析；后面点卡切会话那一节会往里补。 */
 const sessionWorkspaces = new Map([
   [sessionId, workspace],
   [parkedSessionId, parkedWorkspace],
@@ -296,7 +277,6 @@ for (const name of ['window', 'document', 'HTMLElement', 'Node', 'Event', 'Mouse
 Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true, writable: true })
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-/* 到这一步 jsdom 已经站好了，React 与 react-dom 才进来。 */
 const React = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { act } = React
@@ -325,12 +305,9 @@ window.document.head.appendChild(styleNode)
 const provided = {}
 
 /* ---- 设置那一份文档：夹具自己造，形状与 `configForms` 交出来的那一份一致 ------------
- *
- * 真部署里这一份由设置服务给：`configForms.get(ns)` 交出一个按修订号理赔的控制器，
- * 读得出、订得上、写得进。这里造一个同形状的替身，面板与设置页读的就是它——于是
+ * 真部署里这一份由设置服务给；这里造一个同形状的替身，面板与设置页读的就是它，于是
  * 「翻一行、两边当场跟着变」这件事能在夹具里真的走一趟。 */
 
-/** 一份设置文档的替身。 */
 function fakeSettingsForm(initial) {
   let value = { ...initial }
   let revision = 1
@@ -339,7 +316,7 @@ function fakeSettingsForm(initial) {
   return {
     document: () => value,
     getSnapshot: () => ({ status: 'ready', value, base: undefined, user: undefined, revision, writable: true }),
-    /* m4 那一条要的：接在这份表单上的订阅者有几个——摘除器有没有被还回来，只看这个数。 */
+    /* 接在这份表单上的订阅者有几个：摘除器有没有被还回来，只看这个数。 */
     watching: () => listeners.size,
     subscribe(listener) {
       listeners.add(listener)
@@ -353,12 +330,11 @@ function fakeSettingsForm(initial) {
       for (const listener of [...listeners]) listener()
       return Promise.resolve(true)
     },
-    /* m1 那一条要的：这份文档一律不收改动，量「两笔都不作数时不许静默」。 */
+    /* 这份文档一律不收改动：「两笔都不作数时不许静默」那一条靠它。 */
     refuse: (on = true) => { refuse = on },
   }
 }
 
-/** 设置服务那一侧的替身：按命名空间给表单，并记下谁要过哪一份。 */
 function makeConfigForms(seed) {
   const held = new Map()
   const asked = []
@@ -377,14 +353,9 @@ function makeConfigForms(seed) {
 
 /* ---- 那条导航口子与「活动会话」 ---------------------------------------------
  *
- * 真部署里 `ctx.uiWorkspace.openSession(target)` 是同步的一手：它把活动会话换掉，会话
- * 清单那条 hook 跟着通知出去，面板与 DSH 的中央栏一起重画。夹具按同一个次序写一份替身：
- * `navigationFace` 就是面板拿到的那个口子（这一趟只走 `openSession`），`liveList` 是会话
- * 清单那一刻的快照（`ids` 是清单次序，当前那条挂 `retainedBy.mainView`）。
- *
- * 名册 `liveList.known` 是「这台机器上此刻有哪些会话」：面板拿它对记录里那条会话在不在
- * 本机上。点卡切会话那一节往里放什么，就是那一节要量的东西。
- */
+ * 真部署里 `ctx.uiWorkspace.openSession(target)` 换掉活动会话、会话清单那条 hook 跟着通知
+ * 出去，面板与 DSH 的中央栏一起重画；夹具按同一个次序写一份替身。名册 `liveList.known` 是
+ * 「这台机器上此刻有哪些会话」，面板拿它对记录里那条会话在不在本机上。 */
 const liveList = {
   current: sessionId,
   known: [sessionId],
@@ -404,7 +375,6 @@ const liveList = {
 }
 liveList.build()
 
-/** 这条导航口子：切过去，再让清单通知出去。 */
 const navCalls = []
 const navigationFace = {
   openSession(target) {
@@ -423,13 +393,10 @@ function liveUseSessions(select) {
 }
 
 /**
- * 起一条浏览器半身：服务从 `get` 来，注册经 `inject` 等，落点经 `effect` 挂。
+ * 起一条浏览器半身：一个最小的插件上下文（`get` / `inject` / `effect` / `provide`）。
  *
- * `slots` 这一份是按真协议写的替身：同一个 id 重复注册会抛（那正是要躲开的那一下），
- * 注册那一刻记下选项与组件，注册处返回的摘除器能把它收回去。
- *
- * `reuse` 那一路给的是「同一份 slots 名册上再起一次」：默认每次新开一份，给了一份就
- * 跟着用——幂等那一条要两次注册落在同一本名册上才量得出来。
+ * `slots` 是按真协议写的替身：同一个 id 重复注册会抛，那正是要躲开的那一下。`reuse` 给的是
+ * 同一份名册上再起一次——幂等那一条要两次注册落在同一本名册上才量得出来。
  * @param backend - 设置服务那一侧的替身。
  * @param into - `provide` 往哪个对象上落。
  * @param reuse - 可选的同一份名册与落点记录。
@@ -474,9 +441,8 @@ function bootClient(backend, into, reuse) {
   return { panel: into[client.SERVICE_KEY], ledger, calls, effects }
 }
 
-/* m2 那一条要量的东西：先按旧版那四个键把本地存储塞满，再看「接上设置表单那一刻」有没有
- * 把它们扫掉。最后第 6c 节那条判据扫的是整个 `dsh-pathfinder.` 前缀——先塞这一步让它对存量
- * origin 也真的成立，而不只是证「面板从此不再往里写」。 */
+/* 先按旧版那四个键把本地存储塞满，再看接上设置表单那一刻有没有把它们扫掉——先塞这一步让
+ * 「扫整个 `dsh-pathfinder.` 前缀」那条判据对存量 origin 也真的成立。 */
 const LEGACY_SEEDED = [
   'dsh-pathfinder.sideWidth',
   'dsh-pathfinder.infoLevel',
@@ -490,15 +456,13 @@ const booted = bootClient(backend, provided)
 const panel = booted.panel
 check('面板装成了一条服务', panel !== undefined && panel.id === 'pathfinder', `key=${client.SERVICE_KEY} id=${String(panel?.id)}`)
 
-/* 这一层登记三条：设置里那一节，加上调度中心那两处。夹具这里问的是「注册了哪些」，一份
- * 名册比一句「碰没碰 slots」经得起看——槽位、id / key、order 逐条摆出来。中央栏那一格是
- * keyed：那本名册认 `key`，另外两条认 `id`。 */
+/* 这一层登记三条：设置里那一节，加上调度中心那两处。中央栏那一格是 keyed：那本名册认
+ * `key`，另外两条认 `id`。 */
 const SEAT_ENTRIES = [
   { key: `${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`, order: client.SECTION_ORDER, word: '设置里那一节' },
   { key: `sidebar.panellist:${client.PANEL_ID}`, order: client.PANEL_ORDER, word: '侧栏那一项' },
   { key: `main:${client.PANEL_ID}`, order: undefined, word: '中央栏那一格' },
 ]
-/** 一本名册当下的样子：每条记下钥匙与 order。 */
 const rosterOf = (ledger) => [...ledger.entries()].map(([key, entry]) => ({ key, order: entry.options.order }))
 /** 按钥匙排好：这三条各落在**不同**的槽位，谁先登记在 DSH 里没有语义（`order` 只在同一个
  * list 槽内部才有意义），所以下面两份名册只比「哪几条在册、各自什么 order」，不锁先后。 */
@@ -526,8 +490,7 @@ check(
 
 /* 注册纪律那一节：同一本名册上再起一条插件（profile 重载、HMR 都会走到这里），注册必须是
  * 幂等的。`slots.register` 碰到同一个 id 已经在册会抛，而那个抛落在槽位登记处的通知里，
- * React 自己的订阅也在那条通知上——页面上看不出事，鼠标键盘却全死了。所以那一下必须停在
- * 这一层里面。 */
+ * React 自己的订阅也在那条通知上——页面上看不出事，鼠标键盘却全死了。 */
 const reuse = { ledger: new Map(), calls: [], effects: [] }
 bootClient(backend, {}, reuse)
 bootClient(backend, {}, reuse)
@@ -539,9 +502,8 @@ check(
   `名册 ${String(reuse.ledger.size)} 条：${[...reuse.ledger.keys()].join(', ')} ｜ 试过注册 ${String(reuse.calls.filter((call) => call.startsWith('register/')).length)} 次`,
 )
 
-/* 同一条 effect 收掉再跑一遍（fiber 重入那一趟）：先撤上一次，再登记回来。
- * 接设置表单那一手与座席那一手各是另一条 effect：收掉座席那一条，它自己那两条要
- * 跟着走、设置那一节要留着；收掉接设置表单那一条，接在设置表单上的订阅者要还回去。 */
+/* 同一条 effect 收掉再跑一遍（fiber 重入那一趟）：先撤上一次，再登记回来。收掉座席那一条，
+ * 它自己那两条要跟着走、设置那一节要留着；收掉接设置表单那一条，接在上面的订阅者要还回去。 */
 const sectionEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: settings page')
 const formEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: settings form')
 const seatsEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: seats')
@@ -604,8 +566,7 @@ check(
 const container = window.document.getElementById('app')
 const reactRoot = createRoot(container)
 
-/* 取数那一趟的完成通知用的是文件头上那一份 `inFlight`：远程替身与本夹具自己叫的那几趟
- * 都往那儿落。写面被叫过几次：几个新看法一遍点下来，这一次数必须停在原地。 */
+/* 写面被叫过几次：几个新看法一遍点下来，这一次数必须停在原地。 */
 const writeCalls = []
 /** 面板向宿主问过哪些根：顶上那枚工作区选择器挑中的那一个就从这儿看得见。 */
 const askedRoots = []
@@ -701,16 +662,10 @@ check(
 
 /* ---- 3c. 调度中心那两处：真产物挂上去，各露一面 --------------------------
  *
- * 判定 1 的「在测试床上露面」那一趟归下游两格（发布 `6009423d` 的完成判定 3、证明面
- * `b0c5e0dd` 的清单第 4 条）：本格这一侧的证据落在这一趟夹具与单测上。同一批命题放在
- * 这一趟里取证：侧栏那一项与中央栏那一格，两处注册的组件各按真形状渲染一遍——前者画一枚
- * 图标，后者就是面板本体（它向宿主问哪条会话，就画哪个工作区的记录）。
- *
- * 座席标准 props 里的 `useSessions` 由 ui-session 的 `provideRoot` 挂上，形状是一条
- * **带投影的** hook：夹具按真形状写一个——`ids` 是宿主清单次序（第一行是**另一条**会话）、
- * `byId` 里当前会话那条挂着 `retainedBy.mainView`，另带 `phase` 与 `projectionsBySession`。
- * 两处座席挑会话挑对没有：`seatReads` 那一笔（面板向宿主问过哪条会话）看得见——挑成清单
- * 第一行时，这一笔会露。
+ * 侧栏那一项与中央栏那一格，两处注册的组件各按真形状渲染一遍——前者画一枚图标，后者就是
+ * 面板本体（它向宿主问哪条会话，就画哪个工作区的记录）。座席标准 props 里的 `useSessions`
+ * 是一条带投影的 hook：`ids` 是宿主清单次序（第一行是另一条会话）、`byId` 里当前会话那条挂
+ * 着 `retainedBy.mainView`。两处座席挑会话挑对没有，`seatReads` 那一笔看得见。
  */
 const otherSessionId = 'panel-check-other'
 const snapshotAt = (id) => ({
@@ -825,13 +780,9 @@ check(
 
 /* ---- 3d. 顶上那枚工作区选择器：挑哪一个就读哪一个 ------------------------
  *
- * 调度中心是独立于左侧工作区栏的一处地方：所有工作区对它都是可以打开的对象，只是某个
- * 工作区里有没有这份记录得读一遍才知道。这一节就把那件事量全：名单照 DSH 那份清单来
- * （标题 + 末尾那一档「未分组」）、默认停在**这条会话落在的那个桶**、换一档就换一个根
- * 递给宿主，而那个根读出来的东西当场换到屏上——没有记录、读不动、读得回来三档各量一遍。
- *
- * 换的那一档递出去的是**绝对路径**：夹具这一侧 `askedRoots` 记着面板问过哪些根，逐档比。
- * 「未分组」递的是空字符串——那正是「这条会话自己那个根」，宿主按会话身份现算。
+ * 名单照 DSH 那份清单来（标题 + 末尾那一档「未分组」）、默认停在这条会话落在的那个桶、
+ * 换一档就把那个根递给宿主，而那个根读出来的东西当场换到屏上。换的那一档递出去的是绝对
+ * 路径（`askedRoots` 逐档比）；「未分组」递的是空字符串——那正是这条会话自己那个根。
  */
 const spaceItems = [
   { workspaceId: 'w-main', path: workspace, title: '主工作区', sessionIds: [sessionId] },
@@ -863,7 +814,6 @@ check(
   `候选=${JSON.stringify(spaceOptions().map((option) => option.textContent))} 选中=${JSON.stringify(spaceSelect()?.value)} ｜ 问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))}`,
 )
 
-/** 把选择器拨到某一档，等这一趟走完。 */
 const pickWorkspace = async (value) => {
   await act(async () => {
     spaceSelect().value = value
@@ -908,9 +858,7 @@ await act(async () => { spaceRoot.unmount() })
  * ——`var(--pf-ink-2)` 那几处没有兜底的读法会跟着作废。
  *
  * 同一条尺子还管着 `mock/tokens.css` 那条 reset 的 `box-sizing`：它在蓝本里写在 `*` 上，
- * 连页面根一起管，收拢成 `.pf-page *` 时面板根自己就落空了（`.pf-page` 是整块地界里唯一
- * 带内缩又拿 `height: 100%` 的盒，落空的代价是底下多出 24px）。读法按 DOM 逐个匹配，
- * 问的是「这条声明最后落在谁身上」——产物里写了什么不算数。 */
+ * 收拢成 `.pf-page *` 时面板根自己就落空了，代价是底下多出 24px。 */
 const TOKEN_VALUES = {
   '--pf-mark-floor': '3',
   '--pf-mark-floor-dense': '1.5',
@@ -950,18 +898,14 @@ check(
 )
 
 /* ---- 3b. 产物与 mock/ 的等价性：逐表逐条对一遍 ---------------------------
- * 上面两条读数是点状的（九个令牌、reset 的 `box-sizing`、舞台与框那几条），点不到
- * 「某一组规则整条不见了」——把页头那批 `.pf-count` 从进包的路上整批丢掉，上面照样全绿。
- * 这里补一条整体尺子：进包的 css 是 `mock/` 那几张表的机械改写（只重写选择器，声明一个
- * 字节不动），所以逐表逐条比得出来——套着它的那几层 at-rule、选择器、声明正文三样都要
- * 对得上；差额只允许是明写取进来的 `CARRIED` 那几条。
+ * 上面两条读数是点状的，点不到「某一组规则整条不见了」。这里补一条整体尺子：进包的 css 是
+ * `mock/` 那几张表的机械改写（只重写选择器，声明一个字节不动），所以逐表逐条比得出来——
+ * 套着它的那几层 at-rule、选择器、声明正文三样都要对得上；差额只允许是明写取进来的
+ * `CARRIED` 那几条。
  *
- * 尺子**自己**写一份表清单与一份收拢映射，不 import 构建口那一份：拿被测方自己的算法算
- * 期望值，尺子就等于没量（把某一批规则丢掉的那次改动会在两边同时生效，照样全绿）。
- * 两边清单也因此互相钉住：构建口多收或少收一张表，这里都会红。
- *
- * 规范化：比之前两边都摘掉注释、把连续空白折成一个空格、去掉首尾空白。声明次序照原样比，
- * 不排序——CSS 里次序有意义。
+ * 尺子自己写一份表清单与一份收拢映射，不 import 构建口那一份：拿被测方自己的算法算期望值，
+ * 尺子就等于没量。规范化：两边都摘掉注释、把连续空白折成一个空格、去掉首尾空白；声明次序
+ * 照原样比，不排序——CSS 里次序有意义。
  */
 const SHEETS = [
   { sheet: 'tokens.css', scope: '.pf-page' },
@@ -980,10 +924,8 @@ const CARRIED = [{
   selectors: ['.pf-stage', '.pf-frame', '.pf-configwrap', '.pf-configwrap .pf-scroll', '.pf-config', '.pf-config .pf-setrow', '.pf-vlayer'],
 }]
 const SCOPE = '.pf-page'
-/** 蓝本里写在页面根上的那几段：收拢后落到那一层自己身上。 */
 const PAGE_ROOTS = new Set([':root', 'html', 'body'])
 
-/** 与 `open` 那个 `{` 配对的那个 `}` 落在哪儿。 */
 function closingBrace(css, open) {
   let depth = 1
   let k = open + 1
@@ -996,7 +938,6 @@ function closingBrace(css, open) {
   return k
 }
 
-/** 比之前那一遍规范化：注释摘掉、连续空白折成一个空格、首尾去掉。 */
 function normalize(text) {
   return text.replace(/\/\*[\s\S]*?\*\//gu, ' ').replace(/\s+/gu, ' ').trim()
 }
@@ -1030,7 +971,7 @@ function alreadyScoped(part, scope) {
     .some((token) => token === scope.slice(1))
 }
 
-/** 这一段选择器进包之后该长成哪几段——这张表就是进包的约定，明写在这儿、与构建口各写一份。 */
+/** 这一段选择器进包之后该长成哪几段——这张表与构建口各写一份，不 import 它那一份。 */
 function expectedPart(part, scope) {
   const low = part.toLowerCase()
   if (low === '*') return [scope, `${scope} *`]
@@ -1039,7 +980,6 @@ function expectedPart(part, scope) {
   return alreadyScoped(part, scope) ? [part] : [`${scope} ${part}`]
 }
 
-/** 一整串选择器（逗号列表）收拢后的样子：重复的只留一条。 */
 function expectedPrelude(prelude, scope) {
   const parts = prelude
     .split(',')
@@ -1049,7 +989,7 @@ function expectedPrelude(prelude, scope) {
   return [...new Set(parts)].join(', ')
 }
 
-/** `mock/` 那一侧算出来的期望样子。`@keyframes` 这类整块原样带走，里面没有选择器可收拢。 */
+/** 蓝本那一侧算出来的期望样子：`@keyframes` 这类整块原样带走。 */
 function expectedOf(entry, scope) {
   return {
     wrap: entry.wrap,
@@ -1058,7 +998,6 @@ function expectedOf(entry, scope) {
   }
 }
 
-/** 两条规则对不对得上；对得上返回空串，否则返回一句读数。 */
 function diffOf(want, got) {
   if (got === undefined) return `期望 ${JSON.stringify(want.prelude)}（${want.body.slice(0, 40)}）｜ 产物里没有这一条`
   const same = got.prelude === want.prelude
@@ -1069,7 +1008,6 @@ function diffOf(want, got) {
   return `期望 ${JSON.stringify(want.prelude)}{${want.body.slice(0, 56)}} ｜ 产物 ${JSON.stringify(got.prelude)}{${got.body.slice(0, 56)}}${at}`
 }
 
-/** 第一条对不上的规则；全对得上返回 `null`。 */
 function firstMismatch(expected, got) {
   for (const [index, want] of expected.entries()) {
     const reading = diffOf(want, got[index])
@@ -1116,10 +1054,9 @@ check(
 lines.push(`      等价性：mock/ 那 ${String(SHEETS.length)} 张表 + CARRIED ${String(carriedWanted.length)} 条 → 产物 ${String(productEntries.length)} 条规则，逐条比选择器与声明正文（上面每张表一条读数）`)
 
 /* ---- 4a. 设置那一节：导航行 + 它打开的那一页，与面板读同一份设置表单 -----------
- *
- * 这一节住在 DSH 自己的设置面板里，跟主面板不在一棵树上，所以这里把产物注册的那个组件
- * 单独挂进一份 DOM，当它是一页。判据是「翻一行，面板上对应的读数当场跟着变」——两边读
- * 的是同一份表单（`configForms.get(ns)` 那一个控制器），这一条走得通才算接对了。 */
+ * 这一节住在 DSH 自己的设置面板里，跟主面板不在一棵树上，所以这里把产物注册的那个组件单独
+ * 挂进一份 DOM。判据是「翻一行，面板上对应的读数当场跟着变」。
+ */
 
 const settingsForm = backend.form(client.SETTINGS_NAMESPACE)
 const settingsDoc = () => settingsForm?.document() ?? {}
@@ -1220,7 +1157,6 @@ check(
   detailA.map((group) => `${group.label}(${String(group.rows.length)})`).join('/'),
 )
 
-/* 指令那一格：先验「按范围分组」这一层，再归档一条、复原它、把它删掉。 */
 await act(async () => { tabs[2].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const wantGroups = expectedNoteGroups(project, false)
 const shownGroups = [...container.querySelectorAll('#pane-notes .pf-sec')].map((section) => ({
@@ -1404,7 +1340,7 @@ check(
 )
 
 /* 进行中的那一格不许印「可开工」：读数里 `ready` 与 `running` 互斥，卡片上那行与悬停说的是
-   同一件事。本仓这份记录里就有一格——`5294d24a`（就是写这一格的那一格自己）进行中、欠前置 0。 */
+   同一件事。 */
 const inHand = project.nodes.filter((node) => node.running)
 const inHandCards = inHand.map((node) => fullCards.find((card) => card.getAttribute('data-id') === node.id))
 check(
@@ -1512,15 +1448,12 @@ check(
 )
 
 /* ---- 4d. 设置那一格：这个工作区自己的项目设置，读出来、就在这里改 --------------
- *
- * 四行、三种控件、行尾一枚层签，照蓝本。两侧读数：一边是面板上摆出来的，一边是**真工具**
- * 对着同一份工作区印的那四行。改一处写回**这个项目那一层**，改完重读一遍——读数落在那份
- * 记录文件上（`workspace/.pf/config.json`），面板自己回读的那一份不作数。这一节跑在临时拷贝
- * 上，本仓那份记录库一个字节不动。
+ * 四行、三种控件、行尾一枚层签，照蓝本。两侧读数：一边是面板上摆出来的，一边是真工具对着
+ * 同一份工作区印的那四行。改一处写回这个项目那一层，改完重读一遍——读数落在那份记录文件
+ * （`workspace/.pf/config.json`）上，面板自己回读的那一份不作数。
  *
  * 非法值那两档：一个越界数字（数字框里真敲进去），一个不在候选表里的档位（下拉里塞一枚假的
- * 候选值再选它——真面板上点不出这一手，塞的这一枚就是为了把那句话逼出来）。两趟都要落在
- * 「记录保持原值、界面回到原值」上。
+ * 候选值再选它）。两趟都要落在「记录保持原值、界面回到原值」上。
  */
 
 const { parseConfigList } = await import(pathToFileURL(join(root, 'src', 'host', 'project-config.ts')).href)
@@ -1535,7 +1468,6 @@ check(
 )
 
 const storedConfig = () => JSON.parse(readFileSync(join(record, 'config.json'), 'utf8'))
-/** 一份面板里那一格的读数：四行的键、控件上摆的值、行尾那枚层签。 */
 const configReadings = (scope) => [...(scope?.querySelectorAll('#pane-config .pf-setrow') ?? [])].map((row) => {
   const pick = row.querySelector('select')
   const box = row.querySelector('input')
@@ -1552,7 +1484,6 @@ await act(async () => { tabs[5].dispatchEvent(new window.MouseEvent('click', { b
 await settle()
 const configPane = container.querySelector('#pane-config')
 const shownFirst = configReadings(container)
-/** 工具那一侧的期望：每一行的值，加上它住的那一层读作哪个词。 */
 const wantedFirst = ['worktree_mode', 'test_tier', 'max_agents', 'issue_repair'].map((key) => ({
   key,
   value: truth[key]?.value ?? '（工具没印这一行）',
@@ -1606,7 +1537,6 @@ const pressToggle = async (row, word) => {
 const noteLine = () => [...container.querySelectorAll('.pf-innone')].map((node) => node.textContent ?? '').join(' | ')
 const other = (list, current) => list.find((one) => one !== current) ?? current
 
-/* 四行各改一次，都改成另一个合法值。 */
 const wrote = []
 const worktreeRow = rowIn(container, 'worktree_mode')
 const worktreeNext = other([...worktreeRow.querySelectorAll('option')].map((option) => option.value), worktreeRow.querySelector('select').value)
@@ -1686,7 +1616,7 @@ check(
   `记的是 partial ｜ 记录里=${String(storedConfig().test_tier)} 下拉里=${rowIn(container, 'test_tier').querySelector('select').value} 提示行=${noteLine() === '' ? '（空）' : noteLine()}`,
 )
 
-/* 那一列的两枚把手：默认 720，左右各一枚贴着列缘，拖一下改列宽，双击回默认。 */
+/* 那一列的两枚把手：左右各一枚贴着列缘，拖一下改列宽，双击回默认。 */
 const wrap = configPane?.querySelector('.pf-configwrap')
 const configWidth = () => wrap?.style.getPropertyValue('--pf-config-w') ?? ''
 const grips = () => [...(configPane?.querySelectorAll('.pf-grip') ?? [])]
@@ -1910,15 +1840,12 @@ if (parkedNode !== undefined) {
 }
 
 /* ---- 6a-1. 点一张卡切到那一格的会话 ----------------------------------------
- *
  * 这一格交出去的是「点一张卡，活动会话切到记录里指出的那一条」。链条上每一环都按真形状
- * 接着：**四份记录**与**会话笔记**都由真宿主半身那两条端点交回来（走的是这一份记录拷贝
- * 与它那一层按节点分的小份笔记）、**会话清单**是那条带投影的 hook（上面那份 `liveList`）、
- * **跳转**走 DSH 那条导航口子（`uiWorkspace.openSession`，面板只把身份递出去）。
+ * 接着：四份记录与会话笔记都由真宿主半身那两条端点交回来、会话清单是那条带投影的 hook、
+ * 跳转走 DSH 那条导航口子（面板只把身份递出去）。
  *
- * 三件事分别量：有去处的卡片点下去会话真的换了、那一屏换成那条会话自己的工作区（两条会话
- * 指着两份不同的记录，读数逐项对得上）；没有去处的卡片点不动；切走再切回来，面板自己那
- * 几个状态还在。
+ * 三件事分别量：有去处的卡片点下去会话真的换了、那一屏换成那条会话自己的工作区；没有去处
+ * 的卡片点不动；切走再切回来，面板自己那几个状态还在。
  */
 
 /* 往这一份拷贝里加一格（真工具落的笔）：它还没人开过，笔记与记录本体两处都没有它的会话
@@ -2162,11 +2089,10 @@ check(
 await act(async () => { goRoot.unmount() })
 
 /* ---- 6a-2. 写回被拒：控件不许静默弹回，那一节现有的提示行要说得出来 --------------
- *
- * 同一趟往返里的第二笔踩到的就是这个：手里那个修订号已经过期，宿主把这一笔拒掉，交回来的
- * 只是一个 `false`（理由吞在它自己那里），面板那几处 `void …write(…)` 又把它丢掉。这一条让
- * 这份文档一律拒收，再翻一次开关：头一笔带围栏、第二笔摘掉围栏，两笔都不作数时设置页现有
- * 的那条提示行（`.pfset-msg`）上要摆出一句话。 */
+ * 手里那个修订号已经过期，宿主把这一笔拒掉，交回来的只是一个 `false`（理由吞在它自己
+ * 那里），面板那几处 `void …write(…)` 又把它丢掉。这一条让这份文档一律拒收，再翻一次开关：
+ * 两笔都不作数时那条提示行（`.pfset-msg`）上要摆出一句话。
+ */
 
 const failureLine = () => [...settingsHost.querySelectorAll('.pfset-msg')]
   .map((node) => node.textContent ?? '').join(' | ')
@@ -2217,11 +2143,10 @@ check(
 )
 
 /* ---- 6b. 同一份设置文档再挂一次：值还在，读数与刚才一致 --------------------
- *
- * 真部署里「重启第二个实例」是另一个进程照同一份 `$DSH_HOME` 配置重新读一遍。夹具这一
- * 趟能到的最远处是：把刚才那份文档原样当作下一份文档的起点，重新走一遍 `apply`（新的
- * 上下文、新的注册名册、新的设置口子），再看新挂上来的面板与设置页读出来的是不是那几个
- * 值。浏览器级的第二实例（真起进程、真重启）不归这一格，见报告里的缺口。 */
+ * 真部署里「重启第二个实例」是另一个进程照同一份 `$DSH_HOME` 配置重新读一遍。夹具这一趟能
+ * 到的最远处是：把刚才那份文档原样当作下一份文档的起点，重新走一遍 `apply`（新的上下文、
+ * 新的注册名册、新的设置口子），再看新挂上来的面板与设置页读出来的是不是那几个值。
+ */
 
 const keptPrefs = { ...settingsDoc() }
 check(
@@ -2304,13 +2229,11 @@ check(
 )
 
 /* ---- 6d. 卸载那一趟：停插件之后，两处都不留东西 --------------------------
+ * 另起一条插件（新名册、新落点、自己的 effect），把两处经真代码渲染一遍——两张样式表由
+ * 渲染那条路挂上，再把它那几条 effect 全收掉：名册清空，两张标签从文档里摘干净。
  *
- * 完成判定第 2 条。另起一条插件（新名册、新落点、自己的 effect），把两处经真代码渲染一遍
- * ——两张样式表由渲染那条路挂上（`Entry` 的 `ensureStyle` 与设置页的 `ensureSettingsStyle`），
- * 再把它那几条 effect 全收掉：名册清空，两张标签从文档里摘干净。
- *
- * 清理那一趟的次序（先撤注册再摘样式）是设计意图，写在 `mount.ts` 的清理那一段里；这里与
- * 单测都只量终局——判定 2 要的是「都不留东西」，没有一条要求次序。 */
+ * 清理那一趟的次序（先撤注册再摘样式）写在 `mount.ts` 的清理那一段里；这里与单测都只量
+ * 终局——判定 2 要的是「都不留东西」，没有一条要求次序。 */
 
 const unload = { ledger: new Map(), calls: [], effects: [] }
 const unloaded = bootClient(backend, {}, unload)
@@ -2364,15 +2287,13 @@ check(
 )
 
 /* ---- 6e. 热更新那一趟：装 → 卸 → 再装，三处清场点逐处给正面读数 -----------
+ * 6d 量的是终局；这一节把「侧栏项 / 中央栏那一格 / 两张注入的样式标签」这三处逐处摆出正面
+ * 读数，并多走一趟热更新：卸干净之后再装回来，三处各回到原样、且没有重复登记。
  *
- * 完成判定第 4 条。6d 量的是终局（名册清空、两张样式标签摘干净）；这一节把
- * 「侧栏项 / 中央栏那一格 / 两张注入的样式标签」这三处**逐处**摆出正面读数，并多走一趟
- * 热更新：卸干净之后再装回来，三处各回到原样、且没有重复登记。
- *
- * 座席那一面不走真 slots 渲染器（那个住在 DSH 外壳里，不在这份产物里）；这里用一个最小的
- * 渲染器代替，它只做真渲染器做的那一件事——**照名册当下有什么就画什么**。名册由插件那几条
- * effect 增删、渲染器那一头始终挂着，于是「注册撤了，屏上就没东西」这件事有读数。
- * 两处座席都指空工作区那条会话：那一档面板正文摆着那句话，画得出来就是一行 `.pf-page`。 */
+ * 座席那一面不走真 slots 渲染器（那个住在 DSH 外壳里）；这里用一个最小的渲染器代替，它只做
+ * 真渲染器做的那一件事——照名册当下有什么就画什么。于是「注册撤了，屏上就没东西」这件事
+ * 有读数。两处座席都指空工作区那条会话：那一档面板正文摆着那句话，画得出来就是一行
+ * `.pf-page`。 */
 
 const CLEAR_POINTS = [
   { word: '侧栏项', key: `sidebar.panellist:${client.PANEL_ID}`, probe: (host) => host.querySelector('svg') },

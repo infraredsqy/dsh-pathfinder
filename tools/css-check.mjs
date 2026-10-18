@@ -9,26 +9,6 @@
  * those specs leave to a human: which alias each mark inks itself with, and
  * whether that ink clears this panel's contrast floors in both palettes.
  *
- * What it checks, and where each question comes from:
- *   1. every colour an alias, never a literal, a raw palette step, or a theme
- *      selector                                        (web-styling.md, ownership)
- *   2. every radius on the shared scale, and every full-round shape paired with
- *      `corner-shape: round`                           (ui-radius.md, corner-shape spec)
- *   3. elevated surfaces take `border: 0` and the elevation material, and no
- *      rule pairs a neutral border with an elevation shadow  (elevation spec)
- *   4. neutral borders at the 0.5px hairline, state-coloured ones at 1px
- *                                                      (web-styling.md, elevation spec)
- *   5. menus keep the theme's material, and a menu-role renderer says so
- *                                                      (menu-surfaces spec)
- *   6. clickable links colour through `--dsw-alias-link`  (web-styling.md)
- *   7. both palettes define every alias the panel reads  (design-platform.css)
- *   8. every mark's ink clears its floor in light and dark, each row read against
- *      the surface the instance it names stands on, printed
- *   9. class names that mean two different things in two modules, listed
- *  10. every module sheet is loaded by a page, and every href resolves
- *  11. a card's hover moves its stroke, never the face it carries a ring on
- *  12. panel tokens declared on `html` would resolve to nothing and paint nothing
- *
  * Usage: node tools/css-check.mjs [--root <dir>] [--quiet]
  * Exit code 0 when every question passes.
  */
@@ -95,7 +75,6 @@ function parseRules(css) {
   return rules
 }
 
-/** Custom-property names a value reads. */
 const varNames = (value) => [...value.matchAll(/var\(\s*(--[\w-]+)/g)].map(([, name]) => name)
 
 /**
@@ -123,7 +102,6 @@ function resolveVars(value, map, seen = new Set()) {
 
 /* ------------------------------------------------------------------- colour */
 
-/** Parse one colour into {r,g,b,a} (0-255, 0-1). Returns undefined when it is not a colour. */
 function parseColor(text) {
   const value = text.trim()
   const hex = value.match(/^#([0-9a-f]{3,8})$/i)
@@ -143,7 +121,6 @@ function parseColor(text) {
   return undefined
 }
 
-/** The single colour a resolved value paints, `color-mix(..., transparent)` included. */
 function colorOf(value) {
   const direct = parseColor(value)
   if (direct) return direct
@@ -164,7 +141,6 @@ function colorOf(value) {
   }
 }
 
-/** Composite a (possibly translucent) ink over an opaque ground. */
 function over(ink, ground) {
   if (ink.a >= 1) return ink
   return {
@@ -181,7 +157,7 @@ const channel = (c) => {
 }
 const luminance = ({ r, g, b }) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
 
-/** WCAG contrast ratio between two colours, the ink composited over the ground first. */
+/** WCAG contrast ratio. */
 function contrast(ink, ground) {
   const a = luminance(over(ink, ground))
   const b = luminance(ground)
@@ -244,9 +220,8 @@ const ALIAS_FAMILIES = /^--(?:dsw-alias-|dsw-elevation|dsw-menu-|dsw-mask-|dsw-r
 
 let literalCount = 0
 let rawStepCount = 0
-/* Every custom property the sheets declare themselves: a component is allowed to
- * own one for its own layout or presentation contract, and reading it back is
- * what makes that a contract instead of a wish. */
+/* Every custom property the sheets declare themselves: a component may own one for
+ * its own layout contract, and reading it back is what makes that a contract. */
 const declared = new Set()
 /* Declarations the panel sheets make themselves. `--pf-*` is this panel's own
  * vocabulary (ink steps, marks, the two floors), so where it is declared is the
@@ -316,10 +291,9 @@ for (const name of [...panelTokens].sort()) {
   }
 }
 
-/* The same question on the panel's own side. `--pf-*` is read by the sheets that
- * declare it, so a name with a letter off (`--pf-ink44`) paints nothing in either
- * palette, raises nothing, and every mark it inks just goes missing. A name a page's
- * script hands in is the one exception, and it is written with a fallback. */
+/* The same question on the panel's own side: a `--pf-*` name with a letter off
+ * (`--pf-ink44`) paints nothing in either palette, raises nothing, and every mark it
+ * inks just goes missing. A name a page's script hands in is written with a fallback. */
 let undeclaredPanelTokens = 0
 for (const name of [...panelTokens].sort()) {
   if (!name.startsWith('--pf-')) continue
@@ -362,10 +336,9 @@ const ELEVATED_SHADOW = /--dsw-(?:elevation-|shadow-lv)/
 const NEUTRAL_BORDER = /--dsw-alias-border-/
 const STATE_COLOR = /--dsw-alias-state-|--dsw-alias-link/
 const BORDER_EDGE = /^border(?:-top|-bottom|-left|-right)?(-width)?$/
-/* Ring tracks: the border is the drawn graphic (a rotating ring), not an
- * outline, so it keeps its width — the same exemption the theme's elevation
- * spec spells out. The panel draws this ring in two places, and both are listed:
- * the state mark a card and a detail row share, and the line's own mark. */
+/* Ring tracks: the border is the drawn graphic (a rotating ring), not an outline,
+ * so it keeps its width — the same exemption the theme's elevation spec spells out.
+ * The panel draws this ring in two places, and both are listed. */
 const RING_TRACKS = new Set(['tokens.css .pf-state.is-run', 'lines.css .pf-linemark.is-run'])
 let elevationPairedWithBorder = 0
 let neutralBorderWide = 0
@@ -454,11 +427,10 @@ for (const file of panelFiles) {
 
 /* A card carries a reading on its own surface: the amber ring that says a person
  * has to move is an inset shadow on `.pf-card`, and the card's raised look is its
- * fill. A hover that paints either of them does two things at once — it covers the
- * ring (the reading is gone while the pointer is on it) and, because both paint
- * through the same transition, it sweeps a solid block through the interpolation.
- * So a hover on a card moves the stroke and leaves the face alone. A row is a
- * different object and keeps its fill: it carries no ring. */
+ * fill. A hover that paints either does two things at once — it covers the ring
+ * (the reading is gone while the pointer is on it) and, because both paint through
+ * the same transition, it sweeps a solid block through the interpolation. So a hover
+ * on a card moves the stroke and leaves the face alone; a row keeps its fill. */
 const CARD = /\.(?:pf-card|pf-zcard|pf-case)(?![\w-])/
 const HOVER = /:(?:hover|active)\b/
 const FACE_INK = new Set(['background', 'background-color', 'box-shadow', 'filter', 'backdrop-filter', 'opacity'])
@@ -479,8 +451,7 @@ for (const file of panelFiles) {
 /* The theme declares its aliases on `body`, and a custom property's var() is
  * substituted where the declaration sits. A panel token declared on `:root` or
  * `html` therefore resolves against an element that has no alias yet, computes
- * to the guaranteed-invalid value, and paints nothing — in both palettes, with
- * no error anywhere. Cheap to write, invisible in review, so it is checked. */
+ * to the guaranteed-invalid value, and paints nothing — in both palettes. */
 const ALIAS_READ = /var\(\s*--(?:dsw|ds)-/
 let rootTokensWithAlias = 0
 for (const file of panelFiles) {
@@ -495,7 +466,6 @@ for (const file of panelFiles) {
     }
   }
 }
-/** Whether a value reads another panel token that itself reads an alias. */
 function panelTokensFeed(value, depth = 0) {
   if (depth > 6) return false
   for (const name of varNames(value)) {
@@ -523,18 +493,16 @@ const FLOOR = { A: floorOf('--pf-mark-floor', 3), B: floorOf('--pf-mark-floor-de
 
 /**
  * The marks this panel paints, each tied to the rule that paints it: the check
- * fails when a sheet stops saying what the table says it says. `tier` is the
- * floor the mark answers to ('A' a mark the reader resolves on its own, 'B' one
- * read as part of a dense row), or null for a reading that is the theme's own
- * value rather than a choice made here.
+ * fails when a sheet stops saying what the table says it says. `tier` is the floor
+ * the mark answers to ('A' a mark the reader resolves on its own, 'B' one read as
+ * part of a dense row), or null for a reading that is the theme's own value rather
+ * than a choice made here.
  *
- * `where` is the instance the reading belongs to, `decl` the rule whose
- * declaration carries the ink (it defaults to `where`). The two differ where one
- * rule paints the same mark in two places that stand on different grounds: the
- * state mark is drawn on a board card (`.pf-card`, `--dsw-alias-bg-layer-1`) and
- * on a detail row (`.pf-row`, which has no fill of its own, `--dsw-alias-bg-base`).
- * One row per place — a single row naming one place and reading the other's ground
- * prints a number no instance stands on.
+ * `where` is the instance the reading belongs to, `decl` the rule whose declaration
+ * carries the ink (defaulting to `where`). The two differ where one rule paints the
+ * same mark in two places that stand on different grounds — a board card
+ * (`.pf-card`, `--dsw-alias-bg-layer-1`) and a detail row (`.pf-row`,
+ * `--dsw-alias-bg-base`) — so one row per place.
  */
 const MARKS = [
   { what: '计数胶囊方记号 · 已交付', where: '.pf-cell', property: 'background', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
@@ -556,9 +524,8 @@ const MARKS = [
   { what: '卡片上的闸 · 琥珀环', where: '.pf-card.is-gate', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-layer-1', tier: null },
   { what: '卡片状态标 · 已交付', where: '.pf-card .pf-state.is-done', decl: '.pf-state.is-done', property: 'color', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-layer-1', tier: null },
   { what: '明细行记号 · 已交付', where: '.pf-row .pf-state.is-done', decl: '.pf-state.is-done', property: 'color', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-base', tier: null },
-  /* No node in today's ledger is in flight, so this mark has no instance on the page
-   * right now; the same rule paints it in both places (a card and a row), so both
-   * rows stay and are read where they would stand. */
+  /* This mark has no instance on the page right now: the same rule paints it in both
+   * places (a card and a row), so both rows stay and are read where they would stand. */
   { what: '卡片状态标 · 进行中', where: '.pf-card .pf-state.is-run', decl: '.pf-state.is-run', property: 'color', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-layer-1', tier: null },
   { what: '明细行记号 · 进行中', where: '.pf-row .pf-state.is-run', decl: '.pf-state.is-run', property: 'color', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-base', tier: null },
   { what: '计数胶囊方记号 · 进行中', where: '.pf-cell.is-running', property: 'background', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-base', tier: null },
@@ -582,8 +549,6 @@ const findDeclaration = (selector, property) => {
 const readings = []
 let markFailures = 0
 for (const mark of MARKS) {
-  /* `where` may name an instance rather than the rule that paints it (the same rule
-   * drawn in two places); the declaration to check is `decl` when it is given. */
   const decl = mark.decl ?? mark.where
   if (decl !== null) {
     const found = findDeclaration(decl, mark.property)
@@ -620,12 +585,11 @@ for (const mark of MARKS) {
 
 /* ---------------------------------------------- 9. names meaning two things */
 
-/* A name's own declarations in one file: the rules whose selector is a compound
- * that starts with it (`.pf-mark`, `.pf-mark:hover`, `.pf-mark.pf-failed`).
- * Rules that merely mention it further along (`.pf-line:hover .pf-chev`) style
- * something else and are not that object's own shape. */
+/* A name's own declarations in one file: the rules whose selector is a compound that
+ * starts with it (`.pf-mark`, `.pf-mark:hover`). Rules that merely mention it further
+ * along (`.pf-line:hover .pf-chev`) style something else, not that object's own shape. */
 const NAME_RULE = (name) => new RegExp(`^\\.${name}(?![\\w-])`)
-/** (selector, file) -> property -> value, for every compound selector. */
+/** (selector, file) -> property -> value. */
 const bySelector = new Map()
 const namesOf = new Map()
 for (const file of panelFiles) {
@@ -645,9 +609,8 @@ for (const file of panelFiles) {
     }
   }
 }
-/** Selectors two files declare with a different value for one property: one
- * class, two objects. Each view loads only its own module today, so these are
- * latent until two views share one document. */
+/** Selectors two files declare with a different value for one property: one class, two
+ * objects — latent until two views share one document. */
 const collisions = new Map()
 for (const [selector, perFile] of [...bySelector].sort()) {
   if (perFile.size < 2) continue

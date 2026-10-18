@@ -1,21 +1,6 @@
 #!/usr/bin/env node
-/* Regenerate mock/ledger.js from a real .pf ledger.
- *
- * The mock exists to be judged against the content the panel will really hold,
- * and hand-copied titles drift. So the node pool, the five cycles, the five
- * walked paths and the standing instructions are read straight out of
- * ideas.json + state.json + instructions.json and written out as one data blob;
- * nothing here names a node, rewords a sentence or invents a timestamp.
- *
- *   node   id, title, tags, mode, created_at, completed_at, dependencies, status
- *   cycle  id, title, tags, status, created_at, updated_at,
- *          path[] = the steps that RAN (node, started_at, ended_at, result)
- *   instruction
- *          id, text (the user's own words, verbatim), scope, target, state,
- *          cycle binding, node binding, at, resolved_at, note, stop_after_nodes
- *
- * Only the -i frontier in data.js is invented, because a ledger with everything
- * completed has no todo node to copy and therefore nothing to draw a queue from.
+/* Regenerate mock/ledger.js from a real .pf ledger: the mock is what the panel is
+ * judged against, and hand-copied titles drift.
  *
  *   node tools/gen-ledger.mjs [--ledger <path to .pf>]
  */
@@ -36,10 +21,8 @@ const LEDGER =
 const ideas = JSON.parse(fs.readFileSync(path.join(LEDGER, 'ideas.json'), 'utf8'));
 const state = JSON.parse(fs.readFileSync(path.join(LEDGER, 'state.json'), 'utf8'));
 
-// The standing instructions: the user's own sentences, kept in the order they
-// were said. `note` is the half a reader can act on -- for a closed entry it is
-// why it stopped counting -- and `stop_after_nodes` is the one machine field
-// (how many nodes to run before stopping).
+// The user's own sentences, in the order they were said; `note` is the half a
+// reader can act on -- for a closed entry it is why it stopped counting.
 const instrPath = path.join(LEDGER, 'instructions.json');
 const instructions = (fs.existsSync(instrPath)
   ? JSON.parse(fs.readFileSync(instrPath, 'utf8')).instructions || []
@@ -72,8 +55,7 @@ const nodes = Object.keys(raw).map((id) => {
     n.status || 'todo'
   ];
 });
-// Chronological, oldest completion first: the grid of a census reads as the
-// order the project was built, and an unfinished node sorts to the end.
+// Oldest completion first: the grid of a census reads as the order the project was built.
 nodes.sort((a, b) => String(a[5] || '9999').localeCompare(String(b[5] || '9999')));
 
 const cycles = state.cycles.map((c) => ({
@@ -84,16 +66,14 @@ const cycles = state.cycles.map((c) => ({
   created: c.created_at || null,
   updated: c.updated_at || null,
   policies: c.policies || {},
-  // Old-format ledgers also carry current_node / current_started_at, singletons
-  // that the tool has since generalised to a holding list. Both are read so the
-  // generator works against either shape.
+  // Old-format ledgers carry current_node / current_started_at singletons instead.
   holding:
     c.holding ||
     (c.current_node ? [{ id: c.current_node, since: c.current_started_at || null }] : []),
   path: (c.path || []).map((p) => [p.node, p.started_at || null, p.ended_at || null, p.result || null])
 }));
 
-// ---- what the source actually contains, so a drift shows up as a number ----
+// ---- what the source contains, so a drift shows up as a number ----
 const inPaths = new Set();
 cycles.forEach((c) => c.path.forEach((p) => inPaths.add(p[0])));
 const missing = nodes.map((n) => n[0]).filter((id) => !inPaths.has(id));
@@ -172,8 +152,7 @@ console.log(`nodes carrying dependencies: ${withDeps}`);
 console.log(`path nodes not in the pool: ${JSON.stringify(orphan)}`);
 console.log(`pool nodes never walked: ${missing.length}${missing.length ? ' ' + JSON.stringify(missing.slice(0, 4)) : ''}`);
 console.log(`completed_at span ${stamps[0]} .. ${stamps[stamps.length - 1]}`);
-// The one number the panels cannot check for themselves: a node that is not
-// completed is either in play or parked, and only the record knows which.
+// Not-completed is either in play or parked; only the record knows which.
 const statusTally = nodes.reduce((m, n) => ((m[n[7]] = (m[n[7]] || 0) + 1), m), {});
 console.log(`node status ${JSON.stringify(statusTally)}`);
 const tally = (key) => instructions.reduce((m, r) => ((m[r[key]] = (m[r[key]] || 0) + 1), m), {});

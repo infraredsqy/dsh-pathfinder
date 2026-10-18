@@ -1,29 +1,7 @@
 #!/usr/bin/env node
-/* Regenerate mock/issues.js from a real .pf ledger.
- *
- * The other half of the record. `ledger.js` holds the work; this holds the debt:
- * the issue register (.pf/issues/issues.json), the policy line the pool is
- * measured against, and the readings the pipeline itself took of that measure at
- * each node's closing beat.
- *
- * Nothing here is invented and nothing is reworded: a case's title, evidence,
- * recommendation and disposition are the record's own sentences, verbatim.
- *
- * Two of the three facts the page needs are not stored as plain fields, so they
- * are read out of the record where the record does state them:
- *
- *   line     issue_pool_weight_limit, a policy on one of the cycles
- *   weights  "P3/P2/P1/P0 = 1/2/4/8", written into the spec the maintenance
- *            channel generated; the tool has no config field for it
- *
- *   issue     id, title, severity, status, module, source, decision,
- *             discovered, updated_at, check_count, files[],
- *             description, suggestion, reason, plan_path
- *   reading   the metric at one node's closing beat: at, value, cycle, node, title
- *   maint     a maintenance run against this pool: id, title, created, completed
- *
- * Only the cut that turns a register into a state is invented, and it lives in
- * data.js with every other reading of a moment.
+/* Regenerate mock/issues.js from a real .pf ledger: the debt half of the mock, read
+ * verbatim out of the issue register, the cycle policy the pool is measured
+ * against, and the readings the pipeline took of that measure.
  *
  *   node tools/gen-issues.mjs [--ledger <path to .pf>]
  */
@@ -87,13 +65,11 @@ const rows = Object.values(raw)
     i.reason || null,
     i.plan_path === undefined ? null : i.plan_path
   ])
-  // Filing order: a register is read oldest first, and every panel sorts for
-  // itself (data.js groups it by what the reader has to act on).
+  // Filing order, oldest first: every panel sorts for itself.
   .sort((a, b) => String(a[7] || '').localeCompare(String(b[7] || '')));
 
 // ---- the readings ---------------------------------------------------------
-// Each closing beat may report the metric; when it does, that reading is a fact
-// with a time and a node attached. Nothing is interpolated between them.
+// A closing beat may report the metric; nothing is interpolated between readings.
 const readings = [];
 const maint = [];
 (function walk(dir) {
@@ -113,9 +89,7 @@ const maint = [];
 })(path.join(LEDGER, 'signals'));
 readings.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
 
-// A maintenance run is a node the pipeline inserted because the measure had
-// crossed the line: the tool tags what it generates, and the two hand-called
-// runs name the pool in their own title.
+// A maintenance run is a node the pipeline inserted because the measure had crossed the line.
 for (const [id, n] of Object.entries(ideas)) {
   const tagged = (n.tags || []).some((t) => String(t) === 'maint:issue_pool_weight');
   const named = /issue 池/.test(n.title || '');
