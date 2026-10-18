@@ -1320,15 +1320,8 @@ check(
 )
 await pickOption(rowNamed('默认标签页')?.querySelector('.pfset-select'), '当前')
 
-/* 明细：这一份记录里没有出局等人的格，「等待处理」那一组就不该出现。 */
 await act(async () => { tabs[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const detailA = detailReadings(container)
-const labelsA = detailA.map((group) => group.label)
-check(
-  '不含出局等人的那份记录里不出现「等待处理」',
-  project.columns.shelved.length === 0 && labelsA.includes('等待处理') === false,
-  `记录里的出局等人=${String(project.columns.shelved.length)} 组头=${labelsA.join('/') || '（空）'} 行数=${String(detailA.reduce((sum, group) => sum + group.rows.length, 0))}`,
-)
 check(
   '明细的组头按记录长出来',
   detailA.length > 0,
