@@ -1,15 +1,9 @@
 /**
  * 依赖那一格：一张分层场，谁挡着谁。
  *
- * 层与边从记录里来（`readGraph`），摆在哪儿由这一层算：每一层一列，列里的次序按邻居的
- * 平均高度过两趟（先看它欠的，再看欠它的），线在列与列之间自己找一条不压记号的走法。
- * 没有物理、没有动画、没有帧循环——图在第一笔画出来之前就已经定了，剩下的是读它。
- *
- * 同一张图有三种读法，放大不改排布，只改一格有多大、列与列隔多远：点阵那一档看形状，
- * 卡片那两档看名字。抠出来看是同一个问题的另一半：只留选中那一格和它上下游那一圈，
- * 空掉的列与行不再占地方。
- *
- * @module dsh-pathfinder/client/field
+ * 层与边从记录里来，摆在哪儿由这一层算：每一层一列，列里的次序按邻居的平均高度过两趟（先看它
+ * 欠的，再看欠它的），线在列与列之间自己找一条不压记号的走法。没有物理、没有动画、没有帧循环
+ * ——图在第一笔画出来之前就已经定了。
  */
 import * as React from 'react'
 import type { GraphReading, NodeReading, ProjectReading } from '../model/index.ts'
@@ -38,25 +32,21 @@ const CARD_GEOM = {
   3: { card: 340, gap: 52, row: 52, pad: 16, full: true },
 } as const
 
-/** 一格摆在哪、在哪一列。 */
 interface Point {
   readonly x: number
   readonly y: number
   readonly col: number
 }
 
-/** 排布好的一张图：列、每一格的位置、记号多大、列距多少、画布多大。 */
 interface Placed {
   readonly columns: readonly (readonly NodeReading[])[]
   readonly pos: Readonly<Record<string, Point>>
   readonly mark: number
-  /** 相邻两列之间隔多远。 */
   readonly step: number
   readonly width: number
   readonly height: number
 }
 
-/** 画出来的一张图：记号、卡片与线，位置都已经算好。 */
 interface Scene {
   readonly placed: Placed
   readonly marks: readonly { readonly node: NodeReading; readonly point: Point; readonly dim: string }[]
@@ -75,8 +65,8 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
   const [zoom, setZoom] = React.useState<Zoom>(0)
   const [focusId, setFocusId] = React.useState<string | null>(null)
   const [cut, setCut] = React.useState(false)
-  /* 双击由这两下 click 自己认：第一下点完地界会把那一格挪到眼前，第二下的落点常常已经
-     换成邻居，浏览器也就不发 dblclick 了。`detail` 是浏览器量过的连击数。 */
+  /* 双击由这两下 click 自己认：第一下点完地界会把那一格挪到眼前，第二下的落点常常已经换成邻居，
+     浏览器也就不发 dblclick 了；`detail` 是浏览器量过的连击数。 */
   const lastHit = React.useRef<string | null>(null)
 
   const measure = React.useCallback(() => {
@@ -289,12 +279,10 @@ function CardDeps(props: { readonly node: NodeReading }): React.ReactElement | n
   )
 }
 
-/** 一格的标题：记录里那个标题；没写就用身份的前八个字。 */
 function titleOf(node: NodeReading): string {
   return node.title ?? shortOf(node)
 }
 
-/** 记录里那个八字把手。 */
 function shortOf(node: NodeReading): string {
   return node.id.length > 8 ? node.id.slice(0, 8) : node.id
 }
@@ -308,8 +296,8 @@ function stateClass(node: NodeReading): string {
 }
 
 /** 一个记号说的是什么：标题、八字把手，以及图形说不出来的那一件事。
- *  与 `CardDeps` 说的是同一件事——两边都先认读数自己的 `ready`、再看有没有人握着，所以那一
- *  格在卡片上不印什么、在这里说「进行中」，不会一处说可开工、一处说在别人手里。 */
+ *  与 `CardDeps` 说的是同一件事——两边都先认读数自己的 `ready`、再看有没有人握着，所以那一格
+ *  不会一处说可开工、一处说在别人手里。 */
 function hoverOf(node: NodeReading): string {
   const short = shortOf(node)
   const parts = [node.title === undefined ? short : node.title]
@@ -441,7 +429,7 @@ function assignFit(columns: readonly (readonly NodeReading[])[], width: number, 
   const rows = rowsOf(columns)
   const room = height - STRIP - 7
   const pitch = rows > 1 ? room / (rows - 1) : 0
-  /* 结构先说：记号可以缩到 5px 也不许一列从地界底下长出去。 */
+  /* 记号可以缩到 5px，也不许一列从地界底下长出去。 */
   const mark = Math.max(5, Math.min(8, Math.floor(pitch * 0.4)))
   const step = width / Math.max(1, columns.length)
   const inner = height - STRIP - mark
@@ -528,14 +516,12 @@ function cutPlaced(fit: Placed, lit: ReadonlySet<string>, width: number, height:
   }
 }
 
-/** 那一档该用的排布。 */
 function levelPlaced(fit: Placed, width: number, height: number, zoom: Zoom): Placed {
   if (zoom === 0) return fit
   if (zoom === 1) return dotPlaced(fit, width, height)
   return cardPlaced(fit.columns, zoom, rowsOf(fit.columns))
 }
 
-/** 一列最长有多少格。 */
 function rowsOf(columns: readonly (readonly NodeReading[])[]): number {
   return columns.reduce((most, list) => Math.max(most, list.length), 1)
 }
@@ -575,8 +561,8 @@ function dotWire(placed: Placed, from: string, to: string, span: number, lanes: 
 /**
  * 一条绕行的线走哪一条缝：擦到的记号最少、又离直线最近的那一条。
  *
- * 擦到一枚算绕 24px 的路，跟绕行的距离放在同一把尺子上比——只数擦到几枚的话，密度一
- * 上来中间那些缝个个都算擦到，长边就一齐挤到画面顶上去了。
+ * 擦到一枚算绕 24px 的路，跟绕行的距离放在同一把尺子上比——只数擦到几枚的话，密度一上来中间
+ * 那些缝个个都算擦到，长边就一齐挤到画面顶上去了。
  */
 function pickLane(a: Point, b: Point, lanes: readonly (readonly number[])[]): number {
   const merged: number[] = []

@@ -1,24 +1,8 @@
 /**
  * 主面板：六格标签行、看法之间的切换、以及当前 / 明细 / 指令三格各自的版面。
  *
- * 读数一个都不在这里算：四份记录从口子上进来，`src/model` 那套纯函数把它读成
- * 那一刻的读数，这一层只把读数画出来。所以「面板印的每个字都来自记录」在结构上
- * 成立——换个工作区，换条会话，画出来的就是那一份。
- *
- * 依赖 / 问题两格接真记录（各自的看法住在 `field.tsx` 与 `pool.tsx`），设置那一格是这个工作区
- * 自己的项目设置（住在 `config.tsx`，读写都经工具那条命令）：六格都接了真记录。
- * 蓝本那一页里的假外壳（会话栏、中间那道缝、左右两个把手）不在这里——那些在 DSH 里是
- * DSH 自己的东西。
- *
- * 页头那枚**工作区选择器**在这一份里：调度中心是独立于左侧工作区栏的一处地方，所有工作区
- * 对它都是可以打开的对象，读者在这儿挑一个就读那一个（见 `workspaces.ts`）。挑中的那一个
- * 只活在这一屏上——面板自己的偏好住设置文档，这一枚不写任何地方。
- *
- * 面板自己那几个显示偏好（每列几张卡、停在哪个看法、侧栏宽度、两个开关）不在这份文件里
- * 记，也从浏览器本地存储里来不了：它们住 Host 的设置文档，经 `prefs.ts` 那条口子读进来、
- * 写回去（{@link PathfinderPanel} 的 `prefs`）。所以设置里翻一行，这一屏当场跟着变。
- *
- * @module dsh-pathfinder/client/panel
+ * 读数一个都不在这里算：四份记录从口子上进来，由 `src/model` 那套纯函数读成那一刻的读数，这一层
+ * 只把读数画出来。面板自己那几个显示偏好住在 Host 的设置文档里，经 `prefs.ts` 那条口子读写。
  */
 import * as React from 'react'
 import type { PathfinderInstruction, PathfinderReading, PathfinderSourceState } from '../host/contract.ts'
@@ -51,7 +35,6 @@ interface View {
   readonly fill: boolean
 }
 
-/** 标签那一排的唯一真相：选中态、哪一格露面、撑不撑满，都从这一份走。 */
 const VIEWS: readonly View[] = [
   { id: 'now', label: VIEW_LABELS.now, fill: false },
   { id: 'detail', label: VIEW_LABELS.detail, fill: true },
@@ -92,15 +75,10 @@ const PREFS_NOT_KEPT = '显示偏好未能保存：设置服务未连接，本�
 /** 这个工作区里没有这份记录时，面板正文摆的那一句。 */
 const NO_RECORD = '当前工作区没有 pathfinder 的记录。'
 
-/** 记录在、四份来源一份都解不出来时，面板正文摆的另一句。两句话说的是两件事。 */
+/** 记录在、四份来源一份都解不出来时摆的另一句：与没记录是两件事。 */
 const UNREADABLE_RECORD = '无法读取当前工作区的记录。'
 
-/**
- * 四份来源是不是都落在同一个结局上。
- * @param reading - 这一趟从宿主半身读回来的那一份。
- * @param state - 要比的那一个结局。
- * @returns 四份都是它（且四份都报过道）就是 `true`。
- */
+/** 四份来源是不是都落在同一个结局上。 */
 function everySourceIs(reading: PathfinderReading, state: PathfinderSourceState): boolean {
   const states = Object.values(reading.sources)
   return states.length > 0 && states.every((one) => one === state)
@@ -125,9 +103,7 @@ const POLICY_ROWS: readonly { key: CyclePolicyKey; name: string; note: string }[
   },
 ]
 
-/** 面板要的那几样。 */
 export interface PanelProps {
-  /** 与宿主说话的那条口子。 */
   readonly port: PanelPort
   /** 读哪条会话所在的工作区；没有就画不出东西来。 */
   readonly sessionId?: string | undefined
@@ -135,19 +111,16 @@ export interface PanelProps {
   readonly prefs?: PrefsSource | undefined
   /** 卡上那一下的去处：DSH 那条导航口子。不给就点不动。 */
   readonly openSession?: ((target: string) => void) | undefined
-  /** 这台机器上此刻有哪些会话；卡上那条记录指向的会话在不在里面，由它说了算。 */
+  /** 这台机器上此刻有哪些会话：卡上那条记录指向的会话在不在里面，由它说了算。 */
   readonly knownSessions?: ReadonlySet<string> | undefined
-  /**
-   * DSH 那份工作区清单。面板顶上那枚选择器从它来；不给就一个工作区都挑不了，
-   * 面板只读这条会话自己那个工作区。
-   */
+  /** DSH 那份工作区清单，面板顶上那枚选择器从它来；不给就一个工作区都挑不了，只读这条会话
+   * 自己那个工作区。 */
   readonly workspaces?: WorkspaceSource | undefined
 }
 
 /** 还没有会话的笔记：哪一格都没有去处。 */
 const NO_NOTES: Readonly<Record<string, string>> = Object.freeze({})
 
-/** 一枚会话都没有的名册。 */
 const NO_SESSIONS: ReadonlySet<string> = new Set<string>()
 
 /** 一条读数走到哪一步了。 */
@@ -159,11 +132,9 @@ type Load =
 /**
  * 面板此刻读的那一档。
  *
- * 先按设置文档里那个值站着；读者在面板上当场改了就先按改的来，设置里那一个（别处翻了
- * 一行、或者写回落定）一有新值就跟着换。设置服务一直没到场时它停在读者改的那一个上，
- * 面板照常画。
+ * 先按设置文档里那个值站着；读者在面板上当场改了就先按改的来，设置里那一个（别处翻了一行、或者
+ * 写回落定）一有新值就跟着换。
  * @param stored - 设置文档此刻说的那个值。
- * @returns 面板此刻读的那一个，以及改写它的那一手。
  */
 function usePreference<T>(stored: T): [T, (next: T) => void] {
   const [local, setLocal] = React.useState<T>(stored)
@@ -173,17 +144,10 @@ function usePreference<T>(stored: T): [T, (next: T) => void] {
   return [local, setLocal]
 }
 
-/**
- * 主面板。
- * @param props - 数据通路与那条会话。
- * @returns 这一格的版面。
- */
 export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const { port, sessionId, openSession, knownSessions } = props
-  /* 面板顶上那枚工作区选择器：候选是 DSH 自己那份清单，读的是挑中的那个工作区。
-   *
-   * 挑中的那一个只活在这一屏上（`pickedSpace`），面板自己的偏好与它无关，本地存储里也不留键。
-   * 没挑过时（`undefined`）跟着这条会话落在哪个桶走——DSH 把会话分给哪个工作区，就先看哪个；
+  /* 面板顶上那枚工作区选择器：候选是 DSH 自己那份清单，读的是挑中的那个工作区。挑中的那一个只活
+   * 在这一屏上，面板自己的偏好与它无关，本地存储里也不留键。没挑过时跟着这条会话落在哪个桶走；
    * 会话不属于任何工作区就是「未分组」，那正是这条会话自己那个根。 */
   const workspaceStore = props.workspaces ?? NO_WORKSPACES
   const workspaceList = React.useSyncExternalStore(
@@ -202,8 +166,8 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   }, [pickedSpace, mine, items])
   /* 递给宿主半身的那个根：空字符串＝没挑，按这条会话自己那个根读。 */
   const workspaceRoot = chosen?.path ?? ''
-  /* 面板自己的偏好：读数从设置那一份表单上来，写回也从这条口子出去。设置服务还没接上
-   * 时它给的是出厂那几条，面板照常画。 */
+  /* 面板自己的偏好：读数从设置那一份表单上来，写回也从这条口子出去；设置服务还没接上时它给的是
+   * 出厂那几条，面板照常画。 */
   const store = props.prefs ?? DEFAULT_SOURCE
   const preferences = React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const stored = preferences.prefs
@@ -245,10 +209,9 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     return () => { live = false }
   }, [port, sessionId, workspaceRoot, tick])
 
-  /* 会话笔记：这一格最近开过的那条会话住在记录库那一层按节点分的小份笔记上，由宿主半身
-   * 那条端点交回来。只有当前那一格（看板）有卡片要点，所以只在这一格露面那一趟去读；
-   * 读不回来就按空画——卡片照旧在，那一下没有去处。写面那几条（归档 / 复原 / 删除 /
-   * 策略 / 设置）动不到笔记，`tick` 不跟。 */
+  /* 会话笔记：这一格最近开过的那条会话住在记录库那一层按节点分的小份笔记上，由宿主半身那条端点
+   * 交回来。只有当前那一格（看板）有卡片要点，所以只在这一格露面那一趟去读；读不回来就按空画。
+   * 写面那几条动不到笔记，`tick` 不跟。 */
   React.useEffect(() => {
     if (tab !== 'now' || sessionId === undefined || sessionId.length === 0) {
       setNotes(NO_NOTES)
@@ -262,9 +225,8 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     return () => { live = false }
   }, [port, sessionId, workspaceRoot, tab])
 
-  /* 卡上那一下：记录里那条会话此刻在本机上，卡片才点得动。两处都认——先看这台机器自己的
-   * 笔记（新一版记录把会话放在那儿），再看记录本体上那个字段（旧一版把它写在节点身上）。
-   * 名册或导航口子缺一样，这一屏的卡片就都安安静静地摆着。 */
+  /* 卡上那一下：记录里那条会话此刻在本机上，卡片才点得动。会话身份两处都认——先看这台机器自己
+   * 的笔记，再看记录本体上那个字段。名册或导航口子缺一样，这一屏的卡片就都安安静静地摆着。 */
   const cardGo = React.useMemo<CardGo | null>(() => {
     if (openSession === undefined) return null
     const known = knownSessions ?? NO_SESSIONS
@@ -291,11 +253,10 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     [reading, at],
   )
 
-  /* 当前那一条线：读者挑过就用挑的那条，否则记录里的第一条。 */
   const cycles = project?.cycles ?? []
   const picked = cycles.find((cycle) => cycle.id === lineId) ?? cycles[0] ?? null
 
-  /* 铺满要现算：量得到就按地界算，量不到就退回上一趟的数，再没有就退回固定档。 */
+  /* 铺满要现算：量不到地界就退回上一趟的数，再没有就退回固定档。 */
   React.useLayoutEffect(() => {
     if (info !== 'full' || tab !== 'now') return
     const stage = stageRef.current
@@ -324,9 +285,9 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     [],
   )
 
-  /* 面板上改的那一下：先按改的来，再把它写回设置文档——两边读同一份表单，所以设置页
-   * 那一行当场也跟着动。写不进去时控件不静默弹回：这条口子的读数里那句话（写回被拒时
-   * 由 `prefs.ts` 摆出来）落在下面那条提示行上，服务没到场时也有自己的一句话。 */
+  /* 面板上改的那一下：先按改的来，再把它写回设置文档——两边读同一份表单，所以设置页那一行当场
+   * 也跟着动。写不进去时控件不静默弹回：这条口子的读数里那句话落在下面那条提示行上，服务没到场
+   * 时也有自己的一句话。 */
   const prefNote = React.useRef<string | null>(null)
   const keep = React.useCallback((field: PrefField, value: unknown): void => {
     void store.write(field, value).then((accepted) => {
@@ -349,7 +310,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     keep(PANEL_PREF_FIELDS.infoLevel, level)
   }, [keep])
 
-  /* 问题那一格读的是哪一档：这一下只动面板自己的偏好，记录一个字节都不碰。 */
   const pickOtherStates = React.useCallback((on: boolean) => {
     setOtherStates(on)
     keep(PANEL_PREF_FIELDS.showOtherStates, on)
@@ -357,9 +317,9 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
 
   const active = VIEWS.find((view) => view.id === tab) ?? VIEWS[0] as View
 
-  /* 这一屏有没有话可说。四份来源里一份都列不到，就是那个工作区里没有这份记录；列到了、
-   * 却一份也解不出来，就是读不动。两种情形六格都无话可说，这一格收成一句话——牌位与
-   * 工作区留着（读者要能确认自己看的是哪儿），标签、计数与正文一起收走。 */
+  /* 这一屏有没有话可说。四份来源里一份都列不到，就是那个工作区里没有这份记录；列到了、却一份也
+   * 解不出来，就是读不动。两种情形六格都无话可说，这一格收成一句话——牌位与工作区留着，标签、
+   * 计数与正文一起收走。 */
   const nothing = load.phase === 'failed'
     ? load.message
     : reading !== null && everySourceIs(reading, 'missing')
@@ -583,7 +543,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   )
 }
 
-/** 一列放几张卡。 */
 function capOf(info: InfoLevel, fullCap: number): number {
   return info === 'full' ? fullCap : INFO_CAPS[info]
 }
@@ -601,7 +560,6 @@ function Census(props: { readonly project: ProjectReading }): React.ReactElement
   )
 }
 
-/** 一枚框 + 一个数。 */
 function Pill(props: { readonly cls: string; readonly n: number; readonly label: string }): React.ReactElement {
   return (
     <span className="pf-pill" title={props.label}>
@@ -642,15 +600,11 @@ interface Paired {
   readonly target: string | null
 }
 
-/** 卡上那一下：记录里那条会话在本机上时，这一手把它递给 DSH 那条导航口子。 */
 interface CardGo {
-  /** 这一张卡要去哪条会话；这一格没有去处就是 `null`。 */
   targetOf(node: NodeReading): string | null
-  /** 切过去。 */
   open(target: string): void
 }
 
-/** 卡片在列表里的那一档读法。 */
 type CardKind = 'shelved' | 'run' | 'next' | 'done'
 
 /** 一列卡片：一张卡都没有的列，底下什么也不印。 */
@@ -665,13 +619,12 @@ function Column(props: { readonly items: readonly Paired[]; readonly cap: number
 /**
  * 一张卡。
  *
- * 记录里记着这一格的会话、而那条会话此刻就在这台机器上时，点它切到那一格去：卡片上
- * 挂得住那两下（指针是手、悬停与按住提一档描边），键盘上回车与空格按下去等于点一下。
+ * 记录里记着这一格的会话、而那条会话此刻就在这台机器上时，点它切到那一格去：卡片上挂得住那两下
+ * （指针是手、悬停与按住提一档描边），键盘上回车与空格按下去等于点一下。
  *
- * 记录里没写会话、或那条会话不在这台机器上时，这一格在这台机器上没有去处：卡片照旧
- * 摆着，只是没有可点的样子。屏上不给一句解释——去处没了这件事，卡片自己说得出。
+ * 记录里没写会话、或那条会话不在这台机器上时，这一格在这台机器上没有去处：卡片照旧摆着，只是没
+ * 有可点的样子。屏上不给一句解释——去处没了这件事，卡片自己说得出。
  * @param props - 这一格、它的读法、它的去处，以及叫哪一手。
- * @returns 这张卡。
  */
 function Card(props: Paired & { readonly go: CardGo | null }): React.ReactElement {
   const { node, kind, target, go } = props
@@ -717,7 +670,6 @@ function Card(props: Paired & { readonly go: CardGo | null }): React.ReactElemen
   )
 }
 
-/** 一格的标题：记录里的 id，短写。 */
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
 }
@@ -727,7 +679,6 @@ function timeOf(moment: Date | null): string {
   return moment === null ? '--' : `${dayLabel(moment, new Date())} ${clock(moment)}`
 }
 
-/** 搁置多久。 */
 function durationOf(moment: Date | null): string {
   return moment === null ? '--' : elapsedSince(moment, new Date())
 }
@@ -785,7 +736,6 @@ function LineMark(props: { readonly cycle: CycleReading }): React.ReactElement {
   return <span className={`pf-linemark ${cls}`.trim()} title={stateWord(cycle)} />
 }
 
-/** 一条线此刻在哪个状态。 */
 function stateWord(cycle: CycleReading): string {
   if (cycle.parked.length > 0) return '阻塞'
   return cycle.inService ? '运行中' : '停止'
@@ -906,8 +856,8 @@ function InstructionBook(props: {
     return table
   }, [raw])
 
-  /* 已归档的条目默认收起来：一屏里先看见现在还算数的。设置里那一行打开之后，它们回到
-   * 各自的段里，行右边那枚动作照旧可用（那一条摆的是「复原」）。 */
+  /* 已归档的条目默认收起来：一屏里先看见现在还算数的。设置里那一行打开之后，它们回到各自的段
+   * 里，行右边那枚动作照旧可用。 */
   const visible = props.showArchived
     ? project.instructions
     : project.instructions.filter((entry) => entry.standing)
@@ -971,7 +921,6 @@ function InstructionBook(props: {
   )
 }
 
-/** 一组指令：键、标题、里面那几条。 */
 interface InstructionGroup {
   readonly key: string
   readonly label: string
@@ -1026,7 +975,6 @@ function groupInstructions(
   return out
 }
 
-/** 一条指令那一行。 */
 function InstructionRow(props: {
   readonly entry: InstructionReading
   readonly extra: PathfinderInstruction | undefined
@@ -1105,7 +1053,6 @@ function LineSettings(props: {
   )
 }
 
-/** 一个数一行：名字、那一句、右端那个框。 */
 function PolicyRow(props: {
   readonly row: { readonly key: CyclePolicyKey; readonly name: string; readonly note: string }
   readonly value: unknown
@@ -1119,8 +1066,8 @@ function PolicyRow(props: {
     setText(current === null ? '' : String(current))
   }, [current])
   const noteId = `note-${row.key}`
-  /* 落笔那一手：框里的字变成一个值，空的就是「这条线没立这一条」。失焦与回车上
-   * 都算改完了——只认失焦的话，敲完字直接换一格看的人会以为已经写进去了。 */
+  /* 落笔那一手：框里的字变成一个值，空的就是「这条线没立这一条」。失焦与回车上都算改完了——
+   * 只认失焦的话，敲完字直接换一格看的人会以为已经写进去了。 */
   const commit = (): void => {
     const trimmed = text.trim()
     props.onWrite(trimmed.length === 0 ? 'off' : trimmed)

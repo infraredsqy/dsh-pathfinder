@@ -1,19 +1,9 @@
 /**
- * 问题那一格：一份登记簿怎么读。
+ * 问题那一格：一份登记簿怎么读——左边是清单、右边是一案，中间那道缝读者可以挪。
  *
- * 登记簿那一份从记录里来（`readPool`），这一层只管画：一条问题一行，一枚等级章、它自己
- * 那句话、以及它落在哪儿。左边是清单、右边是一案，中间那道缝读者可以挪——两半是同一份
- * 清单的两种读法，谁也不欠谁一个宽度。
- *
- * 一页只回答一个问题：**还欠着什么**。所以它开在「未解决」上，「完整」把另外三个状态放
- * 回来；那三个记的是已经处置过的事。
- *
- * 重量条是这份重量画出来的样子：一个单位一格，填到还欠着的那几条，按等级上色；判成
- * `external` 的那几条不占格——它们不压这条线，与读数层的加权和同一个口径。框就是那条策略
- * 线，池子越过线的时候加的是格子、线留在原处。记录里没有重量表或者没有那条策略线，这一条
- * 就不画——不拿 0 顶上。
- *
- * @module dsh-pathfinder/client/pool
+ * 一页只回答一个问题：还欠着什么。所以它开在「未解决」上，「完整」把另外三个状态放回来。重量条
+ * 是这份重量画出来的样子，判成 `external` 的那几条不占格——它们不压这条线，与读数层的加权和同一
+ * 个口径。记录里没有重量表或者没有那条策略线，这一条就不画，不拿 0 顶上。
  */
 import * as React from 'react'
 import type { IssueGroupReading, IssueReading, PoolReading, ProjectReading } from '../model/index.ts'
@@ -28,7 +18,6 @@ const CASE_MIN = 360
 /** 键盘挪那道缝时一步走多远。 */
 const BAR_STEP = 16
 
-/** 四个状态各自读作哪一个词。 */
 const STATE_WORD: Readonly<Record<string, string>> = {
   open: '未解决',
   acknowledged: '已承认',
@@ -36,12 +25,11 @@ const STATE_WORD: Readonly<Record<string, string>> = {
   resolved: '已解决',
 }
 
-/** 等级那一档的画法。 */
 function sevClass(severity: string | undefined): string {
   return `is-${severity ?? 'P3'}`
 }
 
-/** 记录里那三个不欠着的状态，一条一句：写一次，「完整」那枚钮与那枚合计章说的是同一件事。 */
+/** 记录里那三个不欠着的状态，一条一句：「完整」那枚钮与那枚合计章说的是同一件事。 */
 function otherStatesWord(pool: PoolReading): string {
   return (['acknowledged', 'rejected', 'resolved'] as const)
     .map((key) => `${STATE_WORD[key] ?? key} ${String(pool.census[key])}`)
@@ -116,7 +104,7 @@ export function IssuePool(props: {
     setLeft(Math.max(POOL_MIN, Math.min(Math.round(to), at.max)))
   }
 
-  /* 选中的那一行：点一下换一案，方向键挪到下一行。挑中的那一行就是右半边那一条。 */
+  /* 方向键挪到下一行；挑中的那一行就是右半边那一条。 */
   const select = (id: string): void => {
     setPicked(id)
   }
@@ -295,8 +283,8 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
   const units = Math.max(line, pool.weight ?? 0)
   const blocks: { readonly severity: string | undefined; readonly carried: boolean; readonly title: string }[] = []
   for (const issue of pool.standing) {
-    /* 判成 `external` 的那几条不压这条线（与读数层的加权和同一个口径）：它们还在登记簿
-       上，只是不占这根条上的一格。 */
+    /* 判成 `external` 的那几条不占这根条上的一格：与读数层的加权和同一个口径，它们还在
+       登记簿上，只是不压这条线。 */
     if (issue.decision === 'external') continue
     for (let at = 0; at < issue.weight && blocks.length < units; at += 1) {
       blocks.push({
@@ -307,8 +295,8 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
     }
   }
   const [filled, setFilled] = React.useState(false)
-  /* 池子填进自己那一份重量里，而不是一露面就是满的：这一趟重读留下的那道错开，说的
-     就是「同一份池子又被数了一遍」。 */
+  /* 池子填进自己那一份重量里，而不是一露面就是满的：这一趟重读留下的那道错开，说的就是
+     「同一份池子又被数了一遍」。 */
   React.useEffect(() => {
     const frame = requestAnimationFrame(() => setFilled(true))
     return () => cancelAnimationFrame(frame)
@@ -341,7 +329,7 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
   )
 }
 
-/** 登记簿的一堆：堆头只说这一堆叫什么，几条在旁边的数里，多重在那根条上。 */
+/** 登记簿的一堆：几条在旁边的数里，多重在那根条上。 */
 function RegisterHead(props: { readonly group: IssueGroupReading }): React.ReactElement {
   return (
     <div className="pf-head">
@@ -351,7 +339,6 @@ function RegisterHead(props: { readonly group: IssueGroupReading }): React.React
   )
 }
 
-/** 登记簿的一行：状态记号、等级章、它自己那句话、以及它落在哪儿。 */
 function RegisterRow(props: {
   readonly issue: IssueReading
   readonly current: boolean
@@ -378,7 +365,6 @@ function RegisterRow(props: {
   )
 }
 
-/** 一案的全文：等级、标题、身份，以及记录里真写着的那几段。 */
 function CaseFile(props: { readonly issue: IssueReading }): React.ReactElement {
   const { issue } = props
   return (
@@ -438,7 +424,6 @@ function proseLines(said: string): React.ReactNode[] {
   return said.split('\n').flatMap((line, at) => (at === 0 ? [line] : [<br key={`n${String(at)}`} />, line]))
 }
 
-/** 一枚框 + 一个数。 */
 function Pill(props: { readonly cls: string; readonly n: number; readonly label: string }): React.ReactElement {
   return (
     <span className="pf-pill" title={props.label}>

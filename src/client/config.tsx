@@ -1,19 +1,9 @@
 /**
- * 主面板第六格：这个工作区自己的项目设置。
+ * 主面板第六格：这个工作区自己的项目设置。四行，一行一个控件，行尾一枚小签说这个值住在哪一层。
  *
- * 四行，一行一个控件，行尾一枚小签说这个值住在哪一层（默认 / 本项目 / 全局）——三层都是记录
- * 里的说法，改一下值不会把它翻到别的层去。四行照蓝本：worktree 档（下拉）、测试档（下拉）、
- * 并行 subagent 上限（数字框）、issue 开关（开 / 关）。
- *
- * 读与写都走工具：有效值与「它来自哪一层」由 `pf config list` 印出来，写经 `pf config set`
- * 落在**这个项目那一层**。这一层不做第二套判断——一个值合不合法由工具说（它拒了，记录一个
- * 字节都不动）。
- *
- * 页面上不摆乐观更新：控件印的永远是**最近一次读回来的那份读数**。改一下就写回、再读一遍，
- * 界面跟着重读到的那个值走；工具拒了的时候，重读回来的还是原来那个值，控件自己就回到原位，
- * 理由落在面板底下那条提示行上。
- *
- * @module dsh-pathfinder/client/config
+ * 读与写都走工具：有效值与「它来自哪一层」由工具印出来，写落在这个项目那一层。这一层不做第二套
+ * 判断——一个值合不合法由工具说。页面上不摆乐观更新：控件印的永远是最近一次读回来的那份读数，
+ * 改一下就写回、再读一遍，工具拒了的时候控件自己就回到原位。
  */
 import * as React from 'react'
 import type { ConfigEntry, ConfigKey, PathfinderConfigReading } from '../host/project-config.ts'
@@ -31,13 +21,10 @@ import {
 } from './config-rows.ts'
 import type { PanelPort } from './data.ts'
 
-/** 工具没答上来时面板说的话。 */
 const READ_FAILED = '无法读取该工作区的项目设置。'
 
-/** 落笔那条命令没给理由时面板说的话。 */
 const WRITE_FAILED = '这次写入没有生效。'
 
-/** 这一格选哪一边。 */
 const SIDES: readonly (readonly [string, boolean])[] = [['开', true], ['关', false]]
 
 /** 一行的读数走到哪一步了。 */
@@ -46,9 +33,7 @@ type Load =
   | { readonly phase: 'ok'; readonly reading: PathfinderConfigReading }
   | { readonly phase: 'failed'; readonly message: string }
 
-/** 这一格拿到的那几样。 */
 export interface ConfigPaneProps {
-  /** 与宿主说话的那条口子。 */
   readonly port: PanelPort
   /** 会话身份：工作区文件口子按它认路径。 */
   readonly sessionId: string
@@ -60,11 +45,6 @@ export interface ConfigPaneProps {
   readonly onNote: (text: string | null) => void
 }
 
-/**
- * 设置这一格。
- * @param props - 口子、会话、露不露面、往哪儿说话。
- * @returns 这一格的版面。
- */
 export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
   const { port, sessionId, workspaceRoot, active } = props
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
@@ -81,8 +61,8 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
 
   /* 只在这一格真露面的时候读：读一次要起一条工具命令，没人看的那几格不必花这一下。
    *
-   * 读顺了只收**上一句读失败**留下的那一声；写失败那一句归写那一趟管（下一笔写成才收），
-   * 不然每写一次被拒，跟着来的那次重读会把它当场抹掉，读者什么也看不到。 */
+   * 读顺了只收上一句读失败留下的那一声；写失败那一句归写那一趟管，不然每写一次被拒，跟着来的
+   * 那次重读会把它当场抹掉，读者什么也看不到。 */
   React.useEffect(() => {
     if (!active || sessionId.length === 0) return undefined
     let live = true
@@ -160,7 +140,6 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
   )
 }
 
-/** 一行：名字、那一句、右端那个控件，再一处层签。 */
 function Row(props: {
   readonly row: ConfigRow
   readonly entry: ConfigEntry | undefined
@@ -187,7 +166,7 @@ function Row(props: {
   )
 }
 
-/** 下拉那一枚：候选值就是工具认得的那几个词；读数里没有这个键的值时一枚都不选中（留空）。 */
+/** 下拉那一枚：读数里没有这个键的值时一枚都不选中（留空），不去挑第一档。 */
 function Pick(props: {
   readonly row: ConfigRow
   readonly entry: ConfigEntry | undefined
@@ -216,8 +195,8 @@ function Pick(props: {
 /**
  * 数字那一枚：改完才写（回车或失焦），中间敲的字只活在这个框里。
  *
- * 敲一半的数不是一个值，所以它不往记录上去；改完了（或者工具把这一笔拒了）框里就换成**重读
- * 回来那一份**——`revision` 每写一次就翻一格，翻的时候把框里那一份草稿丢掉。
+ * 敲一半的数不是一个值，所以它不往记录上去；`revision` 每写一次就翻一格，翻的时候把框里那一份
+ * 草稿丢掉，换成重读回来那一份。
  */
 function NumberBox(props: {
   readonly row: ConfigRow
@@ -285,9 +264,8 @@ function Toggle(props: {
 /**
  * 列缘那一对把手。
  *
- * 量法照蓝本那一枚共用构件（`grasp`）：单侧挪 Δ、宽窄变 2Δ、中心不动，所以指针一直抓在列缘
- * 上（往外拖 = 放宽）；双击回默认，左右方向键走一步，按住 shift 走大步。左边那一枚的 `out`
- * 是 -1：方向键挪的是**这一侧的缘**，往右推就是收窄。
+ * 量法照蓝本那一枚共用构件：单侧挪 Δ、宽窄变 2Δ、中心不动，所以指针一直抓在列缘上；双击回默认，
+ * 左右方向键走一步，按住 shift 走大步。左边那一枚的 `out` 是 -1：方向键挪的是这一侧的缘。
  */
 function ConfigGrip(props: {
   readonly side: 'left' | 'right'
@@ -339,7 +317,6 @@ function ConfigGrip(props: {
   )
 }
 
-/** 一个未知的东西说成一句话。 */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }

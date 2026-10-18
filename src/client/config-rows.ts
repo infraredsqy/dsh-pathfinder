@@ -1,18 +1,13 @@
 /**
  * 设置那一格的读数面：摆哪四行、行尾那三个词、那一列的宽窄。
  *
- * 画它们的那一半住在 `config.tsx`。分出来是因为这一份里没有 JSX 也没有 DOM——四行与三个词
- * 是这一格与工具、与读者之间的约定（摆错一行就有一行写不进记录，写错一个词读者就读不出值住
- * 在哪一层），值得在不装浏览器的地方单独量。
- *
- * @module dsh-pathfinder/client/config-rows
+ * 这一份里没有 JSX 也没有 DOM，所以能在不装浏览器的地方单独量。四行与三个词是这一格与工具、
+ * 与读者之间的约定：摆错一行就有一行写不进记录，写错一个词读者就读不出值住在哪一层。
  */
 import type { ConfigEntry, ConfigKey, ConfigLayer } from '../host/project-config.ts'
 
-/** 一行用哪枚控件。 */
 export type ControlKind = 'pick' | 'num' | 'toggle'
 
-/** 一行：设置键、名字、一句说清它管什么的话、控件种类，下拉那一档还带着候选值。 */
 export interface ConfigRow {
   readonly key: ConfigKey
   readonly name: string
@@ -22,7 +17,7 @@ export interface ConfigRow {
   readonly options?: readonly string[]
 }
 
-/** 四行，次序就是读者遇到它们的次序——与蓝本那一份逐字相同。 */
+/** 四行，次序就是读者遇到它们的次序，与蓝本那一份逐字相同。 */
 export const CONFIG_ROWS: readonly ConfigRow[] = [
   {
     key: 'worktree_mode',
@@ -52,7 +47,6 @@ export const CONFIG_ROWS: readonly ConfigRow[] = [
   },
 ]
 
-/** 下拉此刻摆什么。 */
 export interface PickState {
   /** 它该选中的那一档；没有一档可选时是空串（留空）。 */
   readonly value: string
@@ -61,16 +55,12 @@ export interface PickState {
 }
 
 /**
- * 下拉选哪一档：读数里没有这个键的值时**一档都不落**（留空），不去摆第一档。
+ * 下拉选哪一档：读数里没有这个键的值时一档都不落（留空），不去摆第一档。
  *
- * 受控 select 在 `value` 对不上任何一枚 option 时由浏览器自己回落选第一枚——
- * `worktree_mode` 就落成 `off`、`test_tier` 落成 `full`，正好是两个键的出厂默认词，读者分不出
- * 「记录里没有」与「记录里就是 off / full」。没有的东西不画：这里把那一手挡在前面，没有值就留空。
- * 值在读数里、只是不在候选表里（工具那一侧加了词）时不藏它——把它自己补成一档摆出来，读数与
- * 记录一致。候选表本身不动。
- * @param entry - 这一行的读数；这个键没印出来时是 `undefined`。
- * @param options - 这一行的候选值，工具认得的那几个词。
- * @returns 下拉该有的值，以及要补进候选表的那一枚。
+ * 受控 select 在 `value` 对不上任何一枚 option 时由浏览器自己回落选第一枚——`worktree_mode` 就
+ * 落成 `off`、`test_tier` 落成 `full`，正好是两个键的出厂默认词，读者分不出「记录里没有」与
+ * 「记录里就是 off / full」。没有的东西不画：这里把那一手挡在前面，没有值就留空。值在读数里、
+ * 只是不在候选表里（工具那一侧加了词）时不藏它，把它自己补成一档摆出来，读数与记录一致。
  */
 export function pickState(entry: ConfigEntry | undefined, options: readonly string[]): PickState {
   const value = entry?.value ?? ''
@@ -92,7 +82,6 @@ export const CONFIG_WIDTH_MAX = 960
 export const CONFIG_WIDTH_STEP = 24
 export const CONFIG_WIDTH_BIG = 48
 
-/** 把宽度收进上下限。 */
 export function clampConfigWidth(px: number): number {
   return Math.round(Math.max(CONFIG_WIDTH_MIN, Math.min(CONFIG_WIDTH_MAX, px)))
 }

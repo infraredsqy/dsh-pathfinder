@@ -1,14 +1,8 @@
 /**
- * 浏览器半身取数与落笔的那一条路。
+ * 浏览器半身取数与落笔的那一条路：把「哪条会话」递出去，把那一份读数拿回来。
  *
- * 读数一律从宿主半身来：这一层只把「哪条会话」递出去，把那一份读数拿回来。两条线
- * 都通到同一个端点，先走 DSH 那条装好的远程命名空间（`remote.pathfinderRecords`），
- * 命名空间没装上的部署退到载体那一层直接叫 `/api` 上的同一条端点——那条路正是生成
- * 出来的远程客户端自己走的路，只是省掉了一层类型外观。
- *
- * 端点名字符串只在这一份里出现一次；调用方拿到的是一条 `read`／几条写。
- *
- * @module dsh-pathfinder/client/data
+ * 两条线都通到同一个端点：先走 DSH 那条装好的远程命名空间，命名空间没装上的部署退到载体那一层
+ * 直接叫 `/api` 上的同一条端点。端点名字符串只在这一份里出现一次。
  */
 import type { PathfinderReading } from '../host/contract.ts'
 import type { PathfinderConfigReading } from '../host/project-config.ts'
@@ -19,10 +13,9 @@ import type { CyclePolicyKey } from '../host/gateway.ts'
 /** 命名空间，与宿主半身那条服务键同名。 */
 export const NAMESPACE = 'pathfinderRecords'
 
-/** 写面认得的三个动作。 */
 export type WriteVerb = 'archive' | 'revive' | 'remove'
 
-/** 一条写命令对应宿主上的哪个端点、带哪几个参数。 */
+/** 一条写命令对应宿主上的哪个端点。 */
 const WRITE_ENDPOINTS: Readonly<Record<WriteVerb, string>> = {
   archive: 'archiveInstruction',
   revive: 'reviveInstruction',
@@ -32,13 +25,11 @@ const WRITE_ENDPOINTS: Readonly<Record<WriteVerb, string>> = {
 /**
  * 面板要与宿主说话的那条口子。
  *
- * 每条口子都带一个 `workspaceRoot`：面板顶上那枚工作区选择器挑中的那个根（绝对路径），
- * 空字符串＝没挑，按这条会话自己那个根读。挑哪一个读哪一个——与这条会话落在哪个工作区
- * 无关，这就是那一枚选择器存在的理由。
+ * 每条口子都带一个 `workspaceRoot`：面板顶上那枚工作区选择器挑中的那个根（绝对路径），空字符串
+ * ＝没挑，按这条会话自己那个根读。挑哪一个读哪一个——与这条会话落在哪个工作区无关。
  *
- * `source` 说的是这一条口子最后是从哪一层接上的：`remote` 是装好的远程命名空间，
- * `carrier` 是载体那一层，`none` 是两条都没接上——那时候每一次读都直接给出失败，
- * 面板照「取不到」画，编不出读数来。
+ * `source` 说的是这一条口子最后是从哪一层接上的：`remote` 是装好的远程命名空间，`carrier` 是
+ * 载体那一层，`none` 是两条都没接上——那时候每一次读都直接给出失败，编不出读数来。
  */
 export interface PanelPort {
   readonly source: 'remote' | 'carrier' | 'none'
@@ -56,13 +47,11 @@ export interface PanelPort {
   setConfig(sessionId: string, workspaceRoot: string, key: string, value: string): Promise<PfOutcome>
 }
 
-/** 一条读数回来的样子：成了给值，没成给一句能读的话。 */
 type Answer<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string }
 
 /** 一个服务的最小形状：这一层只用得上它下面那几条方法。 */
 type Service = Readonly<Record<string, unknown>>
 
-/** 载体那一层的最小形状。 */
 interface Carrier {
   readonly rpc?: {
     call(
@@ -77,11 +66,10 @@ interface Carrier {
 /**
  * 从上下文的几处入口现取一条服务。
  *
- * 三处都试：先问上下文自己的工作台，再问属性代理。取不到就是取不到——这一层不
- * 抛，调用方按「没有」处置。
+ * 两处都试：先问上下文自己的 `get`，再问属性代理。取不到就是取不到——这一层不抛，调用方按
+ * 「没有」处置。
  * @param owner - 一个上下文（插件自己的，或注入回调给的那个）。
  * @param name - 服务名。
- * @returns 那个服务，或 `undefined`。
  */
 export function serviceAt(owner: unknown, name: string): Service | undefined {
   const holder = owner as { get?: (key: string) => unknown } | null | undefined
@@ -101,11 +89,6 @@ export function serviceAt(owner: unknown, name: string): Service | undefined {
   }
 }
 
-/**
- * 接一条口子。
- * @param ctx - 插件上下文。
- * @returns 面板用的那条口子。
- */
 export function createPanelPort(ctx: unknown): PanelPort {
   const remote = remoteNamespace(ctx)
   if (remote !== undefined) return remotePort(remote)
@@ -241,7 +224,6 @@ function unwrap<T>(answer: unknown): Answer<T> {
   return { ok: false, message: failureText(held.error) }
 }
 
-/** 远程失败说成一句话。 */
 function failureText(error: unknown): string {
   if (typeof error === 'object' && error !== null) {
     const held = error as { message?: unknown; code?: unknown }
@@ -252,7 +234,6 @@ function failureText(error: unknown): string {
   return textOf(error)
 }
 
-/** 一个未知的东西说成一句话。 */
 function textOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
