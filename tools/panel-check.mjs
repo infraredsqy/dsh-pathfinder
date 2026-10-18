@@ -45,7 +45,11 @@ const track = (promise) => {
 function detailReadings(scope) {
   return [...scope.querySelectorAll('#pane-detail .pf-sec')].map((section) => ({
     label: section.querySelector('.pf-rowhead-key')?.textContent ?? '',
-    rows: [...section.querySelectorAll('.pf-row')].map((row) => row.querySelector('.pf-rowtitle')?.textContent ?? ''),
+    folded: section.classList.contains('is-folded'),
+    rows: [...section.querySelectorAll('.pf-row')].map((row) => ({
+      id: row.getAttribute('data-id') ?? '',
+      name: row.querySelector('.pf-rowtitle')?.textContent ?? '',
+    })),
   }))
 }
 
@@ -1156,6 +1160,41 @@ check(
   detailA.length > 0,
   detailA.map((group) => `${group.label}(${String(group.rows.length)})`).join('/'),
 )
+/* 明细就是读者点进来要看的那几行：记录里写着标题的格，行上印的是那段标题；而且这一格一露面
+ * 每一组都摊开着——折起来那一手由读者按下去。 */
+const titledRows = detailA.flatMap((group) => group.rows).filter((row) => project.nodeById[row.id]?.title !== undefined)
+check(
+  '明细每一行印的是记录里那段标题',
+  titledRows.length > 0 && titledRows.every((row) => row.name === project.nodeById[row.id]?.title),
+  `带标题的行=${String(titledRows.length)} 头两行=${titledRows.slice(0, 2).map((row) => `${row.id.slice(0, 8)}=${row.name.slice(0, 20)}`).join(' ｜ ')}`,
+)
+check(
+  '明细打开就是摊开的：在册的每一组都不折',
+  detailA.length > 0
+    && detailA.every((group) => group.folded === false)
+    && [...container.querySelectorAll('#pane-detail .pf-rowhead')].every((head) => head.getAttribute('aria-expanded') === 'true'),
+  `组=${detailA.map((group) => `${group.label}${group.folded ? '（折着）' : '（摊开）'}`).join('/')}`,
+)
+/* 折起来那一手还在读者手上：按一下组头，那一组收起来、右边报出它有几格；再按一下又摊开。 */
+const completedRowsWant = detailA.find((group) => group.label === '已交付')?.rows.length ?? 0
+const completedHead = [...container.querySelectorAll('#pane-detail .pf-rowhead')]
+  .find((head) => head.querySelector('.pf-rowhead-key')?.textContent === '已交付')
+await act(async () => { completedHead?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await settle()
+const afterFold = detailReadings(container)
+const foldedFigs = (completedHead?.querySelector('.pf-rowcount')?.textContent ?? '').replace(/\s+/gu, '')
+await act(async () => { completedHead?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await settle()
+const afterReopen = detailReadings(container)
+const shapeOf = (groups) => groups.map((group) => `${group.label}${group.folded ? '（折着）' : '（摊开）'}`).join('/')
+check(
+  '按一下组头那一组收起来、组头右边报出它有几格；再按一下又摊开',
+  completedHead !== undefined
+    && afterFold.every((group) => (group.label === '已交付' ? group.folded : group.folded === false))
+    && foldedFigs === `${String(completedRowsWant)}格`
+    && afterReopen.every((group) => group.folded === false),
+  `折后=${shapeOf(afterFold)} 那个数=${foldedFigs.length > 0 ? foldedFigs : '（没有）'} 再按后=${shapeOf(afterReopen)}`,
+)
 
 await act(async () => { tabs[2].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const wantGroups = expectedNoteGroups(project, false)
@@ -1807,7 +1846,7 @@ if (parkedNode !== undefined) {
   check(
     '另一条线那一侧没有「等待处理」',
     onFirst.map((group) => group.label).includes('等待处理') === false
-      && onFirst.every((group) => group.rows.includes(parkedNode) === false),
+      && onFirst.every((group) => group.rows.some((row) => row.id === parkedNode) === false),
     `组头=${onFirst.map((group) => `${group.label}(${String(group.rows.length)})`).join('/') || '（空）'}`,
   )
 
@@ -1817,8 +1856,8 @@ if (parkedNode !== undefined) {
   const parkedGroup = onParked.find((group) => group.label === '等待处理')
   check(
     '换到这条线上，「等待处理」露面、排最前、行就是那个格',
-    onParked[0]?.label === '等待处理' && parkedGroup?.rows.length === 1 && parkedGroup?.rows[0] === parkedNode,
-    `组头=${onParked.map((group) => `${group.label}(${String(group.rows.length)})`).join('/')} 行=${parkedGroup?.rows.join(',') ?? '（没有这一组）'}`,
+    onParked[0]?.label === '等待处理' && parkedGroup?.rows.length === 1 && parkedGroup?.rows[0]?.id === parkedNode,
+    `组头=${onParked.map((group) => `${group.label}(${String(group.rows.length)})`).join('/')} 行=${parkedGroup?.rows.map((row) => row.id).join(',') ?? '（没有这一组）'}`,
   )
   check(
     '换一条线路时右侧清单确实跟着换了',
@@ -1975,7 +2014,7 @@ const expectedBoard = (project, cap) => ({
 })
 const homeBoard = boardOf(goHost)
 const cardFor = (nodeId) => [...goHost.querySelectorAll('#cols .pf-card')]
-  .find((card) => card.querySelector('.pf-card-title')?.getAttribute('title') === nodeId)
+  .find((card) => card.getAttribute('data-id') === nodeId)
 /** 有去处的那一身：按得动、键盘也够得着。 */
 const lived = (card) => card !== undefined && card.getAttribute('role') === 'button'
   && card.getAttribute('tabindex') === '0' && card.className.includes('is-inert') === false
@@ -1990,6 +2029,16 @@ check(
   JSON.stringify(homeBoard) === JSON.stringify(expectedBoard(homeProject, 3)),
   `看板上=${JSON.stringify(homeBoard)} ｜ 记录现算=${JSON.stringify(expectedBoard(homeProject, 3))}`,
 )
+/* 卡片上印的是记录里那段标题：这一格是记录的一张脸，读者要认的就是那一句。 */
+const boardCards = [...goHost.querySelectorAll('#cols .pf-card')]
+const cardNode = (card) => homeProject.nodeById[card.getAttribute('data-id') ?? '']
+const titledCards = boardCards.filter((card) => cardNode(card)?.title !== undefined)
+check(
+  '看板每一张卡印的是记录里那段标题',
+  titledCards.length > 0
+    && titledCards.every((card) => (card.querySelector('.pf-card-title')?.textContent ?? '') === cardNode(card)?.title),
+  `带标题的卡=${String(titledCards.length)} 头两张=${titledCards.slice(0, 2).map((card) => (card.querySelector('.pf-card-title')?.textContent ?? '').slice(0, 18)).join(' ｜ ')}`,
+)
 
 const jumpCard = cardFor(jumpNode ?? '')
 const recordCard = cardFor(recordNode ?? '')
@@ -1998,7 +2047,7 @@ const bareCard = cardFor(bareNode ?? '')
 check(
   '这五张卡都在看板上，一个一个找得到',
   jumpCard !== undefined && recordCard !== undefined && farCard !== undefined && bareCard !== undefined,
-  `屏上=${[...goHost.querySelectorAll('#cols .pf-card')].map((card) => (card.querySelector('.pf-card-title')?.getAttribute('title') ?? '').slice(0, 8)).join(' ')}`,
+  `屏上=${[...goHost.querySelectorAll('#cols .pf-card')].map((card) => (card.getAttribute('data-id') ?? '').slice(0, 8)).join(' ')}`,
 )
 check(
   '记录里那条会话在本机上：这一张卡挂得住那两下（按钮那一身 + 手上那一档）',
@@ -2025,7 +2074,7 @@ check(
 const liveNames = [...goHost.querySelectorAll('#cols .pf-card')]
   .filter((card) => card.getAttribute('role') === 'button')
   .map((card) => [
-    card.querySelector('.pf-card-title')?.getAttribute('title') ?? '',
+    card.getAttribute('data-id') ?? '',
     card.getAttribute('aria-label') ?? '',
   ])
 check(
