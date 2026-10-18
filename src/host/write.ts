@@ -48,16 +48,16 @@ export async function runPf(
   signal: AbortSignal,
 ): Promise<PfOutcome> {
   const unsafe = args.find((arg) => !SAFE_ARG.test(arg))
-  if (unsafe !== undefined) return { ok: false, text: `这个参数不能进命令：${unsafe}` }
+  if (unsafe !== undefined) return { ok: false, text: `该参数不能进入命令：${unsafe}` }
 
   const subprocess = ctx.get('subprocess')
-  if (subprocess === undefined) return { ok: false, text: '这个宿主上没有起进程的口子，这一手没法落笔。' }
+  if (subprocess === undefined) return { ok: false, text: '该宿主没有可用的进程通道，无法执行这次写入。' }
 
   let argv: readonly string[]
   try {
     argv = await launchArgs(subprocess, args, signal)
   } catch (error) {
-    return { ok: false, text: `找不到 pf 这条命令：${messageOf(error)}` }
+    return { ok: false, text: messageOf(error) }
   }
 
   try {
@@ -114,10 +114,17 @@ async function launchArgs(
   args: readonly string[],
   signal: AbortSignal,
 ): Promise<readonly string[]> {
-  const pf = await subprocess.resolveExecutable('pf', undefined, signal)
+  let pf: string
+  try {
+    pf = await subprocess.resolveExecutable('pf', undefined, signal)
+  } catch (error) {
+    /* 「这台机器上没有这条命令」与下面那一条「有，但它的路径送不进 cmd」是两件事，
+     * 两句话分开说：混成一句，读者会照着第一句去装一个已经装好了的命令。 */
+    throw new Error(`未找到 pf 命令：${messageOf(error)}`)
+  }
   if (process.platform !== 'win32') return [pf, ...args]
   if (!CMD_SAFE_PATH.test(pf)) {
-    throw new Error(`pf 那条命令的路径里有 cmd 处理不了的字符（${pf}），这一手落不了笔。`)
+    throw new Error(`pf 命令的路径中含有 cmd 无法处理的字符（${pf}），无法执行这次写入。`)
   }
   const comspec = process.env['ComSpec'] ?? 'cmd.exe'
   return [comspec, '/d', '/s', '/c', `${pf} ${args.join(' ')}`]

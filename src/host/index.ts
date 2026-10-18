@@ -34,7 +34,7 @@ import type { PathfinderRecords } from './contract.ts'
 
 export type * from './contract.ts'
 export { Config } from './config.ts'
-export { PathfinderRecordsGateway, workspaceRootOf, CYCLE_POLICY_KEYS } from './gateway.ts'
+export { PathfinderRecordsGateway, rootFor, workspaceRootOf, CYCLE_POLICY_KEYS } from './gateway.ts'
 export type { CyclePolicyKey } from './gateway.ts'
 export { runPf } from './write.ts'
 export type { PfOutcome } from './write.ts'

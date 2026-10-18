@@ -210,7 +210,7 @@ export interface PathfinderIssue {
 
 /** 一次取数的结果：一个工作区、一层记录目录、四份来源。 */
 export interface PathfinderReading {
-  /** 这份读数取自哪个工作区根——按会话身份解析出来的那个绝对路径。 */
+  /** 这份读数取自哪个工作区根——调用方点名的那一个，没点名就是这条会话自己那个。绝对路径。 */
   readonly workspaceRoot: string
   /** 记录所在的那一层目录，工作区相对。 */
   readonly recordPath: string
@@ -236,14 +236,19 @@ export interface PathfinderReadOptions {
 }
 
 /**
- * 宿主半身交给浏览器半身的那条服务：给它一条会话身份，它把那条会话所在工作区里的
+ * 宿主半身交给浏览器半身的那条服务：给它一条会话身份与一个工作区根，它把那个工作区里的
  * 记录读成一份读数。记录不在就是空读数（四份来源全 `missing`、集合全空）。
+ *
+ * 工作区根是**调用方点名**的：面板顶上那枚工作区选择器让读者挑一个工作区，挑中的那个根
+ * 从这一头递进来——挑哪一个读哪一个，与这条会话自己落在哪个工作区无关。空字符串是
+ * 「没挑」：那时候按会话身份解析（见 `workspaceRootOf`），也就是这条会话自己那个根。
  */
 export interface PathfinderRecords {
   /**
-   * @param sessionId - 会话身份；工作区根由它自己的会话头解析。
+   * @param sessionId - 会话身份；工作区文件口子按它认路径，`workspaceRoot` 空着时也由它定根。
+   * @param workspaceRoot - 要读的那个工作区根，绝对路径；空字符串＝这条会话自己那个根。
    * @param options - 可选的取消信号。
    * @returns 那个工作区里的记录，原样。
    */
-  read(sessionId: SessionId, options?: PathfinderReadOptions): Promise<PathfinderReading>
+  read(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderReading>
 }

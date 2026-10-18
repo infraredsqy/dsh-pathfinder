@@ -142,11 +142,11 @@ test('七个端点在源码模式下逐个叫得动：签名这一关先过，�
   }
 })
 
-test('取数那一条：网关把那条会话的工作区读成一份真读数', { skip: !wired }, async () => {
+test('取数那一条：网关把点名那个工作区读成一份真读数', { skip: !wired }, async () => {
   const root = syntheticWorkspace()
   const { ctx, call } = await liveGateway(root)
   try {
-    const answer = await call('read', { sessionId: 's1', options: {} })
+    const answer = await call('read', { sessionId: 's1', workspaceRoot: '', options: {} })
     assert.equal(answer.ok, true, String(answer.message))
     assert.equal(answer.value.workspaceRoot, root)
     assert.deepEqual(answer.value.sources, { nodes: 'read', cycles: 'read', instructions: 'read', issues: 'read' })
@@ -157,11 +157,25 @@ test('取数那一条：网关把那条会话的工作区读成一份真读数',
   }
 })
 
+test('取数那一条：点名的那个根说了算，与这条会话自己落在哪儿无关', { skip: !wired }, async () => {
+  const mine = syntheticWorkspace()
+  const other = syntheticWorkspace()
+  const { ctx, call } = await liveGateway(mine)
+  try {
+    const answer = await call('read', { sessionId: 's1', workspaceRoot: other, options: {} })
+    assert.equal(answer.ok, true, String(answer.message))
+    assert.equal(answer.value.workspaceRoot, other)
+    assert.deepEqual(answer.value.sources, { nodes: 'read', cycles: 'read', instructions: 'read', issues: 'read' })
+  } finally {
+    await ctx.stop?.()
+  }
+})
+
 test('会话笔记那一条：网关把那一层按节点分的小份笔记读成每一格的会话', { skip: !wired }, async () => {
   const root = syntheticWorkspace()
   const { ctx, call } = await liveGateway(root)
   try {
-    const answer = await call('readSessions', { sessionId: 's1' })
+    const answer = await call('readSessions', { sessionId: 's1', workspaceRoot: '' })
     assert.equal(answer.ok, true, String(answer.message))
     assert.equal(answer.value.project, root)
     assert.equal(answer.value.state, 'read')
@@ -175,7 +189,7 @@ test('会话笔记那一条：这一层目录不在时交回一份空清单，�
   const root = syntheticWorkspace({ note: false })
   const { ctx, call } = await liveGateway(root)
   try {
-    const answer = await call('readSessions', { sessionId: 's1' })
+    const answer = await call('readSessions', { sessionId: 's1', workspaceRoot: '' })
     assert.equal(answer.ok, true, String(answer.message))
     assert.equal(answer.value.state, 'missing')
     assert.deepEqual(answer.value.sessions, {})
@@ -188,18 +202,18 @@ test('三个写端点与那条策略端点：网关也都叫得动', { skip: !wi
   const root = syntheticWorkspace()
   const { ctx, call } = await liveGateway(root)
   try {
-    const archived = await call('archiveInstruction', { sessionId: 's1', id: 'i-1' })
+    const archived = await call('archiveInstruction', { sessionId: 's1', workspaceRoot: '', id: 'i-1' })
     assert.equal(archived.ok, true, String(archived.message))
-    const revived = await call('reviveInstruction', { sessionId: 's1', id: 'i-1' })
+    const revived = await call('reviveInstruction', { sessionId: 's1', workspaceRoot: '', id: 'i-1' })
     assert.equal(revived.ok, true, String(revived.message))
-    const removed = await call('removeInstruction', { sessionId: 's1', id: 'i-1' })
+    const removed = await call('removeInstruction', { sessionId: 's1', workspaceRoot: '', id: 'i-1' })
     assert.equal(removed.ok, true, String(removed.message))
-    const policy = await call('setCyclePolicy', { sessionId: 's1', cycle: 'line-1', key: 'parallel', value: '2' })
+    const policy = await call('setCyclePolicy', { sessionId: 's1', workspaceRoot: '', cycle: 'line-1', key: 'parallel', value: '2' })
     assert.equal(policy.ok, true, String(policy.message))
-    const listed = await call('readConfig', { sessionId: 's1' })
+    const listed = await call('readConfig', { sessionId: 's1', workspaceRoot: '' })
     assert.equal(listed.ok, true, String(listed.message))
     assert.equal(listed.value.project, root)
-    const written = await call('setConfig', { sessionId: 's1', key: 'test_tier', value: 'minimal' })
+    const written = await call('setConfig', { sessionId: 's1', workspaceRoot: '', key: 'test_tier', value: 'minimal' })
     assert.equal(written.ok, true, String(written.message))
   } finally {
     await ctx.stop?.()

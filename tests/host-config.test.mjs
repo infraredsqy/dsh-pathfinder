@@ -92,7 +92,7 @@ test('不是设置行的都不收：工具另印的提醒、空行、没有值�
 test('读一趟：跑的就是 config list，跑在这个工作区的根上', async () => {
   const subprocess = fakeSubprocess({ stdout: LISTED })
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const reading = await gateway.readConfig('s1')
+  const reading = await gateway.readConfig('s1', '')
 
   assert.equal(reading.ok, true)
   assert.equal(reading.project, 'C:\\workspace')
@@ -105,7 +105,7 @@ test('读一趟：跑的就是 config list，跑在这个工作区的根上', as
 test('读那一趟没成：如实说它没成，一行都不编', async () => {
   const subprocess = fakeSubprocess({ exitCode: 1, stderr: 'pf: python not found on PATH' })
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const reading = await gateway.readConfig('s1')
+  const reading = await gateway.readConfig('s1', '')
 
   assert.equal(reading.ok, false)
   assert.match(reading.text, /python not found/u)
@@ -115,27 +115,27 @@ test('读那一趟没成：如实说它没成，一行都不编', async () => {
 test('写一条：pf config set <键> <值>，落的是项目那一层（不带 --global）', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.setConfig('s1', 'worktree_mode', 'reuse')
+  const outcome = await gateway.setConfig('s1', '', 'worktree_mode', 'reuse')
 
   assert.equal(outcome.ok, true)
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['config', 'set', 'worktree_mode', 'reuse'])
   assert.equal(subprocess.specs[0].cwd, 'C:\\workspace')
 })
 
-test('不认得的键：不递命令，直接拒', async () => {
+test('无法识别的键：不递命令，直接拒', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.setConfig('s1', 'spawner', 'dsh')
+  const outcome = await gateway.setConfig('s1', '', 'spawner', 'dsh')
 
   assert.equal(outcome.ok, false)
   assert.deepEqual(subprocess.specs, [])
-  assert.match(outcome.text, /不认得这个设置键/u)
+  assert.match(outcome.text, /无法识别的设置键/u)
 })
 
 test('值合不合法由工具判：面板这一手照递，回来的是它那一句话', async () => {
   const subprocess = fakeSubprocess({ exitCode: 1, stderr: "Error: max_agents 要一个正整数，读到的是 '0'" })
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.setConfig('s1', 'max_agents', '0')
+  const outcome = await gateway.setConfig('s1', '', 'max_agents', '0')
 
   assert.equal(outcome.ok, false)
   assert.match(outcome.text, /要一个正整数/u)

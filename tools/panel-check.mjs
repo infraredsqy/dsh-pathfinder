@@ -33,7 +33,7 @@ const sessionId = 'panel-check-session'
 const parkedWorkspace = join(work, 'parked')
 const parkedRecord = join(parkedWorkspace, '.pf')
 const parkedSessionId = 'panel-check-parked'
-/** 第三份工作区：空的，`.pf` 都不建——「这个工作区里没有记录」那一档的实景。 */
+/** 第三份工作区：空的，`.pf` 都不建——「当前工作区没有 pathfinder 的记录」那一档的实景。 */
 const emptyWorkspace = join(work, 'empty')
 const emptySessionId = 'panel-check-empty'
 /** 第四份工作区：`.pf` 与四份文件都在，但没有一份是可读的 JSON——「记录读不动」那一档的实景。 */
@@ -48,8 +48,8 @@ function check(what, ok, reading) {
 }
 
 /* 取数那一趟的完成通知：每一次读都把那个 promise 交到这里，夹具等的是**那些** promise
- * 本身，不猜它多久回来。调度中心那两处座席也走这条口子，所以下面那份远程替身也交一份
- * ——面板读一趟、页脚徽标与浮层共用一趟，全都等得到。 */
+ * 本身，不猜它多久回来。面板那一格也走这条口子，所以下面那份远程替身也交一份——面板读
+ * 一趟，全都等得到。 */
 const inFlight = []
 const track = (promise) => {
   inFlight.push(promise.catch(() => undefined))
@@ -490,30 +490,28 @@ const booted = bootClient(backend, provided)
 const panel = booted.panel
 check('面板装成了一条服务', panel !== undefined && panel.id === 'pathfinder', `key=${client.SERVICE_KEY} id=${String(panel?.id)}`)
 
-/* 这一层登记五条：设置里那一节，加上调度中心那四处。夹具这里问的是「注册了哪些」，一份
+/* 这一层登记三条：设置里那一节，加上调度中心那两处。夹具这里问的是「注册了哪些」，一份
  * 名册比一句「碰没碰 slots」经得起看——槽位、id / key、order 逐条摆出来。中央栏那一格是
- * keyed：那本名册认 `key`，其余四条认 `id`。 */
+ * keyed：那本名册认 `key`，另外两条认 `id`。 */
 const SEAT_ENTRIES = [
   { key: `${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`, order: client.SECTION_ORDER, word: '设置里那一节' },
   { key: `sidebar.panellist:${client.PANEL_ID}`, order: client.PANEL_ORDER, word: '侧栏那一项' },
   { key: `main:${client.PANEL_ID}`, order: undefined, word: '中央栏那一格' },
-  { key: `sidebar.footer.action:${client.READY_BADGE_ID}`, order: client.FOOTER_ORDER, word: '页脚徽标' },
-  { key: `shell.overlay:${client.PENDING_NOTICE_ID}`, order: client.NOTICE_ORDER, word: '浮层提示' },
 ]
 /** 一本名册当下的样子：每条记下钥匙与 order。 */
 const rosterOf = (ledger) => [...ledger.entries()].map(([key, entry]) => ({ key, order: entry.options.order }))
-/** 按钥匙排好：这五条各落在**不同**的槽位，谁先登记在 DSH 里没有语义（`order` 只在同一个
+/** 按钥匙排好：这三条各落在**不同**的槽位，谁先登记在 DSH 里没有语义（`order` 只在同一个
  * list 槽内部才有意义），所以下面两份名册只比「哪几条在册、各自什么 order」，不锁先后。 */
 const byKey = (roster) => [...roster].sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0))
 const sameRoster = (left, right) => JSON.stringify(byKey(left)) === JSON.stringify(byKey(right))
 const registeredIds = [...booted.ledger.keys()]
 check(
-  '这一层注册的是哪五条：槽位＋id/key 逐条摆出来',
+  '这一层注册的是哪三条：槽位＋id/key 逐条摆出来',
   sameRoster(registeredIds.map((key) => ({ key })), SEAT_ENTRIES.map(({ key }) => ({ key }))),
   registeredIds.length === 0 ? 'slots 上一个注册都没有' : `注册=${registeredIds.join(', ')}`,
 )
 check(
-  '五条各自的 order 对上，侧栏那一项落在「插件」0 与「排期」10 之间',
+  '三条各自的 order 对上，侧栏那一项落在「插件」0 与「排期」10 之间',
   sameRoster(rosterOf(booted.ledger), SEAT_ENTRIES.map(({ key, order }) => ({ key, order })))
     && client.PANEL_ORDER > 0 && client.PANEL_ORDER < 10,
   `名册=${JSON.stringify(byKey(rosterOf(booted.ledger)))} ｜ 插件=0 排期=10 这一项=${String(client.PANEL_ORDER)}`,
@@ -542,14 +540,14 @@ check(
 )
 
 /* 同一条 effect 收掉再跑一遍（fiber 重入那一趟）：先撤上一次，再登记回来。
- * 接设置表单那一手与四处座席那一手各是另一条 effect：收掉座席那一条，它自己那四条要
+ * 接设置表单那一手与座席那一手各是另一条 effect：收掉座席那一条，它自己那两条要
  * 跟着走、设置那一节要留着；收掉接设置表单那一条，接在设置表单上的订阅者要还回去。 */
 const sectionEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: settings page')
 const formEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: settings form')
 const seatsEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: seats')
 const sharedForm = backend.form(client.SETTINGS_NAMESPACE)
 check(
-  '接设置表单那一手、登记那一页那一手与四处座席那一手各是一条 effect',
+  '接设置表单那一手、登记那一页那一手与座席那一手各是一条 effect',
   formEffect !== undefined && sectionEffect !== undefined && seatsEffect !== undefined
     && new Set([formEffect, sectionEffect, seatsEffect]).size === 3,
   `effect=${reuse.effects.map((one) => String(one.name)).join(', ')}`,
@@ -561,20 +559,20 @@ check(
 )
 seatsEffect.off()
 check(
-  '收掉座席那一条 effect：那四条从名册上撤下来，设置那一节还站着',
+  '收掉座席那一条 effect：那两条从名册上撤下来，设置那一节还站着',
   reuse.ledger.size === 1 && reuse.ledger.has(`${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`),
   `名册=${[...reuse.ledger.keys()].join(', ') || '（空）'}`,
 )
 seatsEffect.run()
 check(
-  '它再跑一遍：四条又登记回来，没有重复',
+  '它再跑一遍：两条又登记回来，没有重复',
   reuse.ledger.size === SEAT_ENTRIES.length
     && sameRoster(rosterOf(reuse.ledger), SEAT_ENTRIES.map(({ key, order }) => ({ key, order }))),
   `名册=${[...reuse.ledger.keys()].join(', ') || '（空）'}`,
 )
 sectionEffect.off()
 check(
-  '收掉设置那一页那条 effect：设置那一节下来，四处座席还站着',
+  '收掉设置那一页那条 effect：设置那一节下来，两处座席还站着',
   reuse.ledger.size === SEAT_ENTRIES.length - 1
     && reuse.ledger.has(`${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`) === false,
   `名册=${[...reuse.ledger.keys()].join(', ') || '（空）'}`,
@@ -609,28 +607,31 @@ const reactRoot = createRoot(container)
 /* 取数那一趟的完成通知用的是文件头上那一份 `inFlight`：远程替身与本夹具自己叫的那几趟
  * 都往那儿落。写面被叫过几次：几个新看法一遍点下来，这一次数必须停在原地。 */
 const writeCalls = []
+/** 面板向宿主问过哪些根：顶上那枚工作区选择器挑中的那一个就从这儿看得见。 */
+const askedRoots = []
 const trackedPort = {
   ...panel.port,
-  read(id, signal) {
-    return track(panel.port.read(id, signal))
+  read(id, workspaceRoot, signal) {
+    askedRoots.push(workspaceRoot)
+    return track(panel.port.read(id, workspaceRoot, signal))
   },
-  readSessions(id) {
-    return track(panel.port.readSessions(id))
+  readSessions(id, workspaceRoot) {
+    return track(panel.port.readSessions(id, workspaceRoot))
   },
-  write(verb, id, target) {
+  write(verb, id, workspaceRoot, target) {
     writeCalls.push(`write/${verb}`)
-    return track(panel.port.write(verb, id, target))
+    return track(panel.port.write(verb, id, workspaceRoot, target))
   },
-  setPolicy(id, cycle, key, value) {
+  setPolicy(id, workspaceRoot, cycle, key, value) {
     writeCalls.push(`setPolicy/${key}`)
-    return track(panel.port.setPolicy(id, cycle, key, value))
+    return track(panel.port.setPolicy(id, workspaceRoot, cycle, key, value))
   },
-  readConfig(id) {
-    return track(panel.port.readConfig(id))
+  readConfig(id, workspaceRoot) {
+    return track(panel.port.readConfig(id, workspaceRoot))
   },
-  setConfig(id, key, value) {
+  setConfig(id, workspaceRoot, key, value) {
     writeCalls.push(`setConfig/${key}`)
-    return track(panel.port.setConfig(id, key, value))
+    return track(panel.port.setConfig(id, workspaceRoot, key, value))
   },
 }
 /** 等这一趟的面板动作走完：写完了它还会再读一次，所以一直等到没有在飞的东西。 */
@@ -668,7 +669,7 @@ check('明细那一格撑满', container.querySelector('#frame').classList.conta
 /* 当前那一格的读数与记录对得上：四枚胶囊的数与三列卡片的张数，逐项跟那份记录现算出来的读数比。
  * 这里不能用「格子里有字」那类断言——#pane-now 里那三个静态列头就够让它成立，跟记录里的数无关。 */
 await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-const reading = await gateway.read(sessionId, {})
+const reading = await gateway.read(sessionId, '', {})
 const project = readProject({ nodes: reading.nodes, cycles: reading.cycles, instructions: reading.instructions, issues: reading.issues, at: new Date() })
 lines.push(`      记录里的读数：${JSON.stringify(reading.sources)}`)
 /* 这一趟没动过「每列几张卡」那一档：默认停在「展开」，每列最多三张。 */
@@ -698,21 +699,18 @@ check(
   `记录现算 胶囊=${JSON.stringify(expectedPills)} 三列=${JSON.stringify(expectedCards)} ｜ 面板上 胶囊=${JSON.stringify(pillReadings)} 三列=${JSON.stringify(cardReadings)} 总卡=${String(sum(cardReadings))}`,
 )
 
-/* ---- 3c. 调度中心那四处：真产物挂上去，各露一面 --------------------------
+/* ---- 3c. 调度中心那两处：真产物挂上去，各露一面 --------------------------
  *
  * 判定 1 的「在测试床上露面」那一趟归下游两格（发布 `6009423d` 的完成判定 3、证明面
  * `b0c5e0dd` 的清单第 4 条）：本格这一侧的证据落在这一趟夹具与单测上。同一批命题放在
- * 这一趟里取证：侧栏那一项、页脚徽标、浮层、中央栏那一格，四处注册的组件各按真形状
- * 渲染一遍。浮层那一条是「有事才说一句」，四档都在这一趟里露面：这一份记录有记录、也
- * 没有出局等人的格 → 不画（那一枚数归页脚徽标）；空记录的工作区（`.pf` 都不建）→ 印一句
- * 原因；记录读不动的工作区（`.pf` 在、四份读不动）→ 印**另一句**原因，徽标那一处不画数；
- * 真有出局等人的那份在第二份记录那一节（印「等待处理 N」）。
+ * 这一趟里取证：侧栏那一项与中央栏那一格，两处注册的组件各按真形状渲染一遍——前者画一枚
+ * 图标，后者就是面板本体（它向宿主问哪条会话，就画哪个工作区的记录）。
  *
  * 座席标准 props 里的 `useSessions` 由 ui-session 的 `provideRoot` 挂上，形状是一条
  * **带投影的** hook：夹具按真形状写一个——`ids` 是宿主清单次序（第一行是**另一条**会话）、
  * `byId` 里当前会话那条挂着 `retainedBy.mainView`，另带 `phase` 与 `projectionsBySession`。
- * 两处座席挑会话挑对没有：`seatReads` 那一笔（它们向宿主问过哪条会话）与徽标、浮层那几条
- * 读数一起看得见——挑成清单第一行时，这一笔与下面那几条读数都会露。
+ * 两处座席挑会话挑对没有：`seatReads` 那一笔（面板向宿主问过哪条会话）看得见——挑成清单
+ * 第一行时，这一笔会露。
  */
 const otherSessionId = 'panel-check-other'
 const snapshotAt = (id) => ({
@@ -737,27 +735,21 @@ window.document.body.appendChild(seatHost)
 const seatRoot = createRoot(seatHost)
 const seatEntries = {
   side: booted.ledger.get(`sidebar.panellist:${client.PANEL_ID}`),
-  badge: booted.ledger.get(`sidebar.footer.action:${client.READY_BADGE_ID}`),
-  notice: booted.ledger.get(`shell.overlay:${client.PENDING_NOTICE_ID}`),
   main: booted.ledger.get(`main:${client.PANEL_ID}`),
 }
 check(
-  '四处各有一条注册，页脚与浮层各只一条（整条 entry 只注册一次）',
-  seatEntries.side !== undefined && seatEntries.badge !== undefined
-    && seatEntries.notice !== undefined && seatEntries.main !== undefined
-    && [...booted.ledger.keys()].filter((key) => key.startsWith('sidebar.footer.action:')).length === 1
-    && [...booted.ledger.keys()].filter((key) => key.startsWith('shell.overlay:')).length === 1,
+  '两处各有一条注册，整条 entry 只注册一次',
+  seatEntries.side !== undefined && seatEntries.main !== undefined
+    && [...booted.ledger.keys()].filter((key) => key.startsWith('sidebar.panellist:')).length === 1
+    && [...booted.ledger.keys()].filter((key) => key.startsWith('main:')).length === 1,
   `名册=${[...booted.ledger.keys()].join(', ')}`,
 )
 
 await act(async () => {
   seatRoot.render(React.createElement(React.Fragment, null,
     React.createElement(seatEntries.side.component, { size: 16 }),
-    React.createElement(seatEntries.badge.component, {
-      ...seatEntries.badge.options.inject(), wide: true, useSessions: sessionsAt(sessionId),
-    }),
-    React.createElement(seatEntries.notice.component, {
-      ...seatEntries.notice.options.inject(), useSessions: sessionsAt(sessionId),
+    React.createElement(seatEntries.main.component, {
+      ...seatEntries.main.options.inject(), useSessions: sessionsAt(sessionId),
     }),
   ))
 })
@@ -780,85 +772,136 @@ check(
     : `svg ${String(sideGlyph.getAttribute('width'))}×${String(sideGlyph.getAttribute('height'))} aria-hidden=${String(sideGlyph.getAttribute('aria-hidden'))} 子元素=${String(sideGlyph.children.length)} 枚`,
 )
 
-const badgeSeat = seatHost.querySelector(`[data-pathfinder="${client.READY_BADGE_ID}"]`)
-check(
-  '页脚徽标印的读数与记录一致：可开工 N 就是记录现算的那一栏',
-  badgeSeat !== null
-    && (badgeSeat.textContent ?? '').replace(/\s+/gu, ' ').trim() === `可开工 ${String(project.columns.ready.length)}`,
-  `记录现算 可开工=${String(project.columns.ready.length)} ｜ 徽标上=${JSON.stringify((badgeSeat?.textContent ?? '（没有这枚徽标）').replace(/\s+/gu, ' ').trim())}`,
-)
-
-const noticeSeat = seatHost.querySelector(`[data-pathfinder="${client.PENDING_NOTICE_ID}"]`)
-check(
-  '这一份记录有记录、也没有出局等人的格：浮层不画，屏上只剩徽标那一枚数',
-  project.columns.shelved.length === 0 && noticeSeat === null,
-  `记录里的出局等人=${String(project.columns.shelved.length)} ｜ 徽标上=${JSON.stringify((badgeSeat?.textContent ?? '（没有这枚徽标）').replace(/\s+/gu, ' ').trim())} ｜ 浮层上=${noticeSeat === null ? '（不画）' : JSON.stringify(noticeSeat.textContent)}`,
-)
-
-/* 空记录的工作区那一档：判定 1 要「页脚徽标与浮层各出现一次」，而在这种工作区上浮层说的
- * 是一句只有它说得出的原因——这个工作区里压根没有记录（测试床那份合成工作区就是这种
- * 情形：没有 `.pf`，取数成功、四份来源全 `missing`）。另起一条插件（自己那份读数源），
- * 两处座席都指到空工作区那条会话上。 */
-const emptyBoot = bootClient(backend, {})
-const emptySeatHost = window.document.createElement('div')
-window.document.body.appendChild(emptySeatHost)
-const emptySeatRoot = createRoot(emptySeatHost)
-const emptyBadgeEntry = emptyBoot.ledger.get(`sidebar.footer.action:${client.READY_BADGE_ID}`)
-const emptyNoticeEntry = emptyBoot.ledger.get(`shell.overlay:${client.PENDING_NOTICE_ID}`)
+/* 空记录的工作区那一档：`.pf` 都不建，取数成功、四份来源全 `missing`。面板正文收成一句
+ * 话，标签、右上那排计数与那六格一起收走（测试床那份合成工作区就是这种情形）。 */
+const flat = (node) => (node?.textContent ?? '').replace(/\s+/gu, ' ').trim()
+const emptyHost = window.document.createElement('div')
+window.document.body.appendChild(emptyHost)
+const emptyRoot = createRoot(emptyHost)
 await act(async () => {
-  emptySeatRoot.render(React.createElement(React.Fragment, null,
-    React.createElement(emptyBadgeEntry.component, {
-      ...emptyBadgeEntry.options.inject(), wide: true, useSessions: sessionsAt(emptySessionId),
-    }),
-    React.createElement(emptyNoticeEntry.component, {
-      ...emptyNoticeEntry.options.inject(), useSessions: sessionsAt(emptySessionId),
-    }),
-  ))
+  emptyRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId: emptySessionId, prefs: panel.prefs }))
 })
 await settle()
-const emptyBadge = emptySeatHost.querySelector(`[data-pathfinder="${client.READY_BADGE_ID}"]`)
-const emptyNotice = emptySeatHost.querySelector(`[data-pathfinder="${client.PENDING_NOTICE_ID}"]`)
-const flat = (node) => (node?.textContent ?? '').replace(/\s+/gu, ' ').trim()
+const emptySaid = flat(emptyHost.querySelector('.pf-none p'))
 check(
-  '空记录的工作区：页脚徽标与浮层各出现一次——徽标印 可开工 0，浮层印「这个工作区里没有记录」',
-  emptyBadge !== null && emptyNotice !== null
-    && flat(emptyBadge) === '可开工 0'
-    && flat(emptyNotice) === '这个工作区里没有记录。',
-  `工作区=${emptyWorkspace.replace(root, '.')}（没有 .pf） ｜ 徽标上=${JSON.stringify(emptyBadge === null ? '（没有这枚徽标）' : flat(emptyBadge))} ｜ 浮层上=${JSON.stringify(emptyNotice === null ? '（空的）' : flat(emptyNotice))}`,
+  '空记录的工作区：面板正文只留「当前工作区没有 pathfinder 的记录」，标签、计数与六格一起收走',
+  emptyHost.querySelector('.pf-none') !== null
+    && emptySaid === '当前工作区没有 pathfinder 的记录。'
+    && emptyHost.querySelector('.pf-tabs') === null
+    && emptyHost.querySelector('.pf-count') === null
+    && emptyHost.querySelectorAll('.pf-pane').length === 0,
+  `工作区=${emptyWorkspace.replace(root, '.')}（没有 .pf） ｜ .pf-none p=${JSON.stringify(emptySaid)} ｜ 标签 ${String(emptyHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(emptyHost.querySelectorAll('.pf-count').length)} 处、六格 ${String(emptyHost.querySelectorAll('.pf-pane').length)} 处`,
 )
 
 /* 记录读不动那一档：`.pf` 在、四份文件也在，但没有一份解得出内容（四份来源全 `unusable`）。
- * 这一档屏上不许出现一枚编出来的 `可开工 0`——徽标整个不画，浮层说「读不动」，与上面那一档
- * 的「没有记录」不是同一句。另起一条插件，两处座席指到这个坏工作区那条会话上。 */
-const brokenBoot = bootClient(backend, {})
-const brokenSeatHost = window.document.createElement('div')
-window.document.body.appendChild(brokenSeatHost)
-const brokenSeatRoot = createRoot(brokenSeatHost)
-const brokenBadgeEntry = brokenBoot.ledger.get(`sidebar.footer.action:${client.READY_BADGE_ID}`)
-const brokenNoticeEntry = brokenBoot.ledger.get(`shell.overlay:${client.PENDING_NOTICE_ID}`)
+ * 面板正文摆的是**另一句**——与上面那一档的「没有记录」不是同一件事。 */
+const brokenHost = window.document.createElement('div')
+window.document.body.appendChild(brokenHost)
+const brokenRoot = createRoot(brokenHost)
 await act(async () => {
-  brokenSeatRoot.render(React.createElement(React.Fragment, null,
-    React.createElement(brokenBadgeEntry.component, {
-      ...brokenBadgeEntry.options.inject(), wide: true, useSessions: sessionsAt(brokenSessionId),
-    }),
-    React.createElement(brokenNoticeEntry.component, {
-      ...brokenNoticeEntry.options.inject(), useSessions: sessionsAt(brokenSessionId),
-    }),
-  ))
+  brokenRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId: brokenSessionId, prefs: panel.prefs }))
 })
 await settle()
-const brokenBadge = brokenSeatHost.querySelector(`[data-pathfinder="${client.READY_BADGE_ID}"]`)
-const brokenNotice = brokenSeatHost.querySelector(`[data-pathfinder="${client.PENDING_NOTICE_ID}"]`)
+const brokenSaid = flat(brokenHost.querySelector('.pf-none p'))
 check(
-  '记录读不动的工作区：徽标不画那枚数，浮层印「读不动」——不是上面那一档的「没有记录」',
-  brokenBadge === null && brokenNotice !== null && flat(brokenNotice) === '这个工作区里的记录读不动。',
-  `工作区=${brokenWorkspace.replace(root, '.')}（.pf 在、四份读不动） ｜ 徽标上=${brokenBadge === null ? '（不画）' : JSON.stringify(flat(brokenBadge))} ｜ 浮层上=${JSON.stringify(brokenNotice === null ? '（空的）' : flat(brokenNotice))}`,
+  '记录读不动的工作区：面板正文摆「无法读取当前工作区的记录」，与「没有记录」那句分得开',
+  brokenHost.querySelector('.pf-none') !== null
+    && brokenSaid === '无法读取当前工作区的记录。'
+    && brokenSaid !== '当前工作区没有 pathfinder 的记录。'
+    && brokenHost.querySelector('.pf-tabs') === null
+    && brokenHost.querySelector('.pf-count') === null
+    && brokenHost.querySelectorAll('.pf-pane').length === 0,
+  `工作区=${brokenWorkspace.replace(root, '.')}（.pf 在、四份读不动） ｜ .pf-none p=${JSON.stringify(brokenSaid)} ｜ 标签 ${String(brokenHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(brokenHost.querySelectorAll('.pf-count').length)} 处、六格 ${String(brokenHost.querySelectorAll('.pf-pane').length)} 处`,
 )
+
+/* 读得回来的那一份照旧：标签、计数与六格都在，正文里没有那句话。 */
 check(
-  '徽标是只读的：页脚那一处摆的不是按钮',
-  badgeSeat !== null && badgeSeat.tagName.toLowerCase() === 'span' && badgeSeat.onclick === null,
-  badgeSeat === null ? '（没有这枚徽标）' : `标签=${badgeSeat.tagName.toLowerCase()}`,
+  '这一份记录读得回来：六格标签、右上那排计数与六格正文照旧画着，正文里没有那句话',
+  tabs.length === 6 && container.querySelector('.pf-count') !== null
+    && container.querySelectorAll('.pf-pane').length === 6
+    && container.querySelector('.pf-none') === null,
+  `标签 ${String(tabs.length)} 枚 ｜ 计数 ${String(container.querySelectorAll('.pf-count').length)} 处 ｜ 六格 ${String(container.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${container.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
 )
+
+/* ---- 3d. 顶上那枚工作区选择器：挑哪一个就读哪一个 ------------------------
+ *
+ * 调度中心是独立于左侧工作区栏的一处地方：所有工作区对它都是可以打开的对象，只是某个
+ * 工作区里有没有这份记录得读一遍才知道。这一节就把那件事量全：名单照 DSH 那份清单来
+ * （标题 + 末尾那一档「未分组」）、默认停在**这条会话落在的那个桶**、换一档就换一个根
+ * 递给宿主，而那个根读出来的东西当场换到屏上——没有记录、读不动、读得回来三档各量一遍。
+ *
+ * 换的那一档递出去的是**绝对路径**：夹具这一侧 `askedRoots` 记着面板问过哪些根，逐档比。
+ * 「未分组」递的是空字符串——那正是「这条会话自己那个根」，宿主按会话身份现算。
+ */
+const spaceItems = [
+  { workspaceId: 'w-main', path: workspace, title: '主工作区', sessionIds: [sessionId] },
+  { workspaceId: 'w-empty', path: emptyWorkspace, title: '空工作区', sessionIds: [emptySessionId] },
+  { workspaceId: 'w-broken', path: brokenWorkspace, title: '读不动的工作区', sessionIds: [brokenSessionId] },
+]
+/* 快照必须是同一个对象：`getSnapshot` 每次现拼一份新的，React 会当成一直在变。 */
+const spaceSnapshot = { items: spaceItems }
+const spaceSource = { getSnapshot: () => spaceSnapshot, subscribe: () => () => undefined }
+const spaceHost = window.document.createElement('div')
+window.document.body.appendChild(spaceHost)
+const spaceRoot = createRoot(spaceHost)
+askedRoots.length = 0
+await act(async () => {
+  spaceRoot.render(React.createElement(panel.Panel, {
+    port: trackedPort, sessionId, prefs: panel.prefs, workspaces: spaceSource,
+  }))
+})
+await settle()
+
+const spaceSelect = () => spaceHost.querySelector('.pf-pick select')
+const spaceOptions = () => [...spaceHost.querySelectorAll('.pf-pick select option')]
+check(
+  '顶上那枚选择器：名单就是 DSH 那份清单的标题，末尾一档是「未分组」，默认停在会话落的那个桶',
+  spaceSelect() !== null
+    && JSON.stringify(spaceOptions().map((option) => option.textContent)) === JSON.stringify(['主工作区', '空工作区', '读不动的工作区', '未分组'])
+    && spaceSelect().value === 'w-main'
+    && askedRoots.length > 0 && askedRoots.every((one) => one === workspace),
+  `候选=${JSON.stringify(spaceOptions().map((option) => option.textContent))} 选中=${JSON.stringify(spaceSelect()?.value)} ｜ 问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))}`,
+)
+
+/** 把选择器拨到某一档，等这一趟走完。 */
+const pickWorkspace = async (value) => {
+  await act(async () => {
+    spaceSelect().value = value
+    spaceSelect().dispatchEvent(new window.Event('change', { bubbles: true }))
+  })
+  await settle()
+}
+
+askedRoots.length = 0
+await pickWorkspace('w-empty')
+const spaceEmpty = flat(spaceHost.querySelector('.pf-none p'))
+check(
+  '拨到空记录那个工作区：递出去的是它的绝对路径，正文当场换成「当前工作区没有 pathfinder 的记录」',
+  askedRoots.includes(emptyWorkspace) && spaceEmpty === '当前工作区没有 pathfinder 的记录。'
+    && spaceHost.querySelector('.pf-tabs') === null && spaceHost.querySelectorAll('.pf-pane').length === 0,
+  `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空）' : one.replace(root, '.'))))} ｜ .pf-none p=${JSON.stringify(spaceEmpty)}`,
+)
+
+askedRoots.length = 0
+await pickWorkspace('w-broken')
+const spaceBroken = flat(spaceHost.querySelector('.pf-none p'))
+check(
+  '拨到读不动那个工作区：正文摆的是另一句，与「没有记录」分得开',
+  askedRoots.includes(brokenWorkspace) && spaceBroken === '无法读取当前工作区的记录。'
+    && spaceBroken !== '当前工作区没有 pathfinder 的记录。',
+  `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空）' : one.replace(root, '.'))))} ｜ .pf-none p=${JSON.stringify(spaceBroken)}`,
+)
+
+askedRoots.length = 0
+await pickWorkspace('')
+check(
+  '拨到「未分组」：递一个空字符串（这条会话自己那个根），记录又画回来，六格与计数都在',
+  askedRoots.includes('') && spaceHost.querySelector('.pf-none') === null
+    && spaceHost.querySelectorAll('.pf-pane').length === 6 && spaceHost.querySelector('.pf-count') !== null,
+  `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 六格 ${String(spaceHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${spaceHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
+)
+
+await act(async () => { spaceRoot.unmount() })
 
 /* 产物那份 css 里九个 `--pf-*` 的声明点，按面板 DOM 上解析出来的值量：声明落在
  * `.pf-page body` / `.pf-page :root` 这类匹配不到任何元素的选择器上时，这里读出来就是空串
@@ -1256,7 +1299,7 @@ if (live !== undefined) {
   const gone = JSON.parse(readFileSync(join(record, 'instructions.json'), 'utf8')).instructions.find((entry) => entry.id === live.id)
   check('删除：条目连着正文一起走了', gone === undefined, `gone=${String(gone === undefined)}`)
   check('删掉的那条不再出现在面板上', (notes()?.textContent ?? '').includes(live.text) === false, 'notes 上找不到了')
-  const restore = await gateway.reviveInstruction(sessionId, live.id)
+  const restore = await gateway.reviveInstruction(sessionId, '', live.id)
   check('删除之后复原拿不回来', restore.ok === false, `revive=${restore.ok ? 'ok' : restore.text.split('\n')[0].slice(0, 60)}`)
 }
 
@@ -1384,7 +1427,7 @@ const litWant = hub === undefined ? [] : [
 const cardAt = (id) => fullCards.find((card) => card.getAttribute('data-id') === id)
 if (hub !== undefined) await clickTimes(cardAt(hub), 2)
 const cutIds = [...(wiresPane?.querySelectorAll('.pf-zcard') ?? [])].map((card) => card.getAttribute('data-id')).sort()
-const cutKey = zoomKey(wiresPane, '退出这一块')
+const cutKey = zoomKey(wiresPane, '回到全图')
 check(
   '依赖那一格：双击把那一条圈出来，只留它自己、它欠的、欠它的',
   hub !== undefined && JSON.stringify(cutIds) === JSON.stringify(litWant),
@@ -1393,7 +1436,7 @@ check(
 check('抠出来看时那枚叉露出来了', cutKey !== undefined && cutKey.hidden === false, `hidden=${String(cutKey?.hidden)}`)
 if (cutKey !== undefined) await click(cutKey)
 check(
-  '退出这一块，整张图回来',
+  '回到全图，整张图回来',
   (wiresPane?.querySelectorAll('.pf-zcard').length ?? 0) === project.nodes.length,
   `卡片 ${String(wiresPane?.querySelectorAll('.pf-zcard').length ?? 0)} 张`,
 )
@@ -1784,7 +1827,7 @@ await act(async () => { again.unmount() })
 mkdirSync(parkedWorkspace, { recursive: true })
 copyRecord(parkedRecord)
 
-const parkedBefore = readProject({ ...(await gateway.read(parkedSessionId, {})), at: new Date() })
+const parkedBefore = readProject({ ...(await gateway.read(parkedSessionId, '', {})), at: new Date() })
 const parkedLine = 'lab-line'
 /* 挑一个还没人走过的格：`blocked` 那一列就是「没在跑、也没人握着的」。 */
 const parkedNode = parkedBefore.columns.blocked[0]?.id
@@ -1806,7 +1849,7 @@ if (parkedNode !== undefined) {
     check(`第二份记录：pf ${args.slice(0, 2).join(' ')} 落了笔`, outcome.ok, outcome.text.split('\n').slice(0, 2).join(' / ').slice(0, 140))
   }
 
-  const parkedProject = readProject({ ...(await gateway.read(parkedSessionId, {})), at: new Date() })
+  const parkedProject = readProject({ ...(await gateway.read(parkedSessionId, '', {})), at: new Date() })
   const parkedShelved = parkedProject.columns.shelved.find((node) => node.id === parkedNode)
   check(
     '第二份记录里那个格确实出局等人、且挂在这条线上',
@@ -1864,29 +1907,6 @@ if (parkedNode !== undefined) {
 
   lines.push(`      造那份记录的四步：${echoes.join(' ｜ ')}`)
   await act(async () => { parkedRoot.unmount() })
-
-  /* 浮层那一条：第二份记录里真有一个出局等人的格，读数换到这条会话上，那一句就露面。
-   * 另外两半在 3c 那一节（同一份读数源、同一枚 entry）：有记录且没有出局等人的不画、
-   * 空记录的工作区印那句原因。 */
-  await act(async () => {
-    seatRoot.render(React.createElement(seatEntries.notice.component, {
-      ...seatEntries.notice.options.inject(), useSessions: sessionsAt(parkedSessionId),
-    }))
-  })
-  await settle()
-  const parkedNotice = seatHost.querySelector(`[data-pathfinder="${client.PENDING_NOTICE_ID}"]`)
-  check(
-    '浮层那一句：有出局等人的时候印「等待处理 N」，数就是记录里出局等人的格数',
-    parkedNotice !== null
-      && (parkedNotice.textContent ?? '').replace(/\s+/gu, ' ').trim() === `等待处理 ${String(parkedProject.columns.shelved.length)}`
-      && parkedProject.columns.shelved.length > 0,
-    `记录里的出局等人=${String(parkedProject.columns.shelved.length)} ｜ 浮层上=${JSON.stringify((parkedNotice?.textContent ?? '（空的）').replace(/\s+/gu, ' ').trim())}`,
-  )
-  check(
-    '浮层是纯提示：它自己不接指针事件，底下那一层照旧点得着',
-    parkedNotice !== null && (parkedNotice.getAttribute('style') ?? '').includes('pointer-events: none'),
-    `style=${JSON.stringify(parkedNotice?.getAttribute('style'))}`,
-  )
 }
 
 /* ---- 6a-1. 点一张卡切到那一格的会话 ----------------------------------------
@@ -1906,7 +1926,7 @@ if (parkedNode !== undefined) {
  * 出第五张卡。 */
 const ADDED_TITLE = 'panel-check-no-session'
 const addedOutcome = await runPf(hostCtx, workspace, ['dag', 'add', ADDED_TITLE, '--tags', 'coding'], new AbortController().signal)
-const beforeProject = readProject({ ...(await gateway.read(sessionId, {})), at: new Date() })
+const beforeProject = readProject({ ...(await gateway.read(sessionId, '', {})), at: new Date() })
 const added = beforeProject.nodes.find((node) => node.title === ADDED_TITLE)?.id
 check(
   '往这份拷贝里加一格：还没开过，记录与笔记里都没有它的会话',
@@ -1915,7 +1935,7 @@ check(
 )
 
 /* 哪一格最近开在哪条会话上：真宿主半身那条端点读回来的。 */
-const notesReading = await gateway.readSessions(sessionId)
+const notesReading = await gateway.readSessions(sessionId, '')
 check(
   '会话笔记读得回来：每一格最近开过的那条会话都在清单上',
   notesReading.state === 'read' && Object.keys(notesReading.sessions).length > 0,
@@ -1976,7 +1996,7 @@ const ideas = JSON.parse(readFileSync(ideasPath, 'utf8'))
 ideas.nodes[recordNode].dsh_session = backSession
 delete ideas.nodes[added].dsh_session
 writeFileSync(ideasPath, `${JSON.stringify(ideas, null, 2)}\n`)
-const notesAfter = await gateway.readSessions(sessionId)
+const notesAfter = await gateway.readSessions(sessionId, '')
 check(
   '三档摆在拷贝上：记录本体上写着会话的那一格、笔记与记录两处都没写的那一格',
   JSON.parse(readFileSync(ideasPath, 'utf8')).nodes[recordNode].dsh_session === backSession
@@ -2005,7 +2025,7 @@ const infoSeg = (label) => [...goHost.querySelectorAll('#pane-now .pf-modes .pf-
   .find((button) => button.textContent === label)
 await clickOn(infoSeg('展开'))
 
-const homeProject = readProject({ ...(await gateway.read(sessionId, {})), at: new Date() })
+const homeProject = readProject({ ...(await gateway.read(sessionId, '', {})), at: new Date() })
 const boardOf = (host) => ({
   pills: [...host.querySelectorAll('#census .pf-pill')].map((pill) => [
     pill.getAttribute('title'),
@@ -2105,7 +2125,7 @@ await clickOn(infoSeg('铺满'))
 const infoBeforeJump = pressedInfo()
 
 await clickOn(jumpCard)
-const targetProject = readProject({ ...(await gateway.read(jumpSession, {})), at: new Date() })
+const targetProject = readProject({ ...(await gateway.read(jumpSession, '', {})), at: new Date() })
 const targetBoard = expectedBoard(targetProject, 3)
 check(
   '点一张卡：活动会话切到记录里指出的那一条',
@@ -2283,20 +2303,20 @@ check(
   `本地存储 ${String(localKeys.length)} 个键${localKeys.length === 0 ? '' : `：${localKeys.join(', ')}`} ｜ 面板自己的 ${String(mine.length)} 个 ｜ 夹具先塞的 ${String(LEGACY_SEEDED.length)} 个旧键剩 ${String(seededLeft)} 个`,
 )
 
-/* ---- 6d. 卸载那一趟：停插件之后，四处都不留东西 --------------------------
+/* ---- 6d. 卸载那一趟：停插件之后，两处都不留东西 --------------------------
  *
  * 完成判定第 2 条。另起一条插件（新名册、新落点、自己的 effect），把两处经真代码渲染一遍
  * ——两张样式表由渲染那条路挂上（`Entry` 的 `ensureStyle` 与设置页的 `ensureSettingsStyle`），
  * 再把它那几条 effect 全收掉：名册清空，两张标签从文档里摘干净。
  *
  * 清理那一趟的次序（先撤注册再摘样式）是设计意图，写在 `mount.ts` 的清理那一段里；这里与
- * 单测都只量终局——判定 2 要的是「四处都不留东西」，没有一条要求次序。 */
+ * 单测都只量终局——判定 2 要的是「都不留东西」，没有一条要求次序。 */
 
 const unload = { ledger: new Map(), calls: [], effects: [] }
 const unloaded = bootClient(backend, {}, unload)
 check(
-  '卸载那一趟：五条都登记上了',
-  unload.ledger.size === 5,
+  '卸载那一趟：三条都登记上了',
+  unload.ledger.size === SEAT_ENTRIES.length,
   `名册=${[...unload.ledger.keys()].join(', ') || '（空）'}`,
 )
 
@@ -2333,7 +2353,7 @@ await act(async () => {
 for (const one of unload.effects) one.off()
 
 check(
-  '卸载之后：名册清空，四处都没有残留',
+  '卸载之后：名册清空，两处都没有残留',
   unload.ledger.size === 0,
   `名册=${[...unload.ledger.keys()].join(', ') || '（空）'}`,
 )
@@ -2343,22 +2363,20 @@ check(
   `面板那一张=${String(tagOf(client.PANEL_STYLE_ID))} 设置那一张=${String(tagOf(client.SETTINGS_STYLE_ID))}`,
 )
 
-/* ---- 6e. 热更新那一趟：装 → 卸 → 再装，四个清场点逐处给正面读数 -----------
+/* ---- 6e. 热更新那一趟：装 → 卸 → 再装，三处清场点逐处给正面读数 -----------
  *
  * 完成判定第 4 条。6d 量的是终局（名册清空、两张样式标签摘干净）；这一节把
- * 「侧栏项 / 页脚徽标 / 浮层 / 两张注入的样式标签」这四处**逐处**摆出正面读数，并多走一趟
- * 热更新：卸干净之后再装回来，四处各回到原样、且没有重复登记。
+ * 「侧栏项 / 中央栏那一格 / 两张注入的样式标签」这三处**逐处**摆出正面读数，并多走一趟
+ * 热更新：卸干净之后再装回来，三处各回到原样、且没有重复登记。
  *
  * 座席那一面不走真 slots 渲染器（那个住在 DSH 外壳里，不在这份产物里）；这里用一个最小的
  * 渲染器代替，它只做真渲染器做的那一件事——**照名册当下有什么就画什么**。名册由插件那几条
  * effect 增删、渲染器那一头始终挂着，于是「注册撤了，屏上就没东西」这件事有读数。
- * 三处座席都指空工作区那条会话：那一档浮层本来就要说一句话（有记录、又没有出局等人的格时
- * 浮层本就不画，拿那一份量不出「卸掉之后它没了」）。 */
+ * 两处座席都指空工作区那条会话：那一档面板正文摆着那句话，画得出来就是一行 `.pf-page`。 */
 
 const CLEAR_POINTS = [
   { word: '侧栏项', key: `sidebar.panellist:${client.PANEL_ID}`, probe: (host) => host.querySelector('svg') },
-  { word: '页脚徽标', key: `sidebar.footer.action:${client.READY_BADGE_ID}`, probe: (host) => host.querySelector(`[data-pathfinder="${client.READY_BADGE_ID}"]`) },
-  { word: '浮层', key: `shell.overlay:${client.PENDING_NOTICE_ID}`, probe: (host) => host.querySelector(`[data-pathfinder="${client.PENDING_NOTICE_ID}"]`) },
+  { word: '中央栏那一格', key: `main:${client.PANEL_ID}`, probe: (host) => host.querySelector('.pf-page') },
 ]
 
 const hot = { ledger: new Map(), calls: [], effects: [] }
@@ -2372,15 +2390,17 @@ const paintSeats = async () => {
   for (const { key } of CLEAR_POINTS) {
     const entry = hot.ledger.get(key)
     if (entry === undefined) continue
-    const props = typeof entry.options.inject === 'function' ? entry.options.inject() : {}
+    const given = typeof entry.options.inject === 'function' ? entry.options.inject() : {}
+    /* 中央栏那一格那条取数口子换成夹具追踪过的那一份：`settle()` 等得到它。 */
+    const port = given.port === undefined ? {} : { port: trackedPort }
     seats.push(React.createElement(entry.component, {
-      ...props, size: 16, wide: true, useSessions: sessionsAt(emptySessionId),
+      ...given, ...port, size: 16, wide: true, useSessions: sessionsAt(emptySessionId),
     }))
   }
   await act(async () => { hotBoardRoot.render(React.createElement(React.Fragment, null, ...seats)) })
   await settle()
 }
-/** 三处座席当下的样子：名册里在不在 + 屏上画没画出来，逐处一笔。 */
+/** 两处座席当下的样子：名册里在不在 + 屏上画没画出来，逐处一笔。 */
 const seatState = () => CLEAR_POINTS
   .map(({ word, key, probe }) => ({ word, registered: hot.ledger.has(key), drawn: probe(hotBoardHost) !== null }))
 const seatReport = (state) => state.map(({ word, registered, drawn }) => `${word}=${registered ? '在册' : '不在册'}·${drawn ? '屏上有' : '屏上无'}`).join(' ')
@@ -2404,30 +2424,30 @@ const showPanel = async () => {
   await settle()
 }
 
-/* 装：五条在册，四处清场点各就各位。 */
+/* 装：三条在册，三处清场点各就各位。 */
 await showPanel()
 await paintSeats()
 const hotLoaded = seatState()
 check(
-  '热更新·装：四处清场点各就各位（三处座席在册且画得出来 ＋ 两张注入的标签在文档里）',
-  hot.ledger.size === 5 && allSeats(hotLoaded, true)
+  '热更新·装：三处清场点各就各位（两处座席在册且画得出来 ＋ 两张注入的标签在文档里）',
+  hot.ledger.size === 3 && allSeats(hotLoaded, true)
     && tagOf(client.PANEL_STYLE_ID) !== null && tagOf(client.SETTINGS_STYLE_ID) !== null,
   `名册 ${String(hot.ledger.size)} 条 ｜ ${seatReport(hotLoaded)} ｜ ${styleReport()}`,
 )
 
-/* 卸：三处座席从名册上撤下来，渲染器那一头跟着画不出东西；两张标签从文档里摘掉。 */
+/* 卸：两处座席从名册上撤下来，渲染器那一头跟着画不出东西；两张标签从文档里摘掉。 */
 await act(async () => { hotPanelRoot.unmount(); hotSectionRoot.unmount() })
 for (const one of hot.effects) one.off()
 await paintSeats()
 const hotUnloaded = seatState()
 check(
-  '热更新·卸：四处清场点各自清干净（三处座席不在册且屏上没了 ＋ 两张注入的标签都摘掉）',
+  '热更新·卸：三处清场点各自清干净（两处座席不在册且屏上没了 ＋ 两张注入的标签都摘掉）',
   hot.ledger.size === 0 && allSeats(hotUnloaded, false) && stylesGone(),
   `名册 ${String(hot.ledger.size)} 条 ｜ ${seatReport(hotUnloaded)} ｜ ${styleReport()}`,
 )
 
-/* 再装（热更新）：同一条插件再走一遍，落在**同一本名册**上——五条回来、没有重复，
- * 四处清场点各回到原样。 */
+/* 再装（热更新）：同一条插件再走一遍，落在**同一本名册**上——三条回来、没有重复，
+ * 三处清场点各回到原样。 */
 hotPanelHost = window.document.createElement('div')
 window.document.body.appendChild(hotPanelHost)
 hotPanelRoot = createRoot(hotPanelHost)
@@ -2439,8 +2459,8 @@ await showPanel()
 await paintSeats()
 const hotReloaded = seatState()
 check(
-  '热更新·再装：同一本名册上四处清场点各回到原样，仍是五条、没有重复',
-  hot.ledger.size === 5 && allSeats(hotReloaded, true)
+  '热更新·再装：同一本名册上三处清场点各回到原样，仍是三条、没有重复',
+  hot.ledger.size === 3 && allSeats(hotReloaded, true)
     && tagOf(client.PANEL_STYLE_ID) !== null && tagOf(client.SETTINGS_STYLE_ID) !== null,
   `名册 ${String(hot.ledger.size)} 条 ｜ ${seatReport(hotReloaded)} ｜ ${styleReport()}`,
 )

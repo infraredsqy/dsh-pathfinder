@@ -8,8 +8,8 @@
  *   * 这一行在 profile 里的挂载点（`dsh.bundle.patch` 指的那份 patch）与浏览器那一侧的
  *     `platform` 必须还在，patch 文件本身必须在盘上；
  *   * 浏览器那一侧必须声明它等的加载依赖（`dsh.client.inject`）——外壳照它把 `connection`
- *     那一条客户端插件先送达，声明丢了，面板在浏览器里应用得早、取数口子接不上（页脚徽标
- *     与浮层那两处座席量不到，面板正文没有读数）。
+ *     那一条客户端插件先送达，声明丢了，面板在浏览器里应用得早、取数口子接不上（中央栏
+ *     那一格拿不到这个工作区的记录，面板正文没有读数）。
  *
  * 这里只读 `package.json` 与那份 patch 的盘上存在性，不读 `lib/`（新克隆里还没构建），
  * 也不跑 `npm pack`：真装一遍那件事归 `tools/testbed/testbed.ps1 -Action up -Plugin <…>.tgz`。

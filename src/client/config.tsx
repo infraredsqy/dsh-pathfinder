@@ -32,10 +32,10 @@ import {
 import type { PanelPort } from './data.ts'
 
 /** 工具没答上来时面板说的话。 */
-const READ_FAILED = '这个工作区的项目设置没读回来。'
+const READ_FAILED = '无法读取该工作区的项目设置。'
 
 /** 落笔那条命令没给理由时面板说的话。 */
-const WRITE_FAILED = '这一手没落笔。'
+const WRITE_FAILED = '这次写入没有生效。'
 
 /** 这一格选哪一边。 */
 const SIDES: readonly (readonly [string, boolean])[] = [['开', true], ['关', false]]
@@ -50,8 +50,10 @@ type Load =
 export interface ConfigPaneProps {
   /** 与宿主说话的那条口子。 */
   readonly port: PanelPort
-  /** 读、写哪个工作区的设置。 */
+  /** 会话身份：工作区文件口子按它认路径。 */
   readonly sessionId: string
+  /** 读、写哪个工作区：面板顶上挑中的那个根；空字符串＝这条会话自己那个。 */
+  readonly workspaceRoot: string
   /** 这一格此刻露不露面：露面那一趟才去读。 */
   readonly active: boolean
   /** 面板底下那条提示行；`null` 是「上一句是我说的，收回去」。 */
@@ -64,7 +66,7 @@ export interface ConfigPaneProps {
  * @returns 这一格的版面。
  */
 export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
-  const { port, sessionId, active } = props
+  const { port, sessionId, workspaceRoot, active } = props
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
   const [tick, setTick] = React.useState(0)
   const [width, setWidth] = React.useState(CONFIG_WIDTH)
@@ -84,7 +86,7 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
   React.useEffect(() => {
     if (!active || sessionId.length === 0) return undefined
     let live = true
-    port.readConfig(sessionId).then(
+    port.readConfig(sessionId, workspaceRoot).then(
       (reading) => {
         if (!live) return
         setLoad({ phase: 'ok', reading })
@@ -104,12 +106,12 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
       },
     )
     return () => { live = false }
-  }, [active, sessionId, port, tick, note])
+  }, [active, sessionId, workspaceRoot, port, tick, note])
 
   /* 写一下：工具说什么就是什么，写完再读一遍——控件印的永远跟着重读回来那一份走。 */
   const send = React.useCallback((key: ConfigKey, next: string): void => {
     const after = (): void => { setTick((round) => round + 1) }
-    port.setConfig(sessionId, key, next).then(
+    port.setConfig(sessionId, workspaceRoot, key, next).then(
       (outcome) => {
         said.current = outcome.ok ? null : 'write'
         note(outcome.ok ? null : (outcome.text.length > 0 ? outcome.text : WRITE_FAILED))
@@ -121,7 +123,7 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
         after()
       },
     )
-  }, [port, sessionId, note])
+  }, [port, sessionId, workspaceRoot, note])
 
   const reading = load.phase === 'ok' ? load.reading : null
 

@@ -32,24 +32,28 @@ const WRITE_ENDPOINTS: Readonly<Record<WriteVerb, string>> = {
 /**
  * 面板要与宿主说话的那条口子。
  *
+ * 每条口子都带一个 `workspaceRoot`：面板顶上那枚工作区选择器挑中的那个根（绝对路径），
+ * 空字符串＝没挑，按这条会话自己那个根读。挑哪一个读哪一个——与这条会话落在哪个工作区
+ * 无关，这就是那一枚选择器存在的理由。
+ *
  * `source` 说的是这一条口子最后是从哪一层接上的：`remote` 是装好的远程命名空间，
  * `carrier` 是载体那一层，`none` 是两条都没接上——那时候每一次读都直接给出失败，
  * 面板照「取不到」画，编不出读数来。
  */
 export interface PanelPort {
   readonly source: 'remote' | 'carrier' | 'none'
-  /** 那条会话所在工作区里的四份记录。 */
-  read(sessionId: string, signal?: AbortSignal): Promise<PathfinderReading>
-  /** 这个工作区里每一格最近开过的那条会话：卡上那一下要去的地方。 */
-  readSessions(sessionId: string): Promise<PathfinderSessionsReading>
+  /** 点名那个工作区里的四份记录。 */
+  read(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderReading>
+  /** 点名那个工作区里每一格最近开过的那条会话：卡上那一下要去的地方。 */
+  readSessions(sessionId: string, workspaceRoot: string): Promise<PathfinderSessionsReading>
   /** 归档 / 复原 / 删除一条指令。 */
-  write(verb: WriteVerb, sessionId: string, id: string): Promise<PfOutcome>
+  write(verb: WriteVerb, sessionId: string, workspaceRoot: string, id: string): Promise<PfOutcome>
   /** 写一条线自己的一个策略数。 */
-  setPolicy(sessionId: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome>
-  /** 这个工作区的项目设置：有效值与它住在哪一层，从工具那一条命令上来。 */
-  readConfig(sessionId: string): Promise<PathfinderConfigReading>
+  setPolicy(sessionId: string, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome>
+  /** 点名那个工作区的项目设置：有效值与它住在哪一层，从工具那一条命令上来。 */
+  readConfig(sessionId: string, workspaceRoot: string): Promise<PathfinderConfigReading>
   /** 写一条项目设置；落的永远是这个项目那一层。 */
-  setConfig(sessionId: string, key: string, value: string): Promise<PfOutcome>
+  setConfig(sessionId: string, workspaceRoot: string, key: string, value: string): Promise<PfOutcome>
 }
 
 /** 一条读数回来的样子：成了给值，没成给一句能读的话。 */
@@ -125,16 +129,16 @@ function remoteNamespace(ctx: unknown): Service | undefined {
   }
 }
 
-/** 一条读调用的参数：远程那一层按端点上的参数名摆，两个位置都在。 */
-function readArgs(sessionId: string): Readonly<Record<string, unknown>> {
-  return { sessionId, options: {} }
+/** 一条读调用的参数：远程那一层按端点上的参数名摆，三个位置都在。 */
+function readArgs(sessionId: string, workspaceRoot: string): Readonly<Record<string, unknown>> {
+  return { sessionId, workspaceRoot, options: {} }
 }
 
 /** 远程命名空间那一条路。 */
 function remotePort(namespace: Service): PanelPort {
   const call = async <T>(method: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<Answer<T>> => {
     const implementation = namespace[method]
-    if (typeof implementation !== 'function') return { ok: false, message: `这条口子上没有 ${method} 这一手。` }
+    if (typeof implementation !== 'function') return { ok: false, message: `这条通道上没有 ${method} 这个操作。` }
     try {
       const answer = await (implementation as (...values: unknown[]) => Promise<unknown>).call(
         namespace,
@@ -148,31 +152,31 @@ function remotePort(namespace: Service): PanelPort {
   }
   return {
     source: 'remote',
-    async read(sessionId, signal) {
-      const answer = await call<PathfinderReading>('read', readArgs(sessionId), signal)
+    async read(sessionId, workspaceRoot, signal) {
+      const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot), signal)
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
-    async readSessions(sessionId) {
-      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId })
+    async readSessions(sessionId, workspaceRoot) {
+      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot })
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
-    async write(verb, sessionId, id) {
-      const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, id })
+    async write(verb, sessionId, workspaceRoot, id) {
+      const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
-    async setPolicy(sessionId, cycle, key, value) {
-      const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, cycle, key, value })
+    async setPolicy(sessionId, workspaceRoot, cycle, key, value) {
+      const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
-    async readConfig(sessionId) {
-      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId })
+    async readConfig(sessionId, workspaceRoot) {
+      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot })
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
-    async setConfig(sessionId, key, value) {
-      const answer = await call<PfOutcome>('setConfig', { sessionId, key, value })
+    async setConfig(sessionId, workspaceRoot, key, value) {
+      const answer = await call<PfOutcome>('setConfig', { sessionId, workspaceRoot, key, value })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
   }
@@ -190,31 +194,31 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
   }
   return {
     source: 'carrier',
-    async read(sessionId) {
-      const answer = await call<PathfinderReading>('read', readArgs(sessionId))
+    async read(sessionId, workspaceRoot) {
+      const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot))
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
-    async readSessions(sessionId) {
-      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId })
+    async readSessions(sessionId, workspaceRoot) {
+      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot })
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
-    async write(verb, sessionId, id) {
-      const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, id })
+    async write(verb, sessionId, workspaceRoot, id) {
+      const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
-    async setPolicy(sessionId, cycle, key, value) {
-      const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, cycle, key, value })
+    async setPolicy(sessionId, workspaceRoot, cycle, key, value) {
+      const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
-    async readConfig(sessionId) {
-      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId })
+    async readConfig(sessionId, workspaceRoot) {
+      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot })
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
-    async setConfig(sessionId, key, value) {
-      const answer = await call<PfOutcome>('setConfig', { sessionId, key, value })
+    async setConfig(sessionId, workspaceRoot, key, value) {
+      const answer = await call<PfOutcome>('setConfig', { sessionId, workspaceRoot, key, value })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
   }
@@ -223,15 +227,15 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
 /** 两条都没接上时的那条口子：每一次读都明说取不到。 */
 function absentPort(): PanelPort {
   const missing = async (): Promise<never> => {
-    throw new Error('这个部署上没接上寻路记录的远程端，读数取不回来。')
+    throw new Error('该部署未连接寻路记录服务，无法读取记录。')
   }
-  const refused = async (): Promise<PfOutcome> => ({ ok: false, text: '这个部署上没有落笔那条口子。' })
+  const refused = async (): Promise<PfOutcome> => ({ ok: false, text: '该部署没有可用的写入通道。' })
   return { source: 'none', read: missing, readSessions: missing, write: refused, setPolicy: refused, readConfig: missing, setConfig: refused }
 }
 
 /** 把 `{ ok, value }` 那一副脸摊成这一层用的两分支。 */
 function unwrap<T>(answer: unknown): Answer<T> {
-  if (typeof answer !== 'object' || answer === null) return { ok: false, message: '宿主回了一个读不出来的东西。' }
+  if (typeof answer !== 'object' || answer === null) return { ok: false, message: '宿主返回了无法解析的数据。' }
   const held = answer as { ok?: unknown; value?: unknown; error?: unknown }
   if (held.ok === true) return { ok: true, value: held.value as T }
   return { ok: false, message: failureText(held.error) }

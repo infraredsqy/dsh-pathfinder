@@ -1,17 +1,17 @@
-/* 调度中心那四处挂载点：锁的是「注册了哪四条」与「卸载撤干净」。
+/* 调度中心那两处挂载点：锁的是「注册了哪两条」与「卸载撤干净」。
  *
  * 锁的几条：
- *   1. 四处各自的槽位名、条目 id / key、order、侧栏那一行上的名字；
+ *   1. 两处各自的槽位名、条目 id / key、order、侧栏那一行上的名字；
  *      中央栏那一格交出去的正好是**这次 apply 装的那块面板**。
- *   2. 收掉那条 effect：四条注册从名册上撤下来，两张注入的样式标签跟着摘掉（次序不锁，
+ *   2. 收掉那条 effect：两条注册从名册上撤下来，两张注入的样式标签跟着摘掉（次序不锁，
  *      判定 2 要的是「都不留东西」）。
  *   3. 同一本名册上再起一条插件（profile 重载、HMR 会走到这里）：重复登记那一下抛在
- *      这一层里面，名册还是那四条。
- *   4. 页脚徽标那一行与浮层那一句都从记录现算：喂几份最小读数对照（有记录且没有出局等人、
- *      四份来源全 `missing` 的空记录工作区、四份来源全 `unusable` 的读不动那一档、有一格
- *      出局等人、读不回来），两处各自说什么。
- *   5. 没有 `effect` 的上下文上那一条路：四条照挂，这一层不往调用点交回清理函数——那种
+ *      这一层里面，名册还是那两条。
+ *   4. 没有 `effect` 的上下文上那一条路：两条照挂，这一层不往调用点交回清理函数——那种
  *      上下文上没有卸载通知可归（真 Cordis 的上下文都带 `effect`）。
+ *   5. 会话身份那几手：`sessionsSnapshotOf` 靠恒等投影取回整份快照，`currentSessionOf` 从
+ *      那份快照里挑当前那一条，`knownSessionsOf` 交出这台机器上此刻的名册，`createSessionNav`
+ *      把身份递给 DSH 那条导航口子。
  *
  * 两处替身按真协议写：`slots.inject(key, register)` 收槽位名、跑那一趟注册；`slots.register`
  * 收 options + component，返回的摘除器能把那一条收回去，同一个 id 重复注册会抛（真协议
@@ -24,20 +24,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
-import { readProject } from '../src/model/index.ts'
 import {
-  FOOTER_ORDER,
-  NOTICE_ORDER,
   PANEL_ORDER,
-  PENDING_NOTICE_ID,
-  READY_BADGE_ID,
   SEAT_LABEL,
-  createSeatReadings,
   createSessionNav,
   currentSessionOf,
   knownSessionsOf,
-  noticeLine,
-  readyBadgeLine,
   registerSeats,
   sessionsSnapshotOf,
 } from '../src/client/mount.ts'
@@ -91,7 +83,7 @@ function harness({ withEffect = true, services = {} } = {}) {
   return { ledger, calls, effects, ctx }
 }
 
-/** 一块面板：组件与口子都是替身，量的是四条注册本身。 */
+/** 一块面板：组件与口子都是替身，量的是两条注册本身。 */
 function fakePanel() {
   const Panel = () => null
   return {
@@ -103,61 +95,16 @@ function fakePanel() {
   }
 }
 
-/** 一批 `todo`、没人握着、也没有前置的格：可开工那一栏里的。 */
-function readyNodes(count) {
-  const nodes = {}
-  for (let index = 1; index <= count; index += 1) {
-    nodes[`n${String(index)}`] = { title: `n${String(index)}`, status: 'todo' }
-  }
-  return nodes
-}
-
-/** 一份最小的记录原形：四份来源都在，集合与四份来源的结局按用例给。 */
-function minimalReading({
-  nodes = {},
-  cycles = [],
-  instructions = [],
-  issues = {},
-  sources = { nodes: 'read', cycles: 'read', instructions: 'read', issues: 'read' },
-} = {}) {
-  return {
-    workspaceRoot: 'C:\\ws',
-    recordPath: '.pf',
-    sources,
-    nodes,
-    cycles,
-    instructions,
-    issues,
-  }
-}
-
-/** 一条只回一份读数的口子。 */
-function portReturning(reading) {
-  return {
-    source: 'remote',
-    read: async () => reading,
-    write: async () => ({ ok: true, text: '' }),
-    setPolicy: async () => ({ ok: true, text: '' }),
-  }
-}
-
-/** 让挂上去的那几趟微任务跑完：`setImmediate` 排在所有微任务之后。 */
-function tick() {
-  return new Promise((resolve) => { setImmediate(resolve) })
-}
-
-test('四处注册：槽位、id / key、order、侧栏那一行的名字逐条对上', () => {
+test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条对上', () => {
   const { ledger, ctx } = harness()
   const panel = fakePanel()
 
   registerSeats(ctx, panel, () => undefined)
 
-  /* 四条各落在**不同**的槽位，谁先登记在 DSH 里没有语义（`order` 只在同一个 list 槽内部
-   * 才有意义）：这里只量「哪四条在册」，不锁它们之间的先后。 */
+  /* 两条各落在**不同**的槽位，谁先登记在 DSH 里没有语义（`order` 只在同一个 list 槽内部
+   * 才有意义）：这里只量「哪两条在册」，不锁它们之间的先后。 */
   assert.deepEqual([...ledger.keys()].sort(), [
     `main:${PANEL_ID}`,
-    `shell.overlay:${PENDING_NOTICE_ID}`,
-    `sidebar.footer.action:${READY_BADGE_ID}`,
     `sidebar.panellist:${PANEL_ID}`,
   ].sort())
 
@@ -174,17 +121,7 @@ test('四处注册：槽位、id / key、order、侧栏那一行的名字逐条�
   assert.equal(main.key, PANEL_ID)
   assert.equal(main.key === 'conversation', false)
 
-  const foot = ledger.get(`sidebar.footer.action:${READY_BADGE_ID}`).options
-  assert.equal(foot.name, 'sidebar.footer.action')
-  assert.equal(foot.id, READY_BADGE_ID)
-  assert.equal(foot.order, FOOTER_ORDER)
-
-  const overlay = ledger.get(`shell.overlay:${PENDING_NOTICE_ID}`).options
-  assert.equal(overlay.name, 'shell.overlay')
-  assert.equal(overlay.id, PENDING_NOTICE_ID)
-  assert.equal(overlay.order, NOTICE_ORDER)
-
-  /* 四条各交了一件真东西出去，没有一条是空手登记。 */
+  /* 两条各交了一件真东西出去，没有一条是空手登记。 */
   for (const [, entry] of ledger) assert.equal(typeof entry.component, 'function')
 })
 
@@ -213,7 +150,53 @@ test('那条导航口子还没到场：卡上那一下点下去什么也不发�
   assert.doesNotThrow(() => { given.openSession('session-7') })
 })
 
-test('收掉那条 effect：四条从名册上撤下来，两张样式标签跟着摘掉', () => {
+test('中央栏那一格另交出那份工作区清单：顶上那枚选择器读的就是它', () => {
+  const items = [{ workspaceId: 'w-1', path: 'C:\\ws', title: '一个工作区', sessionIds: ['s-1'] }]
+  const snapshot = { items }
+  const { ledger, ctx } = harness({
+    services: { workspaces: { list: { getSnapshot: () => snapshot, subscribe: () => () => undefined } } },
+  })
+  registerSeats(ctx, fakePanel(), () => undefined)
+
+  const given = ledger.get(`main:${PANEL_ID}`).options.inject()
+  assert.equal(typeof given.workspaces?.getSnapshot, 'function')
+  assert.equal(typeof given.workspaces?.subscribe, 'function')
+  assert.deepEqual(given.workspaces.getSnapshot().items, items)
+})
+
+test('工作区清单那份服务还没到场：交出去的是一份空名单，它一到场就叫一声', () => {
+  const listeners = []
+  const items = [{ workspaceId: 'w-1', path: 'C:\\ws', title: '一个工作区', sessionIds: ['s-1'] }]
+  let registered
+  const { ledger, ctx } = harness()
+  /* 这条上下文上 `inject` 就是「立刻拿这个 owner 叫一次」；那一手在这里被记下来，
+   * 量的是「服务晚到」那一趟：先给空名单，等它到场再通知订阅者。 */
+  ctx.inject = (names, callback) => {
+    if (names.includes('workspaces')) registered = callback
+    else callback(ctx)
+  }
+  registerSeats(ctx, fakePanel(), () => undefined)
+
+  const source = ledger.get(`main:${PANEL_ID}`).options.inject().workspaces
+  assert.deepEqual(source.getSnapshot(), { items: [] })
+  source.subscribe(() => listeners.push('changed'))
+  assert.deepEqual(listeners, [])
+
+  const snapshot = { items }
+  registered({ get: (name) => (name === 'workspaces' ? { list: { getSnapshot: () => snapshot, subscribe: () => () => undefined } } : undefined) })
+  assert.deepEqual(source.getSnapshot().items, items)
+  assert.deepEqual(listeners, ['changed'])
+})
+
+test('同一份空名单：没有工作区清单时每次给出的都是同一个对象', () => {
+  const { ledger, ctx } = harness()
+  registerSeats(ctx, fakePanel(), () => undefined)
+
+  const source = ledger.get(`main:${PANEL_ID}`).options.inject().workspaces
+  assert.equal(source.getSnapshot(), source.getSnapshot())
+})
+
+test('收掉那条 effect：两条从名册上撤下来，两张样式标签跟着摘掉', () => {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>')
   globalThis.document = dom.window.document
 
@@ -227,7 +210,7 @@ test('收掉那条 effect：四条从名册上撤下来，两张样式标签跟�
   /* 两张表经渲染那条路挂上（替身按同一对记号挂，见文件头）。 */
   ensureStyleTag(PANEL_STYLE_ID, '.pf-page{color:red}')
   ensureStyleTag(SETTINGS_STYLE_ID, '.pfset-page{color:red}')
-  assert.equal(ledger.size, 4)
+  assert.equal(ledger.size, 2)
   assert.equal(dom.window.document.getElementById(PANEL_STYLE_ID) === null, false)
   assert.equal(dom.window.document.getElementById(SETTINGS_STYLE_ID) === null, false)
 
@@ -239,27 +222,27 @@ test('收掉那条 effect：四条从名册上撤下来，两张样式标签跟�
   assert.equal(dom.window.document.getElementById(PANEL_STYLE_ID), null)
   assert.equal(dom.window.document.getElementById(SETTINGS_STYLE_ID), null)
 
-  /* 再跑一遍：四条又回到名册上，没有重复。 */
+  /* 再跑一遍：两条又回到名册上，没有重复。 */
   seats.run()
-  assert.equal(ledger.size, 4)
+  assert.equal(ledger.size, 2)
 })
 
-test('没有 effect 的上下文：四条照样挂上，这一层不往调用点交回清理函数', () => {
+test('没有 effect 的上下文：两条照样挂上，这一层不往调用点交回清理函数', () => {
   const { ledger, effects, ctx } = harness({ withEffect: false })
   const panel = fakePanel()
   let stylesDropped = 0
   const handedBack = registerSeats(ctx, panel, () => { stylesDropped += 1 })
 
   assert.equal(effects.length, 0)
-  assert.equal(ledger.size, 4)
+  assert.equal(ledger.size, 2)
 
   /* 这种上下文上没有卸载通知可归（真 Cordis 的上下文都带 `effect`）：这一层不交回清理
-   * 函数，调用点也就接不到东西；四条注册与两张样式标签随这个上下文一起走。 */
+   * 函数，调用点也就接不到东西；两条注册与两张样式标签随这个上下文一起走。 */
   assert.equal(handedBack, undefined)
   assert.equal(stylesDropped, 0)
 })
 
-test('同一本名册上再起一条插件：重复登记那一下停在这一层里，名册还是那四条', () => {
+test('同一本名册上再起一条插件：重复登记那一下停在这一层里，名册还是那两条', () => {
   const { ledger, calls, effects, ctx } = harness()
   const panel = fakePanel()
 
@@ -274,119 +257,14 @@ test('同一本名册上再起一条插件：重复登记那一下停在这一�
     console.warn = realWarn
   }
 
-  assert.equal(ledger.size, 4)
-  assert.equal(calls.filter((call) => call.startsWith('register/')).length, 8)
+  assert.equal(ledger.size, 2)
+  assert.equal(calls.filter((call) => call.startsWith('register/')).length, 4)
   assert.equal(effects.length, 2)
-  assert.equal(warned.length, 4)
+  assert.equal(warned.length, 2)
 
   /* 第二条插件那一条 effect 手上没有东西可撤：它一条也没登记上，收掉它不该动名册。 */
   effects[1].dispose()
-  assert.equal(ledger.size, 4)
-})
-
-test('页脚徽标那一行从记录现算：可开工 0 与 3 两份读数对照', async () => {
-  const empty = createSeatReadings(portReturning(minimalReading()))
-  assert.deepEqual(readyBadgeLine(empty.getSnapshot()), null)
-  empty.attach('s1')
-  await tick()
-  assert.deepEqual(readyBadgeLine(empty.getSnapshot()), { kind: 'count', word: '可开工', count: 0 })
-
-  const three = createSeatReadings(portReturning(minimalReading({ nodes: readyNodes(3) })))
-  three.attach('s1')
-  await tick()
-  assert.deepEqual(readyBadgeLine(three.getSnapshot()), { kind: 'count', word: '可开工', count: 3 })
-
-  /* 与模型层现算的那一栏逐项对上，不另算一套。 */
-  const project = readProject({ nodes: readyNodes(3), cycles: [], instructions: [], issues: {}, at: new Date() })
-  assert.equal(project.columns.ready.length, 3)
-})
-
-test('浮层那一句：有事才说一句——空记录的工作区印原因、有出局等人的印「等待处理 N」、读不回来的印原因，其余不画', async () => {
-  /* 读成功、有记录、也没有出局等人的格：不画——那枚数页脚徽标已经印了，同一件事不说两遍。 */
-  const healthy = createSeatReadings(portReturning(minimalReading({ nodes: readyNodes(2) })))
-  healthy.attach('s1')
-  await tick()
-  assert.equal(noticeLine(healthy.getSnapshot()), null)
-  assert.deepEqual(readyBadgeLine(healthy.getSnapshot()), { kind: 'count', word: '可开工', count: 2 })
-
-  /* 读成功，但四份来源全 `missing`：这个工作区里压根没有记录。浮层说一句只有它说得出的
-   * 原因；徽标那一枚数照印（空记录上就是 `可开工 0`）。 */
-  const emptyRecord = createSeatReadings(portReturning(minimalReading({
-    sources: { nodes: 'missing', cycles: 'missing', instructions: 'missing', issues: 'missing' },
-  })))
-  emptyRecord.attach('s1')
-  await tick()
-  assert.deepEqual(noticeLine(emptyRecord.getSnapshot()), { kind: 'reason', text: '这个工作区里没有记录。' })
-  assert.deepEqual(readyBadgeLine(emptyRecord.getSnapshot()), { kind: 'count', word: '可开工', count: 0 })
-
-  /* 读成功、有记录，有一格出局等人：印「等待处理 N」。 */
-  const parked = minimalReading({ nodes: { p1: { title: 'p1', status: 'shelved' } } })
-  const shelved = createSeatReadings(portReturning(parked))
-  shelved.attach('s1')
-  await tick()
-  assert.deepEqual(noticeLine(shelved.getSnapshot()), { kind: 'count', word: '等待处理', count: 1 })
-
-  /* 口子两条都没接上：读数照抛，浮层把那句话原样印出来，不编一个数。 */
-  const refused = createSeatReadings({
-    source: 'none',
-    read: async () => { throw new Error('这个部署上没接上寻路记录的远程端，读数取不回来。') },
-    write: async () => ({ ok: true, text: '' }),
-    setPolicy: async () => ({ ok: true, text: '' }),
-  })
-  refused.attach('s1')
-  await tick()
-  assert.deepEqual(noticeLine(refused.getSnapshot()), {
-    kind: 'reason',
-    text: '这个部署上没接上寻路记录的远程端，读数取不回来。',
-  })
-  assert.equal(readyBadgeLine(refused.getSnapshot()), null)
-
-  /* 还没有会话：也是读不回来那一档，两处都不许编数。 */
-  const noSession = createSeatReadings(portReturning(minimalReading()))
-  noSession.attach(undefined)
-  assert.equal(noticeLine(noSession.getSnapshot()).kind, 'reason')
-  assert.equal(readyBadgeLine(noSession.getSnapshot()), null)
-})
-
-test('四份来源全 unusable：徽标不画那枚数，浮层印「读不动」那一句——不与「没有记录」那句混用', async () => {
-  /* 记录在（那一层目录列得到、四份文件也在），但一份都解不出来：宿主半身四份全报
-   * `unusable`，集合全是空的。这一档屏上唯一的读数不许是一个编出来的 0。 */
-  const broken = createSeatReadings(portReturning(minimalReading({
-    sources: { nodes: 'unusable', cycles: 'unusable', instructions: 'unusable', issues: 'unusable' },
-  })))
-  broken.attach('s1')
-  await tick()
-  assert.deepEqual(noticeLine(broken.getSnapshot()), { kind: 'reason', text: '这个工作区里的记录读不动。' })
-  assert.equal(readyBadgeLine(broken.getSnapshot()), null)
-
-  /* 与「这个工作区里没有记录。」那一档分开：两档说的是两件事，不许混用同一句。 */
-  assert.notEqual(noticeLine(broken.getSnapshot()).text, '这个工作区里没有记录。')
-})
-
-test('两处座席共用一趟取数：同一条会话递两次只读一次，换一条才再读', async () => {
-  let reads = 0
-  const reading = minimalReading({ nodes: readyNodes(1) })
-  const readings = createSeatReadings({
-    source: 'remote',
-    read: async () => { reads += 1; return reading },
-    write: async () => ({ ok: true, text: '' }),
-    setPolicy: async () => ({ ok: true, text: '' }),
-  })
-  readings.attach('s1')
-  readings.attach('s1')
-  await tick()
-  assert.equal(reads, 1)
-  readings.attach('s2')
-  await tick()
-  assert.equal(reads, 2)
-
-  /* 卸载之后再递会话：在飞的读作废，也不再叫订阅者。 */
-  const heard = []
-  readings.subscribe(() => { heard.push(readings.getSnapshot().phase) })
-  readings.dispose()
-  readings.attach('s3')
-  await tick()
-  assert.deepEqual(heard, [])
+  assert.equal(ledger.size, 2)
 })
 
 test('座席标准 props 里的 useSessions 是一条带投影的 hook，整份快照要靠恒等投影取回来', () => {
@@ -412,7 +290,7 @@ test('座席标准 props 里的 useSessions 是一条带投影的 hook，整份�
   /* 当前会话落在 `ids` 第二位时挑的仍是它：`retainedBy.mainView` 那条。 */
   assert.equal(currentSessionOf(snapshot), 's1')
 
-  /* `byId` 第一把键那条兜底已经删掉：没人挂 mainView 时不许凭键序挑人。 */
+  /* 没人挂 `mainView` 时不许凭 `byId` 的键序挑人。 */
   assert.equal(currentSessionOf({ ids: [], byId: { z: { id: 'z', retainedBy: {} } }, phase: 'ready' }), undefined)
 
   /* 三个身份探针还在，服务别的形状与替身：有它们时先认它们。 */

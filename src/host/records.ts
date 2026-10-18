@@ -17,11 +17,11 @@ import { RECORD_DIR, RECORD_SOURCES } from './contract.ts'
 import type { PathfinderReading, PathfinderSourceState } from './contract.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** 按会话身份定下来的取数位置。 */
+/** 取数时按哪一套位置去读。 */
 export interface PathfinderScope {
-  /** 会话身份。 */
+  /** 会话身份：工作区文件口子按它认路径。 */
   readonly sessionId: SessionId
-  /** 那条会话的工作区根：绝对路径，记录从它往下找。 */
+  /** 要读的那个工作区根：绝对路径，记录从它往下找。面板挑的那一个，或这条会话自己那个。 */
   readonly workspaceRoot: string
 }
 
@@ -132,7 +132,7 @@ function collect(key: keyof typeof COLLECTION_KEY, parsed: unknown): unknown {
  * 就超上限（收到一行也过不去）才是真的读不动，照抛给调用方判。
  *
  * @param port - 工作区文件口子。
- * @param scope - 按会话身份定下来的位置。
+ * @param scope - 这一次读的位置。
  * @param path - 工作区相对路径。
  * @param signal - 调用方取消。
  * @returns 整份文件的文本。
@@ -180,7 +180,7 @@ export async function readWholeFile(
  * 「什么都没发生」地画。真出错（列目录被拒、调用方取消）照抛，不在这里咽掉。
  *
  * @param port - 工作区文件口子。
- * @param scope - 按会话身份定下来的位置。
+ * @param scope - 这一次读的位置。
  * @param signal - 调用方取消。
  * @returns 那个工作区里的记录，原样。
  */

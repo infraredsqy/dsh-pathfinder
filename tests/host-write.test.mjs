@@ -50,7 +50,7 @@ function wordsOf(spec) {
 test('归档一条：pf instruction resolve <id> --state withdrawn', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.archiveInstruction('s1', 'i-0007')
+  const outcome = await gateway.archiveInstruction('s1', '', 'i-0007')
 
   assert.equal(outcome.ok, true)
   assert.equal(subprocess.specs.length, 1)
@@ -58,10 +58,19 @@ test('归档一条：pf instruction resolve <id> --state withdrawn', async () =>
   assert.equal(subprocess.specs[0].cwd, 'C:\\workspace')
 })
 
+test('点名一个工作区：命令就跑在那个根上，不看这条会话自己落在哪儿', async () => {
+  const subprocess = fakeSubprocess()
+  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
+  await gateway.reviveInstruction('s1', 'C:\\somewhere\\else', 'i-0007')
+
+  assert.equal(subprocess.specs[0].cwd, 'C:\\somewhere\\else')
+  assert.deepEqual(wordsOf(subprocess.specs[0]), ['instruction', 'revive', 'i-0007'])
+})
+
 test('复原一条：pf instruction revive <id>', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  await gateway.reviveInstruction('s1', 'i-0007')
+  await gateway.reviveInstruction('s1', '', 'i-0007')
 
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['instruction', 'revive', 'i-0007'])
 })
@@ -69,7 +78,7 @@ test('复原一条：pf instruction revive <id>', async () => {
 test('删一条：pf instruction rm <id>', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  await gateway.removeInstruction('s1', 'i-0007')
+  await gateway.removeInstruction('s1', '', 'i-0007')
 
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['instruction', 'rm', 'i-0007'])
 })
@@ -77,15 +86,15 @@ test('删一条：pf instruction rm <id>', async () => {
 test('一个策略数：pf cycle policy <线> <键> <值>', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  await gateway.setCyclePolicy('s1', 'panel-to-plugin', 'test_seconds_limit', '90')
+  await gateway.setCyclePolicy('s1', '', 'panel-to-plugin', 'test_seconds_limit', '90')
 
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['cycle', 'policy', 'panel-to-plugin', 'test_seconds_limit', '90'])
 })
 
-test('不认得的策略键：不递命令，直接拒', async () => {
+test('无法识别的策略键：不递命令，直接拒', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.setCyclePolicy('s1', 'panel-to-plugin', 'spawner', 'dsh')
+  const outcome = await gateway.setCyclePolicy('s1', '', 'panel-to-plugin', 'spawner', 'dsh')
 
   assert.equal(outcome.ok, false)
   assert.deepEqual(subprocess.specs, [])
@@ -94,34 +103,34 @@ test('不认得的策略键：不递命令，直接拒', async () => {
 test('参数闸：命令行元字符进不去，命令也就不递', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.archiveInstruction('s1', 'i-1 & del /s C:\\')
+  const outcome = await gateway.archiveInstruction('s1', '', 'i-1 & del /s C:\\')
 
   assert.equal(outcome.ok, false)
   assert.deepEqual(subprocess.specs, [])
-  assert.match(outcome.text, /不能进命令/u)
+  assert.match(outcome.text, /不能进入命令/u)
 })
 
 test('工具非零退出：读数里那个数一个都不改，ok 是假', async () => {
   const subprocess = fakeSubprocess({ exitCode: 1, stderr: '没有 i-0007 这一条' })
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.archiveInstruction('s1', 'i-0007')
+  const outcome = await gateway.archiveInstruction('s1', '', 'i-0007')
 
   assert.equal(outcome.ok, false)
   assert.match(outcome.text, /没有 i-0007 这一条/u)
 })
 
-test('没有起进程的口子：如实说这一手落不了笔', async () => {
+test('宿主没有进程通道：如实说这次写入没法落笔', async () => {
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess: undefined }))
-  const outcome = await gateway.removeInstruction('s1', 'i-0007')
+  const outcome = await gateway.removeInstruction('s1', '', 'i-0007')
 
   assert.equal(outcome.ok, false)
-  assert.match(outcome.text, /起进程/u)
+  assert.match(outcome.text, /进程通道/u)
 })
 
 test('Windows 上那条命令行：解释器 + 一条命令，`pf` 那条路径不带引号', { skip: process.platform !== 'win32' }, async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  await gateway.reviveInstruction('s1', 'i-0007')
+  await gateway.reviveInstruction('s1', '', 'i-0007')
   const spec = subprocess.specs[0]
 
   assert.deepEqual(spec.argv.slice(0, 4), [process.env['ComSpec'] ?? 'cmd.exe', '/d', '/s', '/c'])
@@ -131,11 +140,11 @@ test('Windows 上那条命令行：解释器 + 一条命令，`pf` 那条路径�
 test('Windows 上路径带空格：宁可不落笔，不硬拼一条会被 cmd 认错的命令行', { skip: process.platform !== 'win32' }, async () => {
   const subprocess = fakeSubprocess({ executable: 'C:\\Program Files\\pf\\pf.cmd' })
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.reviveInstruction('s1', 'i-0007')
+  const outcome = await gateway.reviveInstruction('s1', '', 'i-0007')
 
   assert.equal(outcome.ok, false)
   assert.deepEqual(subprocess.specs, [])
-  assert.match(outcome.text, /cmd 处理不了的字符/u)
+  assert.match(outcome.text, /cmd 无法处理的字符/u)
 })
 
 test('端点的名字与数量：网关在源码模式下认的就是这五个', () => {

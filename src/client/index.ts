@@ -17,9 +17,8 @@
  * 第二样是**设置里那一节**：`settings.section` 上的一条注册，它既是导航行，也是它打开的
  * 那一页（见 `settings.tsx`）。
  *
- * 第三样是**调度中心那四处挂载点**（见 `mount.ts`）：侧栏一项、页脚徽标、浮层提示与中央栏
- * 那一格。四处都由这一层挂，`mount.ts` 只管注册与卸载，两条样式表各留一条摘除口子给它的
- * 清理路径。
+ * 第三样是**调度中心那两处挂载点**（见 `mount.ts`）：侧栏一项、中央栏那一格。两处都由
+ * 这一层挂，`mount.ts` 只管注册与卸载，两条样式表各留一条摘除口子给它的清理路径。
  *
  * 读数从口子上来，`src/model` 那套纯函数把它读成那一刻的读数，面板只负责画。面板自己那
  * 几个偏好从设置上来、也写回设置里去（`prefs.ts`），浏览器本地存储里不留键。
@@ -36,6 +35,7 @@ import { PathfinderPanel } from './panel.tsx'
 import { createPrefsSource, type PrefsStore } from './prefs.ts'
 import { dropSettingsStyle, registerSettingsSection } from './settings.tsx'
 import { dropStyle, ensureStyle } from './styles.ts'
+import type { WorkspaceSource } from './workspaces.ts'
 
 /** 面板的身份：中央栏那一格用它作 key，侧栏那一排用它作 id。 */
 export const PANEL_ID = 'pathfinder'
@@ -66,21 +66,23 @@ export {
 } from './settings.tsx'
 
 /**
- * 调度中心那四处的身份，供自证夹具对着读；`currentSessionOf` 与
- * `sessionsSnapshotOf` 是四处座席挑会话那一套，`knownSessionsOf` 是同一份快照交出的
- * 会话名册（卡上那一下的去处），`Entry` 用的是同一套。
+ * 调度中心那两处的身份，供自证夹具对着读；`currentSessionOf` 与
+ * `sessionsSnapshotOf` 是座席挑会话那一套，`knownSessionsOf` 是同一份快照交出的
+ * 会话名册（卡上那一下的去处），`createWorkspaceNav` 是顶上那枚工作区选择器读的
+ * 那份清单，`Entry` 用的是同一套。
  */
 export {
+  createWorkspaceNav,
   currentSessionOf,
-  FOOTER_ORDER,
   knownSessionsOf,
-  NOTICE_ORDER,
   PANEL_ORDER,
-  PENDING_NOTICE_ID,
-  READY_BADGE_ID,
   SEAT_LABEL,
   sessionsSnapshotOf,
 } from './mount.ts'
+
+/** 工作区那一套：清单的口子、空名单、以及「这条会话落在哪个桶里」。 */
+export { bucketOf, NO_WORKSPACES, workspacesAt } from './workspaces.ts'
+export type { WorkspaceChoice, WorkspaceSnapshot, WorkspaceSource } from './workspaces.ts'
 
 /** 两张注入的样式表在文档里的记号：卸载之后 document 里不该剩下它们。 */
 export { PANEL_STYLE_ID, SETTINGS_STYLE_ID } from './style-tags.ts'
@@ -109,9 +111,11 @@ export interface PanelArgs {
   readonly prefs?: PrefsStore | undefined
   /** 卡上那一下的去处：DSH 那条导航口子。不给就点不动。 */
   readonly openSession?: ((target: string) => void) | undefined
+  /** DSH 那份工作区清单：面板顶上那枚选择器的候选。不给就一个都挑不了。 */
+  readonly workspaces?: WorkspaceSource | undefined
 }
 
-/** 插件体：把面板装成一条服务，再把设置那一节与调度中心那四处接上去。 */
+/** 插件体：把面板装成一条服务，再把设置那一节与调度中心那两处接上去。 */
 export function apply(ctx: unknown): void {
   const port = createPanelPort(ctx)
   const prefs = createPrefsSource()
@@ -129,8 +133,8 @@ export function apply(ctx: unknown): void {
     report('面板这一格没装上去', error)
   }
   registerSettingsSection(ctx, prefs)
-  /* 四处座席的卸载挂在 `mount.ts` 里那条 `effect` 上（真部署的上下文都带 `effect`）：
-   * 这一行只负责把四处挂上去，它不交回任何东西，也没东西可接。 */
+  /* 两处座席的卸载挂在 `mount.ts` 里那条 `effect` 上（真部署的上下文都带 `effect`）：
+   * 这一行只负责把两处挂上去，它不交回任何东西，也没东西可接。 */
   registerSeats(ctx, api, () => {
     dropStyle()
     dropSettingsStyle()
@@ -159,6 +163,7 @@ function Entry(props: PanelArgs & { readonly useSessions?: unknown }): React.Rea
     prefs: props.prefs,
     openSession: props.openSession,
     knownSessions,
+    workspaces: props.workspaces,
   })
 }
 

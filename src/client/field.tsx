@@ -194,7 +194,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
             type="button"
             className="pf-zbtn"
             id="zoom-cut"
-            aria-label="退出这一块"
+            aria-label="回到全图"
             hidden={!cut}
             onClick={() => setCut(false)}
           />

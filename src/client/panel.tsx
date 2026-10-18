@@ -7,8 +7,12 @@
  *
  * 依赖 / 问题两格接真记录（各自的看法住在 `field.tsx` 与 `pool.tsx`），设置那一格是这个工作区
  * 自己的项目设置（住在 `config.tsx`，读写都经工具那条命令）：六格都接了真记录。
- * 蓝本那一页里的假外壳（会话栏、中间那道缝、左右两个把手、页头的工作区下拉）
- * 不在这里——那些在 DSH 里是 DSH 自己的东西。
+ * 蓝本那一页里的假外壳（会话栏、中间那道缝、左右两个把手）不在这里——那些在 DSH 里是
+ * DSH 自己的东西。
+ *
+ * 页头那枚**工作区选择器**在这一份里：调度中心是独立于左侧工作区栏的一处地方，所有工作区
+ * 对它都是可以打开的对象，读者在这儿挑一个就读那一个（见 `workspaces.ts`）。挑中的那一个
+ * 只活在这一屏上——面板自己的偏好住设置文档，这一枚不写任何地方。
  *
  * 面板自己那几个显示偏好（每列几张卡、停在哪个看法、侧栏宽度、两个开关）不在这份文件里
  * 记，也从浏览器本地存储里来不了：它们住 Host 的设置文档，经 `prefs.ts` 那条口子读进来、
@@ -17,7 +21,7 @@
  * @module dsh-pathfinder/client/panel
  */
 import * as React from 'react'
-import type { PathfinderInstruction, PathfinderReading } from '../host/contract.ts'
+import type { PathfinderInstruction, PathfinderReading, PathfinderSourceState } from '../host/contract.ts'
 import type { CyclePolicyKey } from '../host/gateway.ts'
 import type { CycleReading, InstructionReading, NodeReading, ProjectReading } from '../model/index.ts'
 import { clock, dayLabel, duration, elapsedSince, readProject } from '../model/index.ts'
@@ -34,6 +38,7 @@ import {
   VIEW_LABELS,
 } from './prefs.ts'
 import type { PanelPort, WriteVerb } from './data.ts'
+import { bucketOf, NO_WORKSPACES, type WorkspaceSource } from './workspaces.ts'
 import { ConfigPane } from './config.tsx'
 import { DependencyField } from './field.tsx'
 import { IssuePool } from './pool.tsx'
@@ -82,7 +87,24 @@ const GROUPS: readonly Group[] = [
 const NOTES_ROWS = 5
 
 /** 设置服务没到场时面板上那句话：这一下只活在这一屏上。 */
-const PREFS_NOT_KEPT = '这条显示偏好没能保存：设置服务还没接上，改动只活在这一屏上。'
+const PREFS_NOT_KEPT = '显示偏好未能保存：设置服务未连接，本次改动只在当前页面生效。'
+
+/** 这个工作区里没有这份记录时，面板正文摆的那一句。 */
+const NO_RECORD = '当前工作区没有 pathfinder 的记录。'
+
+/** 记录在、四份来源一份都解不出来时，面板正文摆的另一句。两句话说的是两件事。 */
+const UNREADABLE_RECORD = '无法读取当前工作区的记录。'
+
+/**
+ * 四份来源是不是都落在同一个结局上。
+ * @param reading - 这一趟从宿主半身读回来的那一份。
+ * @param state - 要比的那一个结局。
+ * @returns 四份都是它（且四份都报过道）就是 `true`。
+ */
+function everySourceIs(reading: PathfinderReading, state: PathfinderSourceState): boolean {
+  const states = Object.values(reading.sources)
+  return states.length > 0 && states.every((one) => one === state)
+}
 
 /** 一条线自己那三个数，一个数一行；名字与那句话都照蓝本。 */
 const POLICY_ROWS: readonly { key: CyclePolicyKey; name: string; note: string }[] = [
@@ -115,6 +137,11 @@ export interface PanelProps {
   readonly openSession?: ((target: string) => void) | undefined
   /** 这台机器上此刻有哪些会话；卡上那条记录指向的会话在不在里面，由它说了算。 */
   readonly knownSessions?: ReadonlySet<string> | undefined
+  /**
+   * DSH 那份工作区清单。面板顶上那枚选择器从它来；不给就一个工作区都挑不了，
+   * 面板只读这条会话自己那个工作区。
+   */
+  readonly workspaces?: WorkspaceSource | undefined
 }
 
 /** 还没有会话的笔记：哪一格都没有去处。 */
@@ -153,6 +180,28 @@ function usePreference<T>(stored: T): [T, (next: T) => void] {
  */
 export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const { port, sessionId, openSession, knownSessions } = props
+  /* 面板顶上那枚工作区选择器：候选是 DSH 自己那份清单，读的是挑中的那个工作区。
+   *
+   * 挑中的那一个只活在这一屏上（`pickedSpace`），面板自己的偏好与它无关，本地存储里也不留键。
+   * 没挑过时（`undefined`）跟着这条会话落在哪个桶走——DSH 把会话分给哪个工作区，就先看哪个；
+   * 会话不属于任何工作区就是「未分组」，那正是这条会话自己那个根。 */
+  const workspaceStore = props.workspaces ?? NO_WORKSPACES
+  const workspaceList = React.useSyncExternalStore(
+    workspaceStore.subscribe,
+    workspaceStore.getSnapshot,
+    workspaceStore.getSnapshot,
+  )
+  const items = workspaceList.items
+  const mine = React.useMemo(() => bucketOf(items, sessionId), [items, sessionId])
+  const [pickedSpace, setPickedSpace] = React.useState<string | null | undefined>(undefined)
+  const chosen = React.useMemo(() => {
+    if (pickedSpace === undefined) return mine
+    if (pickedSpace === null) return undefined
+    /* 挑过的那一个不在清单里了（别处把它删了）：退回这条会话自己那个桶。 */
+    return items.find((item) => item.workspaceId === pickedSpace) ?? mine
+  }, [pickedSpace, mine, items])
+  /* 递给宿主半身的那个根：空字符串＝没挑，按这条会话自己那个根读。 */
+  const workspaceRoot = chosen?.path ?? ''
   /* 面板自己的偏好：读数从设置那一份表单上来，写回也从这条口子出去。设置服务还没接上
    * 时它给的是出厂那几条，面板照常画。 */
   const store = props.prefs ?? DEFAULT_SOURCE
@@ -174,15 +223,15 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const colsRef = React.useRef<HTMLDivElement | null>(null)
   const [fullCap, setFullCap] = React.useState<number>(FULL_FALLBACK)
 
-  /* 取数：这一个看法露面的那一趟读一次；写完一条再读一次（`tick` 是那一趟的记号）。 */
+  /* 取数：这一个看法露面的那一趟读一次；换一个工作区、写完一条再读一次（`tick` 是那一趟的记号）。 */
   React.useEffect(() => {
     if (sessionId === undefined || sessionId.length === 0) {
-      setLoad({ phase: 'failed', message: '还没有选中会话，读不出这是哪个工作区。' })
+      setLoad({ phase: 'failed', message: '尚未选中会话，无法确定工作区。' })
       return undefined
     }
     let live = true
     setLoad({ phase: 'loading' })
-    port.read(sessionId).then(
+    port.read(sessionId, workspaceRoot).then(
       (reading) => {
         if (!live) return
         setAt(new Date())
@@ -194,7 +243,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
       },
     )
     return () => { live = false }
-  }, [port, sessionId, tick])
+  }, [port, sessionId, workspaceRoot, tick])
 
   /* 会话笔记：这一格最近开过的那条会话住在记录库那一层按节点分的小份笔记上，由宿主半身
    * 那条端点交回来。只有当前那一格（看板）有卡片要点，所以只在这一格露面那一趟去读；
@@ -206,12 +255,12 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
       return undefined
     }
     let live = true
-    port.readSessions(sessionId).then(
+    port.readSessions(sessionId, workspaceRoot).then(
       (reading) => { if (live) setNotes(reading.sessions) },
       () => { if (live) setNotes(NO_NOTES) },
     )
     return () => { live = false }
-  }, [port, sessionId, tab])
+  }, [port, sessionId, workspaceRoot, tab])
 
   /* 卡上那一下：记录里那条会话此刻在本机上，卡片才点得动。两处都认——先看这台机器自己的
    * 笔记（新一版记录把会话放在那儿），再看记录本体上那个字段（旧一版把它写在节点身上）。
@@ -308,35 +357,64 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
 
   const active = VIEWS.find((view) => view.id === tab) ?? VIEWS[0] as View
 
+  /* 这一屏有没有话可说。四份来源里一份都列不到，就是那个工作区里没有这份记录；列到了、
+   * 却一份也解不出来，就是读不动。两种情形六格都无话可说，这一格收成一句话——牌位与
+   * 工作区留着（读者要能确认自己看的是哪儿），标签、计数与正文一起收走。 */
+  const nothing = load.phase === 'failed'
+    ? load.message
+    : reading !== null && everySourceIs(reading, 'missing')
+      ? NO_RECORD
+      : reading !== null && everySourceIs(reading, 'unusable')
+        ? UNREADABLE_RECORD
+        : null
+
   return (
     <div className="pf-page">
       <header className="pf-head">
         <div className="pf-head-left">
           <div className="pf-head-top">
             <span className="pf-brand">PATHFINDER</span>
+            {items.length === 0 ? null : (
+              <span className="pf-pick">
+                <select
+                  aria-label="工作区"
+                  value={chosen?.workspaceId ?? ''}
+                  onChange={(event) => setPickedSpace(event.target.value.length === 0 ? null : event.target.value)}
+                >
+                  {items.map((item) => <option key={item.workspaceId} value={item.workspaceId}>{item.title}</option>)}
+                  {/* 会话不属于任何工作区的那一堆，DSH 自己叫它「未分组」，站在名单最后。 */}
+                  <option value="">未分组</option>
+                </select>
+              </span>
+            )}
           </div>
         </div>
-        <div className="pf-count" id="census">
-          {project === null ? null : <Census project={project} />}
-        </div>
-        <div className="pf-tabs" role="tablist">
-          {VIEWS.map((view) => (
-            <button
-              key={view.id}
-              type="button"
-              className="pf-tab"
-              id={`tab-${view.id}`}
-              role="tab"
-              aria-selected={view.id === tab}
-              aria-controls={`pane-${view.id}`}
-              onClick={() => pickView(view.id)}
-            >
-              {view.label}
-            </button>
-          ))}
-        </div>
+        {nothing === null ? (
+          <div className="pf-count" id="census">
+            {project === null ? null : <Census project={project} />}
+          </div>
+        ) : null}
+        {nothing === null ? (
+          <div className="pf-tabs" role="tablist">
+            {VIEWS.map((view) => (
+              <button
+                key={view.id}
+                type="button"
+                className="pf-tab"
+                id={`tab-${view.id}`}
+                role="tab"
+                aria-selected={view.id === tab}
+                aria-controls={`pane-${view.id}`}
+                onClick={() => pickView(view.id)}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </header>
 
+      {nothing === null ? (
       <div className="pf-stage" ref={stageRef}>
         <div className={`pf-frame${active.fill ? ' is-fill' : ''}`} id="frame">
           <section
@@ -431,8 +509,8 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
                   project={project}
                   raw={reading?.instructions ?? []}
                   showArchived={stored.archived}
-                  onArchive={(id) => onWrite(() => port.write('archive', sessionId ?? '', id))}
-                  onRevive={(id) => onWrite(() => port.write('revive', sessionId ?? '', id))}
+                  onArchive={(id) => onWrite(() => port.write('archive', sessionId ?? '', workspaceRoot, id))}
+                  onRevive={(id) => onWrite(() => port.write('revive', sessionId ?? '', workspaceRoot, id))}
                   onDelete={(instruction) => setDeleting(instruction)}
                 />
               )}
@@ -466,13 +544,18 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
           <ConfigPane
             port={port}
             sessionId={sessionId ?? ''}
+            workspaceRoot={workspaceRoot}
             active={tab === 'config'}
             onNote={setNote}
           />
         </div>
       </div>
+      ) : (
+        <div className="pf-none">
+          <p>{nothing}</p>
+        </div>
+      )}
 
-      {load.phase === 'failed' ? <p className="pf-innone">{load.message}</p> : null}
       {note === null ? null : <p className="pf-innone">{note}</p>}
 
       {settingsFor === null ? null : (
@@ -480,7 +563,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
           cycle={cycles.find((candidate) => candidate.id === settingsFor) ?? null}
           raw={reading?.cycles.find((candidate) => candidate.id === settingsFor)}
           onClose={() => setSettingsFor(null)}
-          onWrite={(key, value) => onWrite(() => port.setPolicy(sessionId ?? '', settingsFor, key, value))}
+          onWrite={(key, value) => onWrite(() => port.setPolicy(sessionId ?? '', workspaceRoot, settingsFor, key, value))}
         />
       )}
 
@@ -492,7 +575,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
           onConfirm={() => {
             const id = deleting.id
             setDeleting(null)
-            onWrite(() => port.write('remove', sessionId ?? '', id))
+            onWrite(() => port.write('remove', sessionId ?? '', workspaceRoot, id))
           }}
         />
       )}

@@ -86,7 +86,7 @@ function isAbsent(error: unknown): boolean {
  * 一份笔记读不动（半截 JSON、页过不去）时跳过那一格：那一点在这台机器上就没有会话可去，
  * 面板照「没有」画，别的格照读。
  * @param port - 工作区文件口子。
- * @param scope - 按会话身份定下来的位置。
+ * @param scope - 这一次读的位置。
  * @param signal - 调用方取消。
  * @returns 每一格最近开过的那条会话，连同这一层的结局。
  */
