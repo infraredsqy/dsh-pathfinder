@@ -9,8 +9,9 @@
 # 合成记录全部自撰；这个脚本只描述做了什么、限制是什么。
 #
 # 参数化：-Workspace 换工作区名，-SessionCount 造第二条会话，-EmptyWorkspace 造一份没有会话的工作区，
-# -Plugin 换要装进 profile 的那一条插件（默认就是本仓，相对路径按调用时的当前目录归一）。默认那一趟
-# 只造一份工作区、一条会话。
+# -Plugin 换要装进 profile 的那一条插件（默认就是本仓，相对路径按调用时的当前目录归一；给一个
+# npm pack 出来的 `.tgz` 就按包形态装），-SeedRecords 往合成工作区里放一份真记录（复制成 `.pf`，
+# 只在 up 动作里生效；不给就不碰工作区，默认那一趟只造一份工作区、一条会话。
 
 #Requires -Version 5.1
 [CmdletBinding()]
@@ -25,7 +26,8 @@ param(
   [int]$ReadyTimeoutSeconds = 30,
   [string]$DshCmd = 'dsh',
   [string]$NodeExe = 'node',
-  [string]$Plugin = ''
+  [string]$Plugin = '',
+  [string]$SeedRecords = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -291,6 +293,12 @@ if ($Action -eq 'up') {
   $manifest = Invoke-TestbedProvision -Root $safeRoot -Profile $Profile -Workspace $Workspace `
     -SessionCount $SessionCount -EmptyWorkspace $EmptyWorkspace -DshCmd $DshCmd -NodeExe $NodeExe
   $testbedHome = [string]$manifest.home
+  # 可选：往合成工作区里放一份真记录（面板读的是工作区里那层 `.pf`）。不给就不碰工作区——
+  # 默认那一趟与 check 那五条判据都不经过这里。
+  $recordsReading = @()
+  if ($SeedRecords.Length -gt 0) {
+    $recordsReading = @(Add-TestbedRecords -Manifest $manifest -RecordsPath $SeedRecords)
+  }
   # 面板装进隔离 profile：这一格要交的那「一条命令」里，「面板已装、指着合成工作区」这一半
   # 就落在这一步上。装不上就当场停，不起一条没有面板的实例。
   $pluginReading = Install-TestbedPlugin -Root $safeRoot -TestbedHome $testbedHome -Profile $Profile `
@@ -316,8 +324,13 @@ if ($Action -eq 'up') {
   Write-Host ''
   Write-Host "panel        : $($pluginReading.plugin) <- $($pluginReading.recordedSpec)"
   Write-Host "panel row    : $($pluginReading.composedRow)"
+  Write-Host "panel source : form=$($pluginReading.packageForm) path=$($pluginReading.pluginSource)$(if ($pluginReading.tarballSha256.Length -gt 0) { " sha256=$($pluginReading.tarballSha256)" } else { '' })"
+  Write-Host "panel entries: $(@($pluginReading.entries | ForEach-Object { "$($_.spec) -> $($_.path) (exists=$($_.exists) $($_.bytes)B)" }) -join ' ｜ ')"
   Write-Host "panel mount  : settings namespace '$($mountReading.namespace)' is served by the live instance (namespaces=$($mountReading.namespaceCount)) ｜ boot manifest lists $($mountReading.clientBundleRef) (page $($mountReading.pageBytes) chars)"
   Write-Host "panel builds : $(@($pluginReading.artifacts | ForEach-Object { "$($_.relative) $($_.bytes)B" }) -join ', ')"
+  foreach ($reading in $recordsReading) {
+    Write-Host "records      : .pf seeded into $($reading.workspacePath) (files=$($reading.fileCount) bytes=$($reading.totalBytes))"
+  }
   Write-Host ''
   foreach ($line in (Get-TestbedListCommandLines -Port $ready.port -Token $ready.token -SessionIds @($manifest.sessions | ForEach-Object { [string]$_.sessionId }))) {
     Write-Host $line

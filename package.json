@@ -1,7 +1,6 @@
 {
   "name": "dsh-pathfinder",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "把 agent-pathfinder 的管线搬进 DSH：宿主半身按当前会话的工作区读那份记录，交给浏览器半身",
   "type": "module",
   "main": "lib/host/index.js",
@@ -35,11 +34,15 @@
   },
   "dsh": {
     "client": {
-      "platform": "web"
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-connection"]
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",

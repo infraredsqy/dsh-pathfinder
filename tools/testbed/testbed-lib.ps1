@@ -637,6 +637,89 @@ function Test-TestbedSessionFixture {
 }
 
 # ---------------------------------------------------------------------------
+# npm pack 的压缩包：列条目、取其中几件
+# ---------------------------------------------------------------------------
+
+# Windows 上有两套 tar：Git 自带的 GNU tar（MSYS2 那一份）与系统自带的 bsdtar。两处都由这一层摆平：
+#   * 交给它的路径一律换成正斜杠。MSYS2 对从原生进程收到的参数会做一遍反斜杠转义解码，`logs\tarball`
+#     这类片段被吃成制表符、路径当场对不上（实测 `…\logs\x1` 过，`…\logs\tarball` 与 `…\logs\bb` 不过）。
+#   * GNU tar 会把 `C:...` 里的冒号当远端主机名，要 `--force-local` 才就地读；不支持这个开关的实现
+#     退回「切到压缩包所在目录、只把叶子名交给它」那一趟。
+# 只做「读」：列条目、取指定成员到指定目录，不改压缩包、不碰别处的文件。
+function Invoke-Tar {
+  param(
+    [Parameter(Mandatory=$true)][string]$Archive,
+    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$BeforeArchive,
+    [AllowEmptyCollection()][string[]]$AfterArchive = @(),
+    [string]$TarExe = 'tar'
+  )
+  $full = [System.IO.Path]::GetFullPath($Archive)
+  if (-not (Test-Path -LiteralPath $full)) { throw "archive is missing: $full" }
+  $fullArg = $full -replace '\\', '/'
+  $afterArg = @($AfterArchive | ForEach-Object { ([string]$_) -replace '\\', '/' })
+  # `--force-local` 要排在 `-xzf`／`-tzf` 前面：那两个短选项里的 f 会把紧随其后的一个词当档案名吃掉。
+  $out = @(& $TarExe '--force-local' @BeforeArchive $fullArg @afterArg 2>&1)
+  if ($LASTEXITCODE -eq 0) { return @($out | ForEach-Object { [string]$_ }) }
+  $firstTry = ($out -join ' ')
+  $dir = Split-Path -Parent $full
+  $leaf = Split-Path -Leaf $full
+  Push-Location $dir
+  try {
+    $out = @(& $TarExe @BeforeArchive $leaf @afterArg 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+      throw "tar failed for '$full' (--force-local: $firstTry | relative archive name: $($out -join ' '))"
+    }
+    return @($out | ForEach-Object { [string]$_ })
+  } finally { Pop-Location }
+}
+
+function Invoke-TarList {
+  param([Parameter(Mandatory=$true)][string]$Archive, [string]$TarExe = 'tar')
+  return @(Invoke-Tar -Archive $Archive -BeforeArchive @('-tzf') -TarExe $TarExe)
+}
+
+function Expand-TarMember {
+  param(
+    [Parameter(Mandatory=$true)][string]$Archive,
+    [Parameter(Mandatory=$true)][string]$Destination,
+    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$Members,
+    [string]$TarExe = 'tar'
+  )
+  $dest = [System.IO.Path]::GetFullPath($Destination)
+  if (-not (Test-Path -LiteralPath $dest)) { New-Item -ItemType Directory -Force -Path $dest | Out-Null }
+  $null = Invoke-Tar -Archive $Archive -BeforeArchive @('-xzf') -AfterArchive (@('-C', $dest) + @($Members)) -TarExe $TarExe
+}
+
+# 往一份合成工作区里放一份真记录：把指到的记录目录复制成工作区下的 `.pf`。
+# 面板读的就是工作区里那层隐藏目录；合成工作区默认没有它，于是实例里只能画出「没有记录」那一屏。
+# 只在调用方（up 动作）点名要它时才动手；不给就不碰任何工作区。
+function Add-TestbedRecords {
+  param(
+    [Parameter(Mandatory=$true)]$Manifest,
+    [Parameter(Mandatory=$true)][string]$RecordsPath
+  )
+  $source = [System.IO.Path]::GetFullPath($RecordsPath).TrimEnd('\')
+  if (-not (Test-Path -LiteralPath $source)) { throw "records directory is missing: $source" }
+  if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw "records path is not a directory: $source" }
+  $readings = New-Object System.Collections.Generic.List[object]
+  foreach ($ws in $Manifest.workspaces) {
+    if ($ws.empty) { continue }
+    $target = Join-Path ([string]$ws.path) '.pf'
+    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+    Copy-Item -LiteralPath $source -Destination $target -Recurse -Force
+    $files = @(Get-ChildItem -LiteralPath $target -Recurse -File -Force)
+    $readings.Add([ordered]@{
+      workspaceId = [string]$ws.workspaceId
+      workspacePath = [string]$ws.path
+      recordsPath = $target
+      fileCount = $files.Count
+      totalBytes = [long](($files | Measure-Object -Property Length -Sum).Sum)
+    })
+  }
+  return @($readings.ToArray())
+}
+
+# ---------------------------------------------------------------------------
 # profile 与实例
 # ---------------------------------------------------------------------------
 
@@ -669,11 +752,57 @@ function New-TestbedProfile {
   } finally { $env:DSH_HOME = $previous }
 }
 
-# 把指到的那一份插件按本地路径装进隔离 profile，并当场把「装上了」变成可复算的读数。
+# 行里指向的入口在不在盘上：照 profile 自己的解析位置（profile 目录下那份 package.json）去 resolve
+# 那一行 `name:` 说的包，以及它的浏览器半身那一手（`exports["./client"]` 那一格）。
+# 只做解析、不 import 插件代码、不起服务；解出来的路径再落到盘上核一次（require.resolve 走的是
+# 真路径，软链已经还原）。生成的那个小 .cjs 写在测试床自己的根里，不动别处。
+function Resolve-PluginEntryFiles {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [Parameter(Mandatory=$true)][string]$ProfileDir,
+    [Parameter(Mandatory=$true)][string]$PluginName,
+    [string]$NodeExe = 'node'
+  )
+  $manifestPath = Join-Path $ProfileDir 'package.json'
+  $script = @'
+const { createRequire } = require('module')
+const require_ = createRequire(process.argv[2])
+for (const spec of process.argv.slice(3)) {
+  try { process.stdout.write(JSON.stringify({ spec, path: require_.resolve(spec) }) + '\n') }
+  catch (error) { process.stdout.write(JSON.stringify({ spec, path: null, error: String((error && error.code) || error) }) + '\n') }
+}
+'@
+  $scriptPath = Join-Path $Root 'logs\resolve-plugin-entry.cjs'
+  Write-TextFile -Path $scriptPath -Text ($script + "`n")
+  $specs = @($PluginName, ($PluginName + '/client'))
+  $out = @(& $NodeExe $scriptPath $manifestPath @specs 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw "resolving the plugin entries failed (exit $LASTEXITCODE): $($out -join ' ')" }
+  $rows = New-Object System.Collections.Generic.List[object]
+  foreach ($line in $out) {
+    $text = ([string]$line).Trim()
+    if ($text.Length -eq 0 -or -not $text.StartsWith('{')) { continue }
+    $parsed = $text | ConvertFrom-Json
+    $resolved = [string]$parsed.path
+    $exists = ($resolved.Length -gt 0) -and (Test-Path -LiteralPath $resolved)
+    $bytes = 0
+    if ($exists) { $bytes = (Get-Item -LiteralPath $resolved).Length }
+    $rows.Add([ordered]@{
+      spec = [string]$parsed.spec
+      path = $resolved
+      exists = $exists
+      bytes = $bytes
+      error = [string]$parsed.error
+    })
+  }
+  return @($rows.ToArray())
+}
+
+# 把指到的那一份插件装进隔离 profile，并当场把「装上了」变成可复算的读数。
 #
-# 装法就是 DSH 自己那一条入口：`dsh plugin --profile <名字> add <包目录>`（它自己跑 pnpm，
-# 把包记成 `link:` 依赖，并把包自己 `dsh.bundle.patch` 指着的那一层并进 profile 的
-# `dsh.profile.bundles`）。不另造第二条起法，也不手改 profile 的 package.json。
+# 两种交付形态都收：
+#   * 包目录（`-Plugin <本仓>`，开发者自用的那一档）——pnpm 记成 `link:`；
+#   * npm pack 的压缩包（`-Plugin <…>.tgz`，分发给陌生人的那一档）——pnpm 把包解开装进 profile，
+#     用户端不跑任何构建脚本。两条腿都走 DSH 自己那一条入口 `dsh plugin --profile <名字> add <目标>`。
 #
 # 包名与行 id 都不写死，从指到的那份包自己读：包名取它 `package.json` 的 `name`（pnpm 记下的
 # 依赖键、bundle 清单里那一条、交给浏览器的启动名册都是这一个字）；行 id 取 compose 之后配置
@@ -689,19 +818,43 @@ function Install-TestbedPlugin {
   )
   $profileDir = Join-Path $TestbedHome ('profiles\' + $Profile)
   if (-not (Test-Path -LiteralPath $profileDir)) { throw "profile directory is missing: $profileDir" }
-  $manifestPath = Join-Path $PluginPath 'package.json'
-  if (-not (Test-Path -LiteralPath $manifestPath)) { throw "not a plugin package (no package.json): $PluginPath" }
+  $PluginPath = [System.IO.Path]::GetFullPath($PluginPath)
+  if (-not (Test-Path -LiteralPath $PluginPath)) { throw "plugin source is missing: $PluginPath" }
+
+  # 装的是**产物**：宿主半身与浏览器半身两份都得在场，否则装上去的是一条起不来的行。
+  # 目录形态就直接看盘；压缩包形态先在归档里列出条目，再取出这四件（含 package.json）。
+  $artifactRels = @('lib\host\index.js', 'lib\client.js')
+  $packageForm = 'directory'
+  $tarballSha256 = ''
+  $artifactBase = $PluginPath
+  if ([System.IO.Path]::GetExtension($PluginPath).ToLowerInvariant() -eq '.tgz') {
+    $packageForm = 'tarball'
+    $tarballSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $PluginPath).Hash.ToLowerInvariant()
+    $members = @('package/package.json') + @($artifactRels | ForEach-Object { 'package/' + ($_ -replace '\\', '/') })
+    $entries = @(Invoke-TarList -Archive $PluginPath)
+    foreach ($member in $members) {
+      if (-not ($entries -contains $member)) {
+        throw "plugin build output is missing from the tarball: $member (entries: $($entries.Count)) — run 'npm run types', 'npm run bundle', 'npm run bundle:client' and 'npm pack' first"
+      }
+    }
+    $stage = Join-Path $Root 'logs\tarball'
+    if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $stage | Out-Null
+    Expand-TarMember -Archive $PluginPath -Destination $stage -Members $members
+    $artifactBase = Join-Path $stage 'package'
+  } else {
+    foreach ($rel in $artifactRels) {
+      if (-not (Test-Path -LiteralPath (Join-Path $PluginPath $rel))) {
+        throw "plugin build output is missing: $(Join-Path $PluginPath $rel) — run 'npm run types' and 'npm run bundle' and 'npm run bundle:client' in $PluginPath first"
+      }
+    }
+  }
+  $manifestPath = Join-Path $artifactBase 'package.json'
+  if (-not (Test-Path -LiteralPath $manifestPath)) { throw "not a plugin package (no package.json): $manifestPath" }
   $package = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
   $PluginName = [string]$package.name
   if ($PluginName.Length -eq 0) { throw "the plugin package does not declare a name: $manifestPath" }
   $PluginId = ''
-  # 装的是**产物**：宿主半身与浏览器半身两份都得在盘上，否则装上去的是一条起不来的行。
-  $artifacts = @('lib\host\index.js', 'lib\client.js')
-  foreach ($rel in $artifacts) {
-    if (-not (Test-Path -LiteralPath (Join-Path $PluginPath $rel))) {
-      throw "plugin build output is missing: $(Join-Path $PluginPath $rel) — run 'npm run types' and 'npm run bundle' and 'npm run bundle:client' in $PluginPath first"
-    }
-  }
 
   $previous = $env:DSH_HOME
   $started = Get-Date
@@ -748,19 +901,29 @@ function Install-TestbedPlugin {
     }
     $rowText = ($rows -join ' | ').Trim()
     if ($rowText -match 'disabled:') { throw "the composed row for '$PluginId' is disabled: $rowText" }
+    # 行里指向的入口都得在盘上：宿主那一手（`.`）与浏览器那一手（`./client`）。
+    $entries = @(Resolve-PluginEntryFiles -Root $Root -ProfileDir $profileDir -PluginName $PluginName -NodeExe $NodeExe)
+    foreach ($entry in $entries) {
+      if (-not $entry.exists) {
+        throw "the config row names '$PluginName' but its entry '$($entry.spec)' does not resolve to a file on disk (path='$($entry.path)' error='$($entry.error)')"
+      }
+    }
   } finally { $env:DSH_HOME = $previous }
   $elapsed = [math]::Round(((Get-Date) - $started).TotalSeconds, 2)
 
   $reading = [ordered]@{
     plugin = $PluginName
     pluginId = $PluginId
-    localPath = $PluginPath
+    packageForm = $packageForm
+    pluginSource = $PluginPath
+    tarballSha256 = $tarballSha256
     recordedSpec = $recorded
     profileBundles = $bundles
     composedRow = $rowText
-    artifacts = @($artifacts | ForEach-Object { [ordered]@{
+    entries = @($entries)
+    artifacts = @($artifactRels | ForEach-Object { [ordered]@{
       relative = $_
-      bytes = (Get-Item -LiteralPath (Join-Path $PluginPath $_)).Length
+      bytes = (Get-Item -LiteralPath (Join-Path $artifactBase $_)).Length
     } })
     elapsedSeconds = $elapsed
   }
