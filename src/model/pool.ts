@@ -1,19 +1,12 @@
 /**
  * 问题池那一份读数：一份登记簿怎么读。
  *
- * 三条判据各自有出处。一条问题在不在册，看它**发现**的那一刻到了没——还没发现的不在册。
- * 那一刻它落在哪个状态，取记录自己那个词，而那个词属于写它的那一刻：最后改动时刻还没到，
- * 就按还没结掉读（`open`）。它有多重，取重量表里它那一档算几倍；判成 `external` 的那几条
- * 还在册、还算站着（条数照旧算它），只是不进加权和。
+ * 在不在册看它发现的那一刻到了没；落在哪个状态取记录自己那个词，而那个词属于写它的那一刻，
+ * 最后改动时刻还没到就按还没结掉读（`open`）；多重取重量表里它那一档算几倍，判成 `external`
+ * 的那几条还在册、还算站着，只是不进加权和。
  *
- * 重量表与策略线记录里都不在现成字段上，从记录自己写着的地方取：
- *
- *   - 重量表：几个等级各算几倍，写在某条维护活儿自己的说明里（`P3/P2/P1/P0 = 1/2/4/8`）。
- *   - 策略线：`issue_pool_weight_limit`，某条线路自己立的策略数。
- *
- * 两样里少一样，池子的重量就不读数：这里给 `null`，界面上不画那根条，也不拿 0 顶上。
- *
- * @module dsh-pathfinder/model/pool
+ * 重量表与策略线在记录里都不在现成字段上：前者写在某条维护活儿自己的说明里
+ * （`P3/P2/P1/P0 = 1/2/4/8`），后者是某条线路自己立的 `issue_pool_weight_limit`。
  */
 import type { PathfinderCycle, PathfinderIssue, PathfinderNode } from '../host/contract.ts'
 import type {
@@ -26,7 +19,7 @@ import type {
 } from './contract.ts'
 import { cutAt, text, toMoment, writtenBy } from './fields.ts'
 
-/** 记录里写着重量表的那句话：几个等级各算几倍。 */
+/** 重量表那句话：几个等级各算几倍。 */
 const WEIGHT_MAP = /P3\s*\/\s*P2\s*\/\s*P1\s*\/\s*P0\s*=\s*(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/u
 
 /** 策略线那一条策略的名字，与工具那边逐字相同。 */
@@ -197,10 +190,9 @@ function sumWeight(entries: readonly IssueReading[]): number {
 /**
  * 加权和只算那几条：`decision` 判成 `external` 的掉出这个和。
  *
- * 池子的正本读数是 `pf issue weight`：它排 `external` 的理由是算进来是一块谁也挪不动的
- * 底板，阈值永远回不到线下；共享口径卡 `pool.md` 也把加权和定成「只算 actionable 且
- * `decision` 不为 `external` 的条目」。条数走的是另一条口径（工具的 `status`）：判成
- * `external` 的那一条还在册、还算站着，只是不压这条线。
+ * 池子的正本读数是 `pf issue weight`：它排 `external` 的理由是算进来是一块谁也挪不动的底板，
+ * 阈值永远回不到线下。条数走的是另一条口径（工具的 `status`）：判成 `external` 的那一条还在册、
+ * 还算站着，只是不压这条线。
  */
 function payable(entries: readonly IssueReading[]): readonly IssueReading[] {
   return entries.filter((entry) => entry.decision !== 'external')

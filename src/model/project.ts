@@ -1,13 +1,9 @@
 /**
  * 那一刻的项目读数：节点、线路，以及四个读数各自那一栏。
  *
- * 每一条在那一刻是什么样，由它**自己的字段**说：时刻按那一刻切；记录自己的词，在它自己的
- * 最后改动时刻之前写下来才算数。记录里没有那一刻就空着，不拿 0 顶上。
- *
- * 进行中以线路记录里的**持有关系**为准——那是记录里的权威字段，也是词表的口径：谁在做它这个
- * 问题记在线路那一侧，卡片自己的字段只回答「交付了没有」。
- *
- * @module dsh-pathfinder/model/project
+ * 每一条在那一刻是什么样，由它自己的字段说：时刻按那一刻切，记录自己的词在它自己的最后改动
+ * 时刻之前写下来才算数，记录里没有那一刻就空着，不拿 0 顶上。进行中以线路记录里的持有关系
+ * 为准：谁在做它这个问题记在线路那一侧，卡片自己的字段只回答「交付了没有」。
  */
 import type { PathfinderCycle, PathfinderNode, PathfinderStep } from '../host/contract.ts'
 import type {
@@ -101,7 +97,6 @@ export function readProject(input: RecordsAtMoment): ProjectReading {
   }
 }
 
-/** 一条线在那一刻的样子。 */
 function cutCycle(cycle: PathfinderCycle, at: Date): CutCycle {
   const id = text(cycle.id) ?? ''
   const steps: CutStep[] = []
@@ -140,10 +135,7 @@ function inServiceOf(
   return holding.length > 0
 }
 
-/**
- * 一条线在那一刻握着谁。
- * 记录把它写成一份清单；老一版把它写成一个单值，两种写法都读——读到的都是记录自己写的。
- */
+/** 一条线在那一刻握着谁：清单与单值两种写法都读。 */
 function readHolding(cycle: PathfinderCycle, at: Date): readonly CutHolding[] {
   const id = text(cycle.id) ?? ''
   const out: CutHolding[] = []
@@ -160,7 +152,7 @@ function readHolding(cycle: PathfinderCycle, at: Date): readonly CutHolding[] {
   return [{ cycleId: id, holding: { nodeId: current, since: startedAt } }]
 }
 
-/** 一手里那一条：记录把它写成对象；也见过只写一个身份的老形状。 */
+/** 一手里那一条：写成对象，或只写一个身份。 */
 function holdingOf(entry: unknown, at: Date): HoldingReading | null {
   if (typeof entry === 'string') return entry.length > 0 ? { nodeId: entry, since: null } : null
   if (typeof entry !== 'object' || entry === null) return null
@@ -255,7 +247,6 @@ function readFacts(
   })
 }
 
-/** 一个节点在那一刻的读数。 */
 function readNode(
   facts: NodeFacts,
   all: readonly NodeFacts[],
@@ -341,7 +332,6 @@ function gateOf(facts: {
   return null
 }
 
-/** 一条线在那一刻的读数，含它名下出局等人的那几格。 */
 function finishCycle(cycle: CutCycle, nodes: readonly NodeReading[]): CycleReading {
   const parked = nodes.filter((node) => node.state === 'shelved' && node.cycleIds[0] === cycle.id).map((node) => node.id)
   return {
@@ -377,7 +367,6 @@ function columnsOf(nodes: readonly NodeReading[]): ColumnReadings {
   return { completed, running, shelved, todo, ready, blocked }
 }
 
-/** 往一个身份下面堆东西。 */
 function collect<T>(into: Map<string, T[]>, key: string, value: T): void {
   const known = into.get(key)
   if (known === undefined) into.set(key, [value])

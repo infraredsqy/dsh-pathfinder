@@ -1,17 +1,8 @@
 /**
  * 把工作区里那份记录读成一份读数：定位置、分页读、解析、原样收进边界形状。
  *
- * 取数只走宿主已有的工作区文件口子（按行分页读、列目录），一律**只读**：这个模块手上
- * 只有这两个动作，写回那一侧的口子根本没有进来。
- *
- * 分页是必须的：记录单份能到几百 KB。口子对**一页**有字节上限，超了那一页会被**拒绝**
- * （它不会替你截短），所以这里是「一页一页取到 `eof`」：页大小先取口子自己那一档（请求里
- * 不带 `limit`），它拒了这一页就把这一页的行数减半重取，一直取到整份读完。
- *
- * 这份模块不 import 任何运行时依赖：口子由调用方递进来，于是它既能接住真宿主给的
- * `workspaceFiles`（形状对得上），也能在单元测试里接住一份替身。
- *
- * @module dsh-pathfinder/host/records
+ * 取数只走宿主已有的工作区文件口子（按行分页读、列目录），一律只读。口子对一页有字节上限，
+ * 超了那一页会被拒绝，所以这里是「一页一页取到 `eof`」，它拒了这一页就把行数减半重取。
  */
 import { RECORD_DIR, RECORD_SOURCES } from './contract.ts'
 import type { PathfinderReading, PathfinderSourceState } from './contract.ts'
@@ -21,25 +12,22 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 export interface PathfinderScope {
   /** 会话身份：工作区文件口子按它认路径。 */
   readonly sessionId: SessionId
-  /** 要读的那个工作区根：绝对路径，记录从它往下找。面板挑的那一个，或这条会话自己那个。 */
+  /** 要读的那个工作区根，绝对路径，记录从它往下找。 */
   readonly workspaceRoot: string
 }
 
-/** 目录里的一个条目。 */
 export interface WorkspaceDirectoryEntry {
   readonly name: string
   readonly type: 'file' | 'directory' | 'other'
   readonly size?: number
 }
 
-/** 一次列目录的回复。 */
 export interface WorkspaceDirectoryListing {
   readonly path: string
   readonly entries: readonly WorkspaceDirectoryEntry[]
   readonly truncated: boolean
 }
 
-/** 一页文本。 */
 export interface WorkspaceFilePage {
   /** 这一页的行，用 `\n` 连起来。 */
   readonly text: string
@@ -50,8 +38,8 @@ export interface WorkspaceFilePage {
 }
 
 /**
- * 宿主工作区文件口子里这一步要用的那两个动作。
- * 两个都写成方法声明：真口子按会话身份解析路径，参数上的那点出入由方法位的宽松匹配兜住。
+ * 宿主工作区文件口子里这一步要用的那两个动作。两个都写成方法声明：真口子按会话身份解析
+ * 路径，参数上的那点出入由方法位的宽松匹配兜住。
  */
 export interface WorkspaceFilesPort {
   list(scope: PathfinderScope, path: string, signal: AbortSignal): Promise<WorkspaceDirectoryListing>
@@ -74,13 +62,13 @@ const COLLECTION_KEY = {
 /** 口子在目标不存在时给的那一个码；只有它算「工作区里没有这一份」。 */
 const NOT_FOUND = 'workspace-file/not-found'
 
-/** 口子对**一页的字节数**另有上限：这一页超了它拒绝，不替我们截短。 */
+/** 口子对一页的字节数另有上限：这一页超了它拒绝，不替我们截短。 */
 const PAGE_TOO_LARGE = 'workspace-file/too-large'
 
 /** 请求里的页行数超过口子自己那一档时，它给的那一个码。 */
 const PAGE_LIMIT_REFUSED = 'gateway/bad-request'
 
-/** 默认档被拒、又还没从哪一页学到口子那一档时的减半起点（第一次收小收到 128 行）。 */
+/** 默认档被拒、又还没从哪一页学到口子那一档时的减半起点。 */
 const SHRINK_FROM_LINES = 256
 
 function isAbsent(error: unknown): boolean {
@@ -102,8 +90,8 @@ function isMapLike(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * 收一份集合：键名照记录，条目照抄字段。
- * 记录里还带着这里没列出来的字段时一并带过来——这一步不裁剪，也不替它补默认值。
+ * 收一份集合：键名照记录，条目照抄字段；记录里还带着这里没列出来的字段时一并带过来，
+ * 这一步不裁剪，也不替它补默认值。
  * @returns 形状对得上时给那份集合，对不上给 `undefined`（这一份算取不动）。
  */
 function collect(key: keyof typeof COLLECTION_KEY, parsed: unknown): unknown {
@@ -127,8 +115,8 @@ function collect(key: keyof typeof COLLECTION_KEY, parsed: unknown): unknown {
 /**
  * 一页一页把一份文件取全，中间用 `\n` 接回去。
  *
- * 页大小先取口子自己那一档：请求里省掉 `limit`，它给默认档。它拒了这一页——字节数超它那一页
- * 的上限，或请求的行数超过它那一档——就把这一页的行数减半重取，一直收到整份读完；单行本身
+ * 页大小先取口子自己那一档：请求里省掉 `limit`，它给默认档。它拒了这一页（字节数超它那一页
+ * 的上限，或请求的行数超过它那一档）就把这一页的行数减半重取，一直收到整份读完；单行本身
  * 就超上限（收到一行也过不去）才是真的读不动，照抛给调用方判。
  *
  * @param port - 工作区文件口子。
@@ -178,7 +166,6 @@ export async function readWholeFile(
  *
  * 取不到的四份来源给空集合，读数照常返回：工作区里没有记录是一种正常读数，面板据此
  * 「什么都没发生」地画。真出错（列目录被拒、调用方取消）照抛，不在这里咽掉。
- *
  * @param port - 工作区文件口子。
  * @param scope - 这一次读的位置。
  * @param signal - 调用方取消。

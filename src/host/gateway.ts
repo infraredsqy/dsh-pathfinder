@@ -1,24 +1,11 @@
 /**
  * 宿主半身的远端口：面板要的读数与每一次落笔，都从这里出这一层。
  *
- * 这一层与 `index.ts` 那条服务是同一条东西的两面：`read` 就是外面那条读记录的
- * 服务，另外几条是写面，末一对是这个工作区自己的项目设置（读一行、写一行，都经工具
- * 那条命令）。每个端点上挂着一枚 `Remote` 记号——DSH 的网关按类上的记号现认这些端点
- * （源码模式），所以这一格不必等一个类型生成器就能被浏览器半身叫到；
- * 记号里的方法名就是端点名，命名空间是服务键 `pathfinderRecords`。
- *
- * 记号按函数调用的形式挂上去，写在构造函数里：这个半身的源码要能被 Node 直接加载
- * （`node --test` 就是这么读 `.ts` 的），而类型剥离不认 `@Remote(...)` 那一路装饰器
- * 语法。同一枚装饰器、同一个记号，落点一处不差。
- *
- * 工作区根由调用方点名：面板顶上那枚工作区选择器挑中哪个，那个绝对路径就从参数里进来；
- * 空字符串是「没挑」，那时候才按会话身份现算。两种情况都不缓存——换一个工作区，读到的与
- * 写到的当场就是那一份。
- *
- * @module dsh-pathfinder/host/gateway
+ * 端点记号按函数调用的形式写在构造函数里，而不是写成装饰器语法：这份源码要能被 Node 直接
+ * 加载（`node --test` 就是这么读 `.ts` 的），而类型剥离不认 `@Remote(...)`。
  */
 import type { Context } from '@deepseek-ai/cordis'
-/* 三样服务各自的声明合并住在各自的包入口上（与 `index.ts` 同一句话）。 */
+/* 三样服务的声明合并住在各自的包入口上：只引 `…/types` 子路径拿不到那一段。 */
 import type {} from '@deepseek-ai/dsh-api-workspace-files'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-session'
@@ -57,9 +44,8 @@ const REMOTE_METHODS: readonly (readonly [string, string])[] = [
 /**
  * 给一个实例上的方法挂上端点记号。
  *
- * 标准装饰器把记号交给构造期的一段初始化回调去落；这里直接把那段回调叫一次，
- * `this` 给的是这个实例，于是记号落在它原型上的同一个位置——网关读记号的那一路
- * 分不出这两者。
+ * 标准装饰器把记号交给构造期的一段初始化回调去落；这里直接把那段回调叫一次，`this` 给的是
+ * 这个实例，于是记号落在它原型上的同一个位置——网关读记号的那一路分不出这两者。
  * @param instance - 刚造出来的那个实例。
  * @param method - 类上的方法名。
  * @param endpoint - 端点名。
@@ -138,7 +124,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * 把一条指令连正文一起从记录里拿走；这一步退不回去，界面落手前要先把原话摆出来。
+   * 把一条指令连正文一起从记录里拿走；这一步退不回去。
    * @param sessionId - 会话身份。
    * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
    * @param id - 指令身份。
@@ -168,9 +154,9 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   /**
    * 把点名那个工作区的项目设置读出来。
    *
-   * 读的是工具印的那四行——值住三层（出厂默认 / 全局 / 项目），有效值与它来自哪一层都只有
-   * 工具说得清：全局那一层住在家目录里，工作区文件口子看不进去。所以这一手起一条命令，而不是
-   * 读一份文件。
+   * 读的是工具印的那四行：值住三层（出厂默认 / 全局 / 项目），全局那一层住在家目录里，工作区
+   * 文件口子看不进去，有效值与它来自哪一层都只有工具说得清，所以这一手起一条命令，而不是读
+   * 一份文件。
    * @param sessionId - 会话身份。
    * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
    * @returns 工具印出来的每一行，连同它这一趟成了没有。
@@ -187,15 +173,15 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * 写一条项目设置。改的永远是**这个项目那一层**：不带 `--global`（那一层跟着人走，面板这一格
-   * 改的是这个工作区自己的事）。
+   * 写一条项目设置。改的永远是这个项目那一层：不带 `--global`，那一层跟着人走，而面板这一格
+   * 改的是这个工作区自己的事。
    *
    * 没有 `--project <根>` 这一手：命令就跑在工作区根上，`config set` 的 `--project` 默认是当前
-   * 目录——落点一处不差，而写面那条命令行里的路径一律不过参数闸（它只放行 `[A-Za-z0-9_.:+-]`，
-   * Windows 的路径带反斜杠，加引号又会被 cmd 认错）。
+   * 目录，落点一处不差；而写面那条命令行里的路径一律不过参数闸，它只放行 `[A-Za-z0-9_.:+-]`，
+   * Windows 的路径带反斜杠，加引号又会被 cmd 认错。
    *
    * 值合不合法由工具判：它那一条 `parse_value` 是唯一的判据，非零退出时什么都没落盘。这一手
-   * 只拦键——不认得的键不往命令行上递。
+   * 只拦键，不认得的键不往命令行上递。
    * @param sessionId - 会话身份。
    * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
    * @param key - 设置键。
@@ -210,8 +196,8 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   /**
    * 把点名那个工作区里每一格的会话笔记读出来。
    *
-   * 读的是记录库里那一层按节点分的小份笔记——会话身份住在这台机器自己的笔记上（一条会话
-   * 只在开它的那台机器上活着）。它与四份记录一样住在工作区里，所以走同一条只读口子。
+   * 读的是记录库里那一层按节点分的小份笔记：会话身份住在这台机器自己的笔记上，一条会话只在
+   * 开它的那台机器上活着。它与四份记录一样住在工作区里，所以走同一条只读口子。
    * @param sessionId - 会话身份。
    * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
    * @returns 每一格最近开过的那条会话，连同这一层笔记的结局。
@@ -221,7 +207,6 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
     return readSessionNotes(this.ctx.workspaceFiles, { sessionId, workspaceRoot: root }, new AbortController().signal)
   }
 
-  /** 一条写命令：先定根（点名的那个，或这条会话自己那个），再交给工具那一层。 */
   private async pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[]): Promise<PfOutcome> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
     return runPf(this.ctx, root, args, new AbortController().signal)
@@ -232,8 +217,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
  * 这一次动的是哪个工作区根：调用方点名了就用它，没点名（空字符串，或这一格压根没带这个参数）
  * 才按会话身份解析。
  *
- * 点名优先是这一层的全部意义：面板顶上那枚选择器让读者挑一个工作区，而那条会话此刻落在哪个
- * 工作区与读者要看哪一个没有关系。
+ * 点名优先是这一层的全部意义：那条会话此刻落在哪个工作区，与读者要看哪一个没有关系。
  * @param ctx - 宿主上下文。
  * @param sessionId - 会话身份。
  * @param workspaceRoot - 点名的工作区根，绝对路径；空字符串＝没点名。
@@ -245,9 +229,9 @@ export async function rootFor(ctx: Context, sessionId: SessionId, workspaceRoot:
 }
 
 /**
- * 按会话身份解析工作区根：先问活着的会话，**有活着的会话头就不再问落盘的头**；两处都没有
- * cwd（含整条会话没人认得）时落到沙箱策略记的那个根。工作区文件口子自己那条解析用的也是
- * 这个次序，所以这里解析出来的根与它读文件时认的那个根是同一个。
+ * 按会话身份解析工作区根：先问活着的会话，有活着的会话头就不再问落盘的头；两处都没有 cwd
+ * （含整条会话没人认得）时落到沙箱策略记的那个根。工作区文件口子自己那条解析用的也是这个
+ * 次序，所以这里解析出来的根与它读文件时认的那个根是同一个。
  * @param ctx - 宿主上下文。
  * @param sessionId - 会话身份。
  * @returns 那条会话的工作区根，绝对路径。
