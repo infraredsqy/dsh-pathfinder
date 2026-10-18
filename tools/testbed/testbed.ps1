@@ -1,14 +1,16 @@
-﻿# testbed.ps1 —— 测试床入口：一条命令，两个动作。
+﻿# testbed.ps1 —— 测试床入口：一条命令，三个动作。
 #
-#   pwsh -File tools/testbed/testbed.ps1 -Action up      起测试床实例（隔离 home + 独立 profile + 合成工作区），留在那儿给人看
+#   pwsh -File tools/testbed/testbed.ps1 -Action up      起测试床实例（隔离 home + 独立 profile + 合成工作区
+#                                                        + 本仓这一条面板装进那个 profile），留在那儿给人看
 #   pwsh -File tools/testbed/testbed.ps1 -Action check   跑完 spec「完成判定」1~5 全部五条，逐条印读数，失败时非零退出
 #   pwsh -File tools/testbed/testbed.ps1 -Action down    只收自己记下来的那个 PID（先核对命令行，不按进程名杀）
 #
 # 运行实体一律落在 -Root 底下（默认 %LOCALAPPDATA%\dsh-pathfinder-testbed），不进版本库、不碰主 home。
 # 合成记录全部自撰；这个脚本只描述做了什么、限制是什么。
 #
-# 参数化：-Workspace 换工作区名，-SessionCount 造第二条会话，-EmptyWorkspace 造一份没有会话的工作区。
-# 默认那一趟只造一份工作区、一条会话。
+# 参数化：-Workspace 换工作区名，-SessionCount 造第二条会话，-EmptyWorkspace 造一份没有会话的工作区，
+# -Plugin 换要装进 profile 的那一条插件（默认就是本仓，相对路径按调用时的当前目录归一）。默认那一趟
+# 只造一份工作区、一条会话。
 
 #Requires -Version 5.1
 [CmdletBinding()]
@@ -22,7 +24,8 @@ param(
   [string]$MainHome = '',
   [int]$ReadyTimeoutSeconds = 30,
   [string]$DshCmd = 'dsh',
-  [string]$NodeExe = 'node'
+  [string]$NodeExe = 'node',
+  [string]$Plugin = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +33,12 @@ $ErrorActionPreference = 'Stop'
 
 if ($Root.Length -eq 0) { $Root = Join-Path $env:LOCALAPPDATA 'dsh-pathfinder-testbed' }
 if ($MainHome.Length -eq 0) { $MainHome = Join-Path $env:USERPROFILE '.dsh' }
+# 默认装的就是本仓这一条插件：`tools\testbed\` 往上两层就是项目根。
+if ($Plugin.Length -eq 0) { $Plugin = Join-Path $PSScriptRoot '..\..' }
+# 入口处就归一成绝对路径：产物预检与交给 `dsh plugin --profile … add` 的必须是同一个值。
+# 否则两处各按各的基准解相对路径——预检按调用者的当前目录（于是过了），dsh 按 profile 目录
+# （于是去装一个不存在的目录），报错还把人指到 profile 目录那边去。
+$Plugin = [System.IO.Path]::GetFullPath($Plugin)
 
 # 起进程用 Application 形态：Start-Process 不猜扩展名，也不去碰 npm 目录里那个没有扩展名的 POSIX 壳。
 $DshCmd = Resolve-ApplicationExecutable -Name $DshCmd
@@ -282,8 +291,17 @@ if ($Action -eq 'up') {
   $manifest = Invoke-TestbedProvision -Root $safeRoot -Profile $Profile -Workspace $Workspace `
     -SessionCount $SessionCount -EmptyWorkspace $EmptyWorkspace -DshCmd $DshCmd -NodeExe $NodeExe
   $testbedHome = [string]$manifest.home
+  # 面板装进隔离 profile：这一格要交的那「一条命令」里，「面板已装、指着合成工作区」这一半
+  # 就落在这一步上。装不上就当场停，不起一条没有面板的实例。
+  $pluginReading = Install-TestbedPlugin -Root $safeRoot -TestbedHome $testbedHome -Profile $Profile `
+    -PluginPath $Plugin -DshCmd $DshCmd
   $instancePid = Start-TestbedInstance -Root $safeRoot -TestbedHome $testbedHome -Profile $Profile -DshCmd $DshCmd -NodeExe $NodeExe
   $ready = Wait-TestbedReady -Root $safeRoot -ProcessId $instancePid -TimeoutSeconds $ReadyTimeoutSeconds
+  # 装上了要看得见：问那个正在跑的实例要两处读数（设置命名空间名册 + 交给浏览器的启动名册）。
+  $rawDir = Join-Path $safeRoot 'logs\raw'
+  if (-not (Test-Path -LiteralPath $rawDir)) { New-Item -ItemType Directory -Force -Path $rawDir | Out-Null }
+  $mountReading = Get-TestbedPanelMount -Port $ready.port -Url $ready.url -PluginName $pluginReading.plugin `
+    -PluginId $pluginReading.pluginId -EvidenceDir $rawDir
 
   Write-Host "testbed root : $safeRoot"
   Write-Host "isolated home: $testbedHome"
@@ -295,6 +313,11 @@ if ($Action -eq 'up') {
   }
   Write-Host "pid          : $instancePid"
   Write-Host "url          : $($ready.url)"
+  Write-Host ''
+  Write-Host "panel        : $($pluginReading.plugin) <- $($pluginReading.recordedSpec)"
+  Write-Host "panel row    : $($pluginReading.composedRow)"
+  Write-Host "panel mount  : settings namespace '$($mountReading.namespace)' is served by the live instance (namespaces=$($mountReading.namespaceCount)) ｜ boot manifest lists $($mountReading.clientBundleRef) (page $($mountReading.pageBytes) chars)"
+  Write-Host "panel builds : $(@($pluginReading.artifacts | ForEach-Object { "$($_.relative) $($_.bytes)B" }) -join ', ')"
   Write-Host ''
   foreach ($line in (Get-TestbedListCommandLines -Port $ready.port -Token $ready.token -SessionIds @($manifest.sessions | ForEach-Object { [string]$_.sessionId }))) {
     Write-Host $line

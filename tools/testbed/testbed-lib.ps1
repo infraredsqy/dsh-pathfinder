@@ -669,6 +669,105 @@ function New-TestbedProfile {
   } finally { $env:DSH_HOME = $previous }
 }
 
+# 把指到的那一份插件按本地路径装进隔离 profile，并当场把「装上了」变成可复算的读数。
+#
+# 装法就是 DSH 自己那一条入口：`dsh plugin --profile <名字> add <包目录>`（它自己跑 pnpm，
+# 把包记成 `link:` 依赖，并把包自己 `dsh.bundle.patch` 指着的那一层并进 profile 的
+# `dsh.profile.bundles`）。不另造第二条起法，也不手改 profile 的 package.json。
+#
+# 包名与行 id 都不写死，从指到的那份包自己读：包名取它 `package.json` 的 `name`（pnpm 记下的
+# 依赖键、bundle 清单里那一条、交给浏览器的启动名册都是这一个字）；行 id 取 compose 之后配置
+# 树里这一条包自己那一节（`# == <包名>`）的头一个顶层行。装完照实核：profile 清单记了包名、
+# bundle 清单选了它、配置树里那一行在且没被关掉——都读到才算装上了。
+function Install-TestbedPlugin {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [Parameter(Mandatory=$true)][string]$TestbedHome,
+    [Parameter(Mandatory=$true)][string]$Profile,
+    [Parameter(Mandatory=$true)][string]$PluginPath,
+    [string]$DshCmd = 'dsh'
+  )
+  $profileDir = Join-Path $TestbedHome ('profiles\' + $Profile)
+  if (-not (Test-Path -LiteralPath $profileDir)) { throw "profile directory is missing: $profileDir" }
+  $manifestPath = Join-Path $PluginPath 'package.json'
+  if (-not (Test-Path -LiteralPath $manifestPath)) { throw "not a plugin package (no package.json): $PluginPath" }
+  $package = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+  $PluginName = [string]$package.name
+  if ($PluginName.Length -eq 0) { throw "the plugin package does not declare a name: $manifestPath" }
+  $PluginId = ''
+  # 装的是**产物**：宿主半身与浏览器半身两份都得在盘上，否则装上去的是一条起不来的行。
+  $artifacts = @('lib\host\index.js', 'lib\client.js')
+  foreach ($rel in $artifacts) {
+    if (-not (Test-Path -LiteralPath (Join-Path $PluginPath $rel))) {
+      throw "plugin build output is missing: $(Join-Path $PluginPath $rel) — run 'npm run types' and 'npm run bundle' and 'npm run bundle:client' in $PluginPath first"
+    }
+  }
+
+  $previous = $env:DSH_HOME
+  $started = Get-Date
+  try {
+    $env:DSH_HOME = $TestbedHome
+    $install = & $DshCmd plugin --profile $Profile add $PluginPath 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "plugin install failed (exit $LASTEXITCODE): $install" }
+
+    $manifest = Get-Content -LiteralPath (Join-Path $profileDir 'package.json') -Raw | ConvertFrom-Json
+    $recorded = [string]$manifest.dependencies.$PluginName
+    if ($recorded.Length -eq 0) { throw "profile manifest does not record $PluginName after the install: $install" }
+    $bundles = @($manifest.dsh.profile.bundles)
+    if (-not ($bundles -contains $PluginName)) {
+      throw "profile bundle list does not select $PluginName after the install (bundles: $($bundles -join ', ')): $install"
+    }
+
+    # compose 之后的配置树：这一条包自己那一节（`# == <包名>`）里的头一个顶层行就是它那一行。
+    # id 与 name 都照 dump 出来的读，不拿写死的名字去对。`--dump-config` 只打印、不起服务。
+    $composed = & $DshCmd $Profile --dump-config 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "dump-config failed after the install (exit $LASTEXITCODE): $composed" }
+    $composedLines = $composed -split "`r?`n"
+    $sectionHeader = '# == ' + $PluginName
+    $rowIndex = -1
+    for ($i = 0; $i -lt $composedLines.Length; $i++) {
+      if ($composedLines[$i].Trim() -ne $sectionHeader) { continue }
+      for ($j = $i + 1; $j -lt $composedLines.Length; $j++) {
+        if ($composedLines[$j] -match '^\s*#') { break }
+        $idMatch = [regex]::Match($composedLines[$j], '^-\s+id:\s+(\S+)\s*$')
+        if ($idMatch.Success) { $PluginId = $idMatch.Groups[1].Value; $rowIndex = $j; break }
+      }
+      break
+    }
+    if ($PluginId.Length -eq 0) {
+      throw "the composed config tree has no row under the '$PluginName' bundle layer after the install: $composed"
+    }
+    $rows = New-Object System.Collections.Generic.List[string]
+    for ($j = $rowIndex; $j -lt $composedLines.Length; $j++) {
+      if ($j -gt $rowIndex) {
+        if ($composedLines[$j].Trim().Length -eq 0) { break }
+        if ($composedLines[$j] -match '^\s*-') { break }
+        if ($composedLines[$j] -match '^\s*#') { break }
+      }
+      $rows.Add($composedLines[$j].TrimEnd())
+    }
+    $rowText = ($rows -join ' | ').Trim()
+    if ($rowText -match 'disabled:') { throw "the composed row for '$PluginId' is disabled: $rowText" }
+  } finally { $env:DSH_HOME = $previous }
+  $elapsed = [math]::Round(((Get-Date) - $started).TotalSeconds, 2)
+
+  $reading = [ordered]@{
+    plugin = $PluginName
+    pluginId = $PluginId
+    localPath = $PluginPath
+    recordedSpec = $recorded
+    profileBundles = $bundles
+    composedRow = $rowText
+    artifacts = @($artifacts | ForEach-Object { [ordered]@{
+      relative = $_
+      bytes = (Get-Item -LiteralPath (Join-Path $PluginPath $_)).Length
+    } })
+    elapsedSeconds = $elapsed
+  }
+  Write-TextFile -Path (Join-Path $Root 'logs\plugin-install.json') -Text (($reading | ConvertTo-Json -Depth 8) + "`n")
+  return $reading
+}
+
 # 起一个脱离当前进程的实例：立刻返回，PID 记进 <Root>\logs\instance.pid。
 function Start-TestbedInstance {
   param(
@@ -896,6 +995,46 @@ function Connect-TestbedBrowser {
   $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
   $null = Invoke-WebRequest -Uri $Url -WebSession $session -MaximumRedirection 5 -TimeoutSec 20 -UseBasicParsing
   return $session
+}
+
+# 「面板真装起来了」在那个正在跑的实例上的两处正面读数（都不是读磁盘上的配置树）：
+#   * 设置命名空间：`settings/describe` 的名册里看得到这一行的 id（一条插件行的 id 就是它那个
+#     设置命名空间的名字，宿主半身交出去的 `Config` 就挂在它下面）；
+#   * 浏览器半身：实例交给浏览器的启动名册里列着 `<包名>/client.js`——那是外壳要去拉的那一份。
+# 两处都得读到，缺一处就抛：装上了但没起起来，与没装上一样是坏的。
+function Get-TestbedPanelMount {
+  param(
+    [Parameter(Mandatory=$true)][int]$Port,
+    [Parameter(Mandatory=$true)][string]$Url,
+    [Parameter(Mandatory=$true)][string]$PluginName,
+    [Parameter(Mandatory=$true)][string]$PluginId,
+    [Parameter(Mandatory=$true)][string]$EvidenceDir
+  )
+  $browser = Connect-TestbedBrowser -Url $Url
+  $describe = Invoke-TestbedApi -Port $Port -WebSession $browser -Endpoint 'settings/describe' `
+    -Arguments ([ordered]@{}) -EvidencePath (Join-Path $EvidenceDir 'settings-describe')
+  $namespaces = @($describe.namespaces | ForEach-Object { [string]$_.ns })
+  if (-not ($namespaces -contains $PluginId)) {
+    throw "the live instance does not expose the '$PluginId' settings namespace (namespaces: $($namespaces -join ', '))"
+  }
+
+  $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/" -WebSession $browser -TimeoutSec 20 -UseBasicParsing
+  $page = $response.Content
+  if ($page -isnot [string]) { $page = [System.Text.Encoding]::UTF8.GetString($page) }
+  Write-TextFile -Path (Join-Path $EvidenceDir 'boot-page.html') -Text ($page + "`n")
+  $bundleRef = "$PluginName/client.js"
+  if (-not $page.Contains($bundleRef)) {
+    throw "the live instance's boot manifest does not list '$bundleRef' (page $($page.Length) chars)"
+  }
+  return [ordered]@{
+    namespace = $PluginId
+    namespacePresent = $true
+    namespaceCount = $namespaces.Count
+    namespaces = $namespaces
+    clientBundleRef = $bundleRef
+    clientBundleListed = $true
+    pageBytes = $page.Length
+  }
 }
 
 # 一次 /api/<namespace>/<method> 调用：请求信封恰好是 { type, rpcId, method, payload:{ args } }，响应是 { result:{ ok, value } }。

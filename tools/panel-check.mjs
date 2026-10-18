@@ -2343,6 +2343,108 @@ check(
   `面板那一张=${String(tagOf(client.PANEL_STYLE_ID))} 设置那一张=${String(tagOf(client.SETTINGS_STYLE_ID))}`,
 )
 
+/* ---- 6e. 热更新那一趟：装 → 卸 → 再装，四个清场点逐处给正面读数 -----------
+ *
+ * 完成判定第 4 条。6d 量的是终局（名册清空、两张样式标签摘干净）；这一节把
+ * 「侧栏项 / 页脚徽标 / 浮层 / 两张注入的样式标签」这四处**逐处**摆出正面读数，并多走一趟
+ * 热更新：卸干净之后再装回来，四处各回到原样、且没有重复登记。
+ *
+ * 座席那一面不走真 slots 渲染器（那个住在 DSH 外壳里，不在这份产物里）；这里用一个最小的
+ * 渲染器代替，它只做真渲染器做的那一件事——**照名册当下有什么就画什么**。名册由插件那几条
+ * effect 增删、渲染器那一头始终挂着，于是「注册撤了，屏上就没东西」这件事有读数。
+ * 三处座席都指空工作区那条会话：那一档浮层本来就要说一句话（有记录、又没有出局等人的格时
+ * 浮层本就不画，拿那一份量不出「卸掉之后它没了」）。 */
+
+const CLEAR_POINTS = [
+  { word: '侧栏项', key: `sidebar.panellist:${client.PANEL_ID}`, probe: (host) => host.querySelector('svg') },
+  { word: '页脚徽标', key: `sidebar.footer.action:${client.READY_BADGE_ID}`, probe: (host) => host.querySelector(`[data-pathfinder="${client.READY_BADGE_ID}"]`) },
+  { word: '浮层', key: `shell.overlay:${client.PENDING_NOTICE_ID}`, probe: (host) => host.querySelector(`[data-pathfinder="${client.PENDING_NOTICE_ID}"]`) },
+]
+
+const hot = { ledger: new Map(), calls: [], effects: [] }
+const hotBoot = bootClient(backend, {}, hot)
+const hotBoardHost = window.document.createElement('div')
+window.document.body.appendChild(hotBoardHost)
+const hotBoardRoot = createRoot(hotBoardHost)
+/** 照名册当下有什么就画什么：真渲染器那一条读法的最小替身。 */
+const paintSeats = async () => {
+  const seats = []
+  for (const { key } of CLEAR_POINTS) {
+    const entry = hot.ledger.get(key)
+    if (entry === undefined) continue
+    const props = typeof entry.options.inject === 'function' ? entry.options.inject() : {}
+    seats.push(React.createElement(entry.component, {
+      ...props, size: 16, wide: true, useSessions: sessionsAt(emptySessionId),
+    }))
+  }
+  await act(async () => { hotBoardRoot.render(React.createElement(React.Fragment, null, ...seats)) })
+  await settle()
+}
+/** 三处座席当下的样子：名册里在不在 + 屏上画没画出来，逐处一笔。 */
+const seatState = () => CLEAR_POINTS
+  .map(({ word, key, probe }) => ({ word, registered: hot.ledger.has(key), drawn: probe(hotBoardHost) !== null }))
+const seatReport = (state) => state.map(({ word, registered, drawn }) => `${word}=${registered ? '在册' : '不在册'}·${drawn ? '屏上有' : '屏上无'}`).join(' ')
+const allSeats = (state, want) => state.every(({ registered, drawn }) => registered === want && drawn === want)
+const styleReport = () => `面板那一张=${String(tagOf(client.PANEL_STYLE_ID))} 设置那一张=${String(tagOf(client.SETTINGS_STYLE_ID))}`
+const stylesGone = () => tagOf(client.PANEL_STYLE_ID) === null && tagOf(client.SETTINGS_STYLE_ID) === null
+
+let hotPanelHost = window.document.createElement('div')
+window.document.body.appendChild(hotPanelHost)
+let hotPanelRoot = createRoot(hotPanelHost)
+let hotSectionHost = window.document.createElement('div')
+window.document.body.appendChild(hotSectionHost)
+let hotSectionRoot = createRoot(hotSectionHost)
+/** 露一次面：面板本体（`Entry`，两张样式表由它那一路挂上）与设置里那一页。 */
+const showPanel = async () => {
+  const section = hot.ledger.get(`${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`)
+  await act(async () => {
+    hotPanelRoot.render(React.createElement(hotBoot.panel.Panel, { port: trackedPort, sessionId, prefs: hotBoot.panel.prefs }))
+    hotSectionRoot.render(React.createElement(section.component, section.options.inject()))
+  })
+  await settle()
+}
+
+/* 装：五条在册，四处清场点各就各位。 */
+await showPanel()
+await paintSeats()
+const hotLoaded = seatState()
+check(
+  '热更新·装：四处清场点各就各位（三处座席在册且画得出来 ＋ 两张注入的标签在文档里）',
+  hot.ledger.size === 5 && allSeats(hotLoaded, true)
+    && tagOf(client.PANEL_STYLE_ID) !== null && tagOf(client.SETTINGS_STYLE_ID) !== null,
+  `名册 ${String(hot.ledger.size)} 条 ｜ ${seatReport(hotLoaded)} ｜ ${styleReport()}`,
+)
+
+/* 卸：三处座席从名册上撤下来，渲染器那一头跟着画不出东西；两张标签从文档里摘掉。 */
+await act(async () => { hotPanelRoot.unmount(); hotSectionRoot.unmount() })
+for (const one of hot.effects) one.off()
+await paintSeats()
+const hotUnloaded = seatState()
+check(
+  '热更新·卸：四处清场点各自清干净（三处座席不在册且屏上没了 ＋ 两张注入的标签都摘掉）',
+  hot.ledger.size === 0 && allSeats(hotUnloaded, false) && stylesGone(),
+  `名册 ${String(hot.ledger.size)} 条 ｜ ${seatReport(hotUnloaded)} ｜ ${styleReport()}`,
+)
+
+/* 再装（热更新）：同一条插件再走一遍，落在**同一本名册**上——五条回来、没有重复，
+ * 四处清场点各回到原样。 */
+hotPanelHost = window.document.createElement('div')
+window.document.body.appendChild(hotPanelHost)
+hotPanelRoot = createRoot(hotPanelHost)
+hotSectionHost = window.document.createElement('div')
+window.document.body.appendChild(hotSectionHost)
+hotSectionRoot = createRoot(hotSectionHost)
+for (const one of hot.effects) one.run()
+await showPanel()
+await paintSeats()
+const hotReloaded = seatState()
+check(
+  '热更新·再装：同一本名册上四处清场点各回到原样，仍是五条、没有重复',
+  hot.ledger.size === 5 && allSeats(hotReloaded, true)
+    && tagOf(client.PANEL_STYLE_ID) !== null && tagOf(client.SETTINGS_STYLE_ID) !== null,
+  `名册 ${String(hot.ledger.size)} 条 ｜ ${seatReport(hotReloaded)} ｜ ${styleReport()}`,
+)
+
 /* ---- 7. 控制台 ---------------------------------------------------------- */
 
 check('控制台没有 error', consoleErrors.length === 0, consoleErrors.length === 0 ? '0 条' : consoleErrors.join(' | '))
