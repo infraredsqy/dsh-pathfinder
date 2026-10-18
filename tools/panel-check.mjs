@@ -918,22 +918,23 @@ check(
  * 照原样比，不排序——CSS 里次序有意义。
  */
 const SHEETS = [
-  { sheet: 'tokens.css', scope: '.pf-page' },
-  { sheet: 'styles/main.css', scope: '.pf-page' },
-  { sheet: 'styles/board.css', scope: '.pf-page' },
-  { sheet: 'styles/lines.css', scope: '.pf-page' },
-  { sheet: 'styles/detail.css', scope: '.pf-page' },
-  { sheet: 'styles/notes.css', scope: '.pf-page' },
-  /* 依赖与问题那两张表收进面板里的 `.is-embed` 那一层：它们在蓝本里各自是一份独立
-     文档，靠 `.is-embed` 把页头与页边距让给宿主。 */
-  { sheet: 'styles/field.css', scope: '.is-embed' },
-  { sheet: 'styles/register.css', scope: '.is-embed' },
+  { sheet: 'tokens.css', scope: pageLayer('.pf-page') },
+  { sheet: 'styles/main.css', scope: pageLayer('.pf-page') },
+  { sheet: 'styles/board.css', scope: pageLayer('.pf-page') },
+  { sheet: 'styles/lines.css', scope: pageLayer('.pf-page') },
+  { sheet: 'styles/detail.css', scope: pageLayer('.pf-page') },
+  { sheet: 'styles/notes.css', scope: pageLayer('.pf-page') },
+  /* 依赖与问题那两张表在蓝本里各自是一份独立文档，靠 `.is-embed` 把页头与页边距让给宿主；
+     进面板之后各挂各的页记号（面板里那两格 `.pf-pane`），前缀走 `:where()`——蓝本那些让位
+     规矩借的是「比基础规则高一档特异性」，加了类名前缀会把两边拉平。 */
+  { sheet: 'styles/field.css', scope: embedLayer('.pf-wires') },
+  { sheet: 'styles/register.css', scope: embedLayer('.pf-issue') },
 ]
 const CARRIED = [{
   sheet: 'styles/settings.css',
   selectors: ['.pf-stage', '.pf-frame', '.pf-configwrap', '.pf-configwrap .pf-scroll', '.pf-config', '.pf-config .pf-setrow', '.pf-vlayer'],
 }]
-const SCOPE = '.pf-page'
+const SCOPE = pageLayer('.pf-page')
 const PAGE_ROOTS = new Set([':root', 'html', 'body'])
 
 function closingBrace(css, open) {
@@ -974,21 +975,32 @@ function ruleEntries(css, wrap = []) {
 }
 
 /** 「这一段已经收进那一层了」——切段之后逐段比，不看子串（`.pf-pagewrap` 不算）。 */
-function alreadyScoped(part, scope) {
+function alreadyScoped(part, className) {
   return part
     .split(/[\s>+~]+/u)
-    .flatMap((segment) => segment.split(/[.#:[\]]/u))
-    .some((token) => token === scope.slice(1))
+    .flatMap((segment) => segment.split(/[.#:()[\]]/u))
+    .some((token) => token === className)
 }
 
 /** 这一段选择器进包之后该长成哪几段——这张表与构建口各写一份，不 import 它那一份。 */
 function expectedPart(part, scope) {
   const low = part.toLowerCase()
-  if (low === '*') return [scope, `${scope} *`]
-  if (low.startsWith('*::')) return [`${scope}${part.slice(1)}`, `${scope} ${part}`]
-  if (PAGE_ROOTS.has(low)) return [scope]
-  return alreadyScoped(part, scope) ? [part] : [`${scope} ${part}`]
+  /* 表里自己写着「嵌入」那枚记号的：换成这一层的页记号，特异性不动。 */
+  if (scope.marker !== undefined && alreadyScoped(part, scope.marker)) {
+    return [part.replace(new RegExp(`\\.${scope.marker}(?![\\w-])`, 'gu'), scope.root)]
+  }
+  if (alreadyScoped(part, scope.root.slice(1))) return [part]
+  if (low === '*') return [scope.root, `${scope.root} *`]
+  if (low.startsWith('*::')) return [`${scope.root}${part.slice(1)}`, `${scope.root} ${part}`]
+  if (PAGE_ROOTS.has(low)) return [scope.root]
+  return [`${scope.add} ${part}`]
 }
+
+/** 主面板那一层：只加前缀。 */
+function pageLayer(root) { return { root, add: root } }
+
+/** 嵌入那两格那一层：前缀走 `:where()`（收拢不改特异性），表里的嵌入记号换成这一层的根。 */
+function embedLayer(root) { return { root, add: `:where(${root})`, marker: 'is-embed' } }
 
 function expectedPrelude(prelude, scope) {
   const parts = prelude
@@ -1062,6 +1074,114 @@ check(
   `产物 ${String(productEntries.length)} 条 ｜ 八张表 + CARRIED 算出来 ${String(cursor)} 条`,
 )
 lines.push(`      等价性：mock/ 那 ${String(SHEETS.length)} 张表 + CARRIED ${String(carriedWanted.length)} 条 → 产物 ${String(productEntries.length)} 条规则，逐条比选择器与声明正文（上面每张表一条读数）`)
+
+/* ---- 3c. 落点：同一批规矩在产物里谁赢，蓝本那一侧要一样 -------------------
+ * 3b 比的是字面（选择器与声明一条不差），比不出「同一条属性的两条规矩谁赢」：蓝本那两张嵌入
+ * 表靠 `.is-embed X` 压 `X` 一档取胜，收拢的前缀若把两边拉平，胜负就改成按源次序，而基础规
+ * 则恰好写在让位规则后面——顶上那一段留白与页根那两条内边距就是这么变的。
+ *
+ * 所以这里量落点：把面板里那两格的子树原样搬进蓝本各自那份文档（页面根挂 `is-embed`、只挂它
+ * 自己那一张表），同一条属性两边各走一遍级联，比最后谁赢。尺子按 (特异性, 次序) 走，`:where()`
+ * 算 0——收拢拿它加前缀，正为不动蓝本那一档高低；jsdom 不做级联、也不拆简写，两样都自己来。
+ */
+const SHORTHAND = {
+  padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
+  margin: ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
+}
+
+/** 一条选择器的特异性：`::` 与 `:where()` 都不算，`:where()` 里那一档记 0。 */
+function specificityOf(selector) {
+  const bare = selector.replace(/:where\((?:[^()]|\([^()]*\))*\)/gu, '').replace(/::[\w-]+/gu, '')
+  const ids = (bare.match(/#[\w-]+/gu) ?? []).length
+  const classes = (bare.match(/\.[\w-]+/gu) ?? []).length
+  const attrs = (bare.match(/\[[^\]]*\]/gu) ?? []).length
+  const pseudos = (bare.match(/:(?!:)[\w-]+/gu) ?? []).length
+  const tags = (bare.match(/(?:^|[\s>+~])[a-zA-Z][\w-]*/gu) ?? []).length
+  return ids * 1e6 + (classes + attrs + pseudos) * 1e3 + tags
+}
+
+/** 一条声明拆成长写：cssom 把 `padding: 14px 0 16px` 原样留着，不替我们拆。 */
+function longhandsOf(name, value) {
+  const list = SHORTHAND[name]
+  if (list === undefined) return [[name, value]]
+  const parts = value.split(/\s+/u).filter((one) => one.length > 0)
+  const four = parts.length === 1 ? [parts[0], parts[0], parts[0], parts[0]]
+    : parts.length === 2 ? [parts[0], parts[1], parts[0], parts[1]]
+      : parts.length === 3 ? [parts[0], parts[1], parts[2], parts[1]]
+        : parts
+  return four.length === 4 ? list.map((one, at) => [one, four[at]]) : [[name, value]]
+}
+
+/** 一份文档里落在某个元素上的最终声明：同一条属性按 (特异性, 次序) 取胜。 */
+function cascadeWinner(win, element, properties) {
+  const won = {}
+  if (element === null) return won
+  let order = 0
+  const rules = [...win.document.styleSheets].flatMap((sheet) => [...(sheet.cssRules ?? [])])
+  for (const rule of rules.flatMap((one) => (one.cssRules === undefined ? [one] : [...one.cssRules]))) {
+    const selector = rule.selectorText
+    if (selector === undefined) continue
+    order += 1
+    let hit = false
+    try { hit = element.matches(selector) } catch { hit = false }
+    if (!hit) continue
+    const score = specificityOf(selector)
+    for (let at = 0; at < rule.style.length; at += 1) {
+      const name = rule.style[at]
+      const value = (rule.style.getPropertyValue(name) ?? '').replace(/\s+/gu, ' ').trim()
+      for (const [property, settled] of longhandsOf(name, value)) {
+        if (!properties.includes(property)) continue
+        const held = won[property]
+        if (held === undefined || score > held.score || (score === held.score && order > held.order)) {
+          won[property] = { value: settled, score, order }
+        }
+      }
+    }
+  }
+  return won
+}
+
+/** 蓝本那一侧：这一页的子树放进它自己那份文档——页面根挂 `is-embed`，只挂它那一张表。 */
+function blueprintWindow(pageRoot, sheet) {
+  const css = readFileSync(join(root, 'mock', sheet), 'utf8')
+  return new JSDOM(`<!doctype html><html class="is-embed"><head><style>${css}</style></head><body>${pageRoot.outerHTML}</body></html>`).window
+}
+
+/* 两档读数：顶上那一段（让位那两条压着基础规则）与页根那两条内边距（含两张表各管各的页）。 */
+const EMBED_PROBES = [
+  { pane: '#pane-issue', sheet: 'styles/register.css', group: '顶上那一段', at: '.pf-band', properties: ['padding-top'] },
+  { pane: '#pane-wires', sheet: 'styles/field.css', group: '顶上那一段', at: '.pf-bar', properties: ['margin-top'] },
+  { pane: '#pane-issue', sheet: 'styles/register.css', group: '页根那两条内边距', at: '.pf-page', properties: SHORTHAND.padding },
+  { pane: '#pane-wires', sheet: 'styles/field.css', group: '页根那两条内边距', at: '.pf-page', properties: SHORTHAND.padding },
+]
+
+const embedReadings = []
+for (const probe of EMBED_PROBES) {
+  const pageRoot = container.querySelector(`${probe.pane} > .pf-page`)
+  /* 页根那一条量的是它自己：`querySelector` 只看后代，从它身上找不到它。 */
+  const target = pageRoot === null ? null : (pageRoot.matches(probe.at) ? pageRoot : pageRoot.querySelector(probe.at))
+  const blueprint = blueprintWindow(pageRoot ?? window.document.createElement('div'), probe.sheet)
+  const product = cascadeWinner(window, target, probe.properties)
+  const want = cascadeWinner(blueprint, blueprint.document.querySelector(probe.at), probe.properties)
+  const rows = probe.properties.map((property) => {
+    const got = product[property]?.value ?? '（没有规矩落在它身上）'
+    const expected = want[property]?.value ?? '（没有规矩落在它身上）'
+    return { group: probe.group, same: got === expected, text: `${probe.at} ${property}=${got}${got === expected ? '' : `（蓝本 ${expected}）`}` }
+  })
+  embedReadings.push(...rows)
+}
+
+for (const [group, what] of [
+  ['顶上那一段', '嵌入那两格顶上那一段'],
+  ['页根那两条内边距', '嵌入那两格的页根内边距'],
+]) {
+  const rows = embedReadings.filter((one) => one.group === group)
+  check(
+    `${what}与蓝本落在同一处`,
+    rows.length > 0 && rows.every((one) => one.same),
+    rows.map((one) => one.text).join(' ｜ '),
+  )
+}
 
 /* ---- 4a. 设置那一节：导航行 + 它打开的那一页，与面板读同一份设置表单 -----------
  * 这一节住在 DSH 自己的设置面板里，跟主面板不在一棵树上，所以这里把产物注册的那个组件单独

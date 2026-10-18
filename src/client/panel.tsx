@@ -494,8 +494,10 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             </div>
           </div>
 
+          {/* 依赖与问题这两格各是蓝本里的一份独立文档，在面板里由这一格当它的页根：
+              构建口按 `pf-wires` / `pf-issue` 收拢它们各自那张表，两张表因此互不越界。 */}
           <div
-            className="pf-pane is-frame is-embed"
+            className="pf-pane is-frame pf-wires"
             id="pane-wires"
             role="tabpanel"
             aria-labelledby="tab-wires"
@@ -506,7 +508,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
           </div>
 
           <div
-            className="pf-pane is-frame is-embed"
+            className="pf-pane is-frame pf-issue"
             id="pane-issue"
             role="tabpanel"
             aria-labelledby="tab-issue"
