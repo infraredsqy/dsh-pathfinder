@@ -25,6 +25,9 @@ const READ_FAILED = '无法读取该工作区的项目设置。'
 
 const WRITE_FAILED = '这次写入没有生效。'
 
+/** 这个工作区里还没有节点那一份记录时，这一格摆的那一句——五个跟节点走的格子说的是同一句。 */
+const NOT_ENABLED = '当前工作区尚未启用 Pathfinder。'
+
 const SIDES: readonly (readonly [string, boolean])[] = [['开', true], ['关', false]]
 
 /** 一行的读数走到哪一步了。 */
@@ -39,6 +42,8 @@ export interface ConfigPaneProps {
   readonly sessionId: string
   /** 读、写哪个工作区：面板顶上挑中的那个根；空字符串＝这条会话自己那个。 */
   readonly workspaceRoot: string
+  /** 这个工作区里还没有节点那一份记录：这一格收成一句话，那条读命令也不必起。 */
+  readonly noNodes: boolean
   /** 这一格此刻露不露面：露面那一趟才去读。 */
   readonly active: boolean
   /** 面板底下那条提示行；`null` 是「上一句是我说的，收回去」。 */
@@ -46,7 +51,7 @@ export interface ConfigPaneProps {
 }
 
 export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
-  const { port, sessionId, workspaceRoot, active } = props
+  const { port, sessionId, workspaceRoot, noNodes, active } = props
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
   const [tick, setTick] = React.useState(0)
   const [width, setWidth] = React.useState(CONFIG_WIDTH)
@@ -64,7 +69,7 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
    * 读顺了只收上一句读失败留下的那一声；写失败那一句归写那一趟管，不然每写一次被拒，跟着来的
    * 那次重读会把它当场抹掉，读者什么也看不到。 */
   React.useEffect(() => {
-    if (!active || sessionId.length === 0) return undefined
+    if (noNodes || !active || sessionId.length === 0) return undefined
     let live = true
     port.readConfig(sessionId, workspaceRoot).then(
       (reading) => {
@@ -86,7 +91,7 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
       },
     )
     return () => { live = false }
-  }, [active, sessionId, workspaceRoot, port, tick, note])
+  }, [noNodes, active, sessionId, workspaceRoot, port, tick, note])
 
   /* 写一下：工具说什么就是什么，写完再读一遍——控件印的永远跟着重读回来那一份走。 */
   const send = React.useCallback((key: ConfigKey, next: string): void => {
@@ -117,6 +122,7 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
       data-fill=""
       hidden={!active}
     >
+      {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
       <div className="pf-configwrap" style={{ ['--pf-config-w' as string]: `${String(width)}px` }}>
         <ConfigGrip side="left" value={width} onChange={setWidth} />
         <div className="pf-scroll" role="region" aria-label="设置" tabIndex={0}>
@@ -136,6 +142,7 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
         </div>
         <ConfigGrip side="right" value={width} onChange={setWidth} />
       </div>
+      )}
     </div>
   )
 }

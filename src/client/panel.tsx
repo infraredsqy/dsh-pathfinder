@@ -79,6 +79,9 @@ const NO_RECORD = '当前工作区没有 pathfinder 的记录。'
 /** 记录在、四份来源一份都解不出来时摆的另一句：与没记录是两件事。 */
 const UNREADABLE_RECORD = '无法读取当前工作区的记录。'
 
+/** 这个工作区里还没有节点那一份记录时，五个跟节点走的格子各自摆的那一句。 */
+const NOT_ENABLED = '当前工作区尚未启用 Pathfinder。'
+
 /** 四份来源是不是都落在同一个结局上。 */
 function everySourceIs(reading: PathfinderReading, state: PathfinderSourceState): boolean {
   const states = Object.values(reading.sources)
@@ -257,6 +260,12 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const cycles = project?.cycles ?? []
   const picked = cycles.find((cycle) => cycle.id === lineId) ?? cycles[0] ?? null
 
+  /* 这个工作区里有没有节点：四个读数栏互斥，加起来一张卡都没有就是没有。没有的时候，五个跟
+   * 节点走的格子各自收成一句话，页头那排计数也一起收走——空列头与三个 0 是替记录说它没说的话。 */
+  const noNodes = project !== null
+    && project.columns.completed.length + project.columns.running.length
+      + project.columns.shelved.length + project.columns.todo.length === 0
+
   /* 铺满要现算：量不到地界就退回上一趟的数，再没有就退回固定档。 */
   React.useLayoutEffect(() => {
     if (info !== 'full' || tab !== 'now') return
@@ -357,7 +366,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             )}
           </div>
         </div>
-        {nothing === null ? (
+        {nothing === null && !noNodes ? (
           <div className="pf-count" id="census">
             {project === null ? null : <Census project={project} />}
           </div>
@@ -392,29 +401,33 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             aria-labelledby="tab-now"
             hidden={tab !== 'now'}
           >
-            <div className="pf-boardbar">
-              <h3 className="pf-colhead">进行中</h3>
-              <h3 className="pf-colhead">刚完成</h3>
-              <div className="pf-boardtail">
-                <h3 className="pf-colhead">即将进线</h3>
-                <div className="pf-seg pf-modes" role="group" aria-label="每列几张卡">
-                  {(['lean', 'three', 'full'] as const).map((level) => (
-                    <button
-                      key={level}
-                      type="button"
-                      className="pf-segbtn"
-                      aria-pressed={level === info}
-                      onClick={() => pickInfo(level)}
-                    >
-                      {INFO_LABELS[level]}
-                    </button>
-                  ))}
+            {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
+              <React.Fragment>
+                <div className="pf-boardbar">
+                  <h3 className="pf-colhead">进行中</h3>
+                  <h3 className="pf-colhead">刚完成</h3>
+                  <div className="pf-boardtail">
+                    <h3 className="pf-colhead">即将进线</h3>
+                    <div className="pf-seg pf-modes" role="group" aria-label="每列几张卡">
+                      {(['lean', 'three', 'full'] as const).map((level) => (
+                        <button
+                          key={level}
+                          type="button"
+                          className="pf-segbtn"
+                          aria-pressed={level === info}
+                          onClick={() => pickInfo(level)}
+                        >
+                          {INFO_LABELS[level]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            <div className="pf-cols" id="cols" ref={colsRef}>
-              {project === null ? null : <BoardColumns project={project} cap={capOf(info, fullCap)} go={cardGo} />}
-            </div>
+                <div className="pf-cols" id="cols" ref={colsRef}>
+                  {project === null ? null : <BoardColumns project={project} cap={capOf(info, fullCap)} go={cardGo} />}
+                </div>
+              </React.Fragment>
+            )}
           </section>
 
           <div
@@ -425,6 +438,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             data-fill=""
             hidden={tab !== 'detail'}
           >
+            {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
             <div className="pf-detail" style={{ ['--pf-side-w' as string]: `${sideWidth}px` }}>
               <div className="pf-lineside" role="group" aria-label="线路">
                 {cycles.map((cycle) => (
@@ -461,6 +475,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
                 </div>
               </div>
             </div>
+            )}
           </div>
 
           <div
@@ -471,27 +486,31 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             data-fill=""
             hidden={tab !== 'notes'}
           >
-            {project === null ? null : (
-              <InstructionAdd
-                cycles={cycles}
-                inHand={project.columns.running[0] ?? null}
-                onAdd={(text, scope, cycle, node) => (
-                  onWrite(() => port.say(sessionId ?? '', workspaceRoot, text, scope, cycle, node))
+            {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
+              <React.Fragment>
+                {project === null ? null : (
+                  <InstructionAdd
+                    cycles={cycles}
+                    inHand={project.columns.running[0] ?? null}
+                    onAdd={(text, scope, cycle, node) => (
+                      onWrite(() => port.say(sessionId ?? '', workspaceRoot, text, scope, cycle, node))
+                    )}
+                  />
                 )}
-              />
+                <div className="pf-scroll" id="notes-scroll" role="region" aria-label="用户指令" tabIndex={0}>
+                  {project === null ? null : (
+                    <InstructionBook
+                      project={project}
+                      raw={reading?.instructions ?? []}
+                      showArchived={stored.archived}
+                      onArchive={(id) => { void onWrite(() => port.write('archive', sessionId ?? '', workspaceRoot, id)) }}
+                      onRevive={(id) => { void onWrite(() => port.write('revive', sessionId ?? '', workspaceRoot, id)) }}
+                      onDelete={(instruction) => setDeleting(instruction)}
+                    />
+                  )}
+                </div>
+              </React.Fragment>
             )}
-            <div className="pf-scroll" id="notes-scroll" role="region" aria-label="用户指令" tabIndex={0}>
-              {project === null ? null : (
-                <InstructionBook
-                  project={project}
-                  raw={reading?.instructions ?? []}
-                  showArchived={stored.archived}
-                  onArchive={(id) => { void onWrite(() => port.write('archive', sessionId ?? '', workspaceRoot, id)) }}
-                  onRevive={(id) => { void onWrite(() => port.write('revive', sessionId ?? '', workspaceRoot, id)) }}
-                  onDelete={(instruction) => setDeleting(instruction)}
-                />
-              )}
-            </div>
           </div>
 
           <div
@@ -502,7 +521,8 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             data-fill=""
             hidden={tab !== 'wires'}
           >
-            {project === null ? null : <DependencyField project={project} active={tab === 'wires'} />}
+            {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p>
+              : project === null ? null : <DependencyField project={project} active={tab === 'wires'} />}
           </div>
 
           <div
@@ -522,6 +542,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             port={port}
             sessionId={sessionId ?? ''}
             workspaceRoot={workspaceRoot}
+            noNodes={noNodes}
             active={tab === 'config'}
             onNote={setNote}
           />

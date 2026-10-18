@@ -18,6 +18,9 @@ const CASE_MIN = 360
 /** 键盘挪那道缝时一步走多远。 */
 const BAR_STEP = 16
 
+/** 这个工作区里还没有问题那一份记录时，这一格摆的那一句——那五个跟节点走的格子说的是同一句。 */
+const NOT_ENABLED = '当前工作区尚未启用 Pathfinder。'
+
 const STATE_WORD: Readonly<Record<string, string>> = {
   open: '未解决',
   acknowledged: '已承认',
@@ -128,6 +131,10 @@ export function IssuePool(props: {
   const foldOf = (group: IssueGroupReading): boolean => (
     folds[group.key] ?? (selected !== null && selected.status === group.key)
   )
+
+  /* 这一格只跟问题那一份走：它不在（或者里面一条都没有）时，这一格收成一句话，与那五个格子说的
+   * 是同一句。登记簿、两半之间那道缝与「一案」都是替记录说它没说的话——没有的东西不画。 */
+  if (pool.rows.length === 0) return <p className="pf-innone">{NOT_ENABLED}</p>
 
   const splitStyle = left === null ? undefined : ({ ['--pf-left' as string]: `${String(left)}px` } as React.CSSProperties)
 

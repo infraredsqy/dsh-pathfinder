@@ -26,6 +26,13 @@ const emptySessionId = 'panel-check-empty'
 /** 第四份工作区：`.pf` 与四份文件都在，但没有一份是可读的 JSON——「记录读不动」那一档的实景。 */
 const brokenWorkspace = join(work, 'broken')
 const brokenSessionId = 'panel-check-broken'
+/** 第五份工作区：管线三份都在、问题池那一份不在——问题那一格收成一句话那一档的实景。 */
+const bareWorkspace = join(work, 'bare')
+const bareSessionId = 'panel-check-bare'
+/** 第六份工作区：只有问题池（`pf issue scan` 在一个自己还没有管线的仓里写下的就是这份），
+ * 管线三份都不在——看板收成一句话那一档的实景。 */
+const poorWorkspace = join(work, 'poor')
+const poorSessionId = 'panel-check-poor'
 
 const failures = []
 const lines = []
@@ -135,6 +142,15 @@ for (const path of ['ideas.json', 'state.json', 'instructions.json', join('issue
 copyRecord(record)
 check('记录拷贝就位', existsSync(join(record, 'instructions.json')), record.replace(root, '.'))
 
+/* 这两档为「记录在，只是某一份来源里一条都没有」造底：一处拿走问题池那一份，一处只留它。
+ * 两档都不是「没有记录」——`.pf` 都列得到，所以面板照旧画六格。 */
+copyRecord(join(bareWorkspace, '.pf'))
+rmSync(join(bareWorkspace, '.pf', 'issues', 'issues.json'), { force: true })
+copyRecord(join(poorWorkspace, '.pf'))
+for (const path of ['ideas.json', 'state.json', 'instructions.json']) {
+  rmSync(join(poorWorkspace, '.pf', path), { force: true })
+}
+
 /** 一份记录当下的样子：两个新看法不落笔，靠它比一遍。 */
 function recordDigest() {
   const walk = (dir) => readdirSync(dir, { withFileTypes: true })
@@ -231,6 +247,8 @@ const sessionWorkspaces = new Map([
   [parkedSessionId, parkedWorkspace],
   [emptySessionId, emptyWorkspace],
   [brokenSessionId, brokenWorkspace],
+  [bareSessionId, bareWorkspace],
+  [poorSessionId, poorWorkspace],
 ])
 
 const hostCtx = {
@@ -775,6 +793,54 @@ check(
     && brokenHost.querySelector('.pf-count') === null
     && brokenHost.querySelectorAll('.pf-pane').length === 0,
   `工作区=${brokenWorkspace.replace(root, '.')}（.pf 在、四份读不动） ｜ .pf-none p=${JSON.stringify(brokenSaid)} ｜ 标签 ${String(brokenHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(brokenHost.querySelectorAll('.pf-count').length)} 处、六格 ${String(brokenHost.querySelectorAll('.pf-pane').length)} 处`,
+)
+
+/* 管线在、问题池空那一档：五个跟节点走的格子照旧（看板有卡、设置那一格摆的是控件），问题那一格
+ * 收成一句「当前工作区尚未启用 Pathfinder」——它只跟问题那一份走。 */
+const bareHost = window.document.createElement('div')
+window.document.body.appendChild(bareHost)
+const bareRoot = createRoot(bareHost)
+await act(async () => {
+  bareRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId: bareSessionId, prefs: panel.prefs }))
+})
+await settle()
+const bareSaid = flat(bareHost.querySelector('#pane-issue .pf-innone'))
+check(
+  '有节点、问题池空的工作区：五个跟节点走的格子照旧，问题那一格收成「当前工作区尚未启用 Pathfinder」',
+  bareHost.querySelector('.pf-none') === null
+    && bareHost.querySelector('#pane-now .pf-boardbar') !== null
+    && bareHost.querySelectorAll('#pane-now .pf-card').length > 0
+    && bareHost.querySelector('#census .pf-pill') !== null
+    && bareHost.querySelector('#pane-config .pf-configwrap') !== null
+    && bareSaid === '当前工作区尚未启用 Pathfinder。'
+    && bareHost.querySelector('#pane-issue .pf-split') === null,
+  `工作区=${bareWorkspace.replace(root, '.')}（管线在、问题池那一份不在） ｜ 看板 ${String(bareHost.querySelectorAll('#pane-now .pf-card').length)} 张卡 ｜ 问题那一格说=${JSON.stringify(bareSaid)}`,
+)
+
+/* 只有问题池那一档（`pf issue scan` 在一个自己还没有管线的仓里写下的就是这份）：五个跟节点走的
+ * 格子各自收成同一句话，页头那排计数也不再报三个 0；问题那一格特派——它照旧画那个池子，条目一
+ * 条不少。 */
+const poorHost = window.document.createElement('div')
+window.document.body.appendChild(poorHost)
+const poorRoot = createRoot(poorHost)
+await act(async () => {
+  poorRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId: poorSessionId, prefs: panel.prefs }))
+})
+await settle()
+const poorSaid = ['now', 'detail', 'wires', 'notes', 'config']
+  .map((id) => flat(poorHost.querySelector(`#pane-${id} .pf-innone`)))
+const poorIssues = poorHost.querySelectorAll('#pane-issue .pf-row[data-issue]').length
+check(
+  '只有问题池的工作区：五个跟节点走的格子各自收成同一句话，问题那一格照旧画池子',
+  poorHost.querySelector('.pf-none') === null
+    && poorSaid.every((said) => said === '当前工作区尚未启用 Pathfinder。')
+    && poorHost.querySelectorAll('.pf-tabs').length === 1
+    && poorHost.querySelectorAll('.pf-pane').length === 6
+    && poorHost.querySelector('#pane-now .pf-boardbar') === null
+    && poorHost.querySelector('#census') === null
+    && poorHost.querySelector('#pane-issue .pf-innone') === null
+    && poorIssues > 0,
+  `工作区=${poorWorkspace.replace(root, '.')}（只有问题池） ｜ 五格=${JSON.stringify(poorSaid)} ｜ 页头计数 ${String(poorHost.querySelectorAll('#census').length)} 处、六格 ${String(poorHost.querySelectorAll('.pf-pane').length)} 格 ｜ 问题那一格 ${String(poorIssues)} 条`,
 )
 
 /* 读得回来的那一份照旧：标签、计数与六格都在，正文里没有那句话。 */
