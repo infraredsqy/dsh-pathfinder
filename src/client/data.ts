@@ -11,6 +11,7 @@
  * @module dsh-pathfinder/client/data
  */
 import type { PathfinderReading } from '../host/contract.ts'
+import type { PathfinderConfigReading } from '../host/project-config.ts'
 import type { PfOutcome } from '../host/write.ts'
 import type { CyclePolicyKey } from '../host/gateway.ts'
 
@@ -42,6 +43,10 @@ export interface PanelPort {
   write(verb: WriteVerb, sessionId: string, id: string): Promise<PfOutcome>
   /** 写一条线自己的一个策略数。 */
   setPolicy(sessionId: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome>
+  /** 这个工作区的项目设置：有效值与它住在哪一层，从工具那一条命令上来。 */
+  readConfig(sessionId: string): Promise<PathfinderConfigReading>
+  /** 写一条项目设置；落的永远是这个项目那一层。 */
+  setConfig(sessionId: string, key: string, value: string): Promise<PfOutcome>
 }
 
 /** 一条读数回来的样子：成了给值，没成给一句能读的话。 */
@@ -153,6 +158,15 @@ function remotePort(namespace: Service): PanelPort {
       const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, cycle, key, value })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
+    async readConfig(sessionId) {
+      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId })
+      if (!answer.ok) throw new Error(answer.message)
+      return answer.value
+    },
+    async setConfig(sessionId, key, value) {
+      const answer = await call<PfOutcome>('setConfig', { sessionId, key, value })
+      return answer.ok ? answer.value : { ok: false, text: answer.message }
+    },
   }
 }
 
@@ -181,6 +195,15 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
       const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, cycle, key, value })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
+    async readConfig(sessionId) {
+      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId })
+      if (!answer.ok) throw new Error(answer.message)
+      return answer.value
+    },
+    async setConfig(sessionId, key, value) {
+      const answer = await call<PfOutcome>('setConfig', { sessionId, key, value })
+      return answer.ok ? answer.value : { ok: false, text: answer.message }
+    },
   }
 }
 
@@ -190,7 +213,7 @@ function absentPort(): PanelPort {
     throw new Error('这个部署上没接上寻路记录的远程端，读数取不回来。')
   }
   const refused = async (): Promise<PfOutcome> => ({ ok: false, text: '这个部署上没有落笔那条口子。' })
-  return { source: 'none', read: missing, write: refused, setPolicy: refused }
+  return { source: 'none', read: missing, write: refused, setPolicy: refused, readConfig: missing, setConfig: refused }
 }
 
 /** 把 `{ ok, value }` 那一副脸摊成这一层用的两分支。 */

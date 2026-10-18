@@ -16,8 +16,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 
-/** 五个端点，与 `gateway.ts` 里那张表同一份口径。 */
-const ENDPOINTS = ['read', 'archiveInstruction', 'reviveInstruction', 'removeInstruction', 'setCyclePolicy']
+/** 七个端点，与 `gateway.ts` 里那张表同一份口径。 */
+const ENDPOINTS = [
+  'read',
+  'archiveInstruction',
+  'reviveInstruction',
+  'removeInstruction',
+  'setCyclePolicy',
+  'readConfig',
+  'setConfig',
+]
 
 /** 装得上那一对可选依赖就先问一声。 */
 const wired = await Promise.all([
@@ -107,7 +115,7 @@ async function liveGateway(root) {
   }
 }
 
-test('五个端点在源码模式下逐个叫得动：签名这一关先过，别的错另算', { skip: !wired }, async () => {
+test('七个端点在源码模式下逐个叫得动：签名这一关先过，别的错另算', { skip: !wired }, async () => {
   const root = syntheticWorkspace()
   const { ctx, call } = await liveGateway(root)
   try {
@@ -148,6 +156,11 @@ test('三个写端点与那条策略端点：网关也都叫得动', { skip: !wi
     assert.equal(removed.ok, true, String(removed.message))
     const policy = await call('setCyclePolicy', { sessionId: 's1', cycle: 'line-1', key: 'parallel', value: '2' })
     assert.equal(policy.ok, true, String(policy.message))
+    const listed = await call('readConfig', { sessionId: 's1' })
+    assert.equal(listed.ok, true, String(listed.message))
+    assert.equal(listed.value.project, root)
+    const written = await call('setConfig', { sessionId: 's1', key: 'test_tier', value: 'minimal' })
+    assert.equal(written.ok, true, String(written.message))
   } finally {
     await ctx.stop?.()
   }

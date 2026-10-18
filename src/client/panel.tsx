@@ -5,8 +5,9 @@
  * 那一刻的读数，这一层只把读数画出来。所以「面板印的每个字都来自记录」在结构上
  * 成立——换个工作区，换条会话，画出来的就是那一份。
  *
- * 依赖 / 问题两格接真记录（各自的看法住在 `field.tsx` 与 `pool.tsx`），设置仍只留座席：
- * 标签与空壳。蓝本那一页里的假外壳（会话栏、中间那道缝、左右两个把手、页头的工作区下拉）
+ * 依赖 / 问题两格接真记录（各自的看法住在 `field.tsx` 与 `pool.tsx`），设置那一格是这个工作区
+ * 自己的项目设置（住在 `config.tsx`，读写都经工具那条命令）：六格都接了真记录。
+ * 蓝本那一页里的假外壳（会话栏、中间那道缝、左右两个把手、页头的工作区下拉）
  * 不在这里——那些在 DSH 里是 DSH 自己的东西。
  *
  * 面板自己那几个显示偏好（每列几张卡、停在哪个看法、侧栏宽度、两个开关）不在这份文件里
@@ -33,6 +34,7 @@ import {
   VIEW_LABELS,
 } from './prefs.ts'
 import type { PanelPort, WriteVerb } from './data.ts'
+import { ConfigPane } from './config.tsx'
 import { DependencyField } from './field.tsx'
 import { IssuePool } from './pool.tsx'
 
@@ -418,7 +420,12 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             )}
           </div>
 
-          <Seat id="config" label="设置" hidden={tab !== 'config'} />
+          <ConfigPane
+            port={port}
+            sessionId={sessionId ?? ''}
+            active={tab === 'config'}
+            onNote={setNote}
+          />
         </div>
       </div>
 
@@ -714,22 +721,6 @@ function DetailGroup(props: { readonly group: Group; readonly nodes: readonly No
         </div>
       ))}
     </section>
-  )
-}
-
-/** 一个座席：标签与空壳，内容归各自的格。 */
-function Seat(props: { readonly id: ViewId; readonly label: string; readonly hidden: boolean }): React.ReactElement {
-  const { id, label } = props
-  return (
-    <div
-      className="pf-pane"
-      id={`pane-${id}`}
-      role="tabpanel"
-      aria-labelledby={`tab-${id}`}
-      aria-label={label}
-      data-fill=""
-      hidden={props.hidden}
-    />
   )
 }
 

@@ -2,8 +2,9 @@
  * 宿主半身的远端口：面板要的读数与每一次落笔，都从这里出这一层。
  *
  * 这一层与 `index.ts` 那条服务是同一条东西的两面：`read` 就是外面那条读记录的
- * 服务，另外四条是写面。每个端点上挂着一枚 `Remote` 记号——DSH 的网关按类上的记号
- * 现认这些端点（源码模式），所以这一格不必等一个类型生成器就能被浏览器半身叫到；
+ * 服务，另外几条是写面，末一对是这个工作区自己的项目设置（读一行、写一行，都经工具
+ * 那条命令）。每个端点上挂着一枚 `Remote` 记号——DSH 的网关按类上的记号现认这些端点
+ * （源码模式），所以这一格不必等一个类型生成器就能被浏览器半身叫到；
  * 记号里的方法名就是端点名，命名空间是服务键 `pathfinderRecords`。
  *
  * 记号按函数调用的形式挂上去，写在构造函数里：这个半身的源码要能被 Node 直接加载
@@ -25,6 +26,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { bindTypertRemote, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import type { TypertGatewayBinding } from '@deepseek-ai/dsh-typert-protocol'
 import type { PathfinderReading, PathfinderReadOptions, PathfinderRecords } from './contract.ts'
+import { CONFIG_KEYS, parseConfigList, type ConfigKey, type PathfinderConfigReading } from './project-config.ts'
 import { readReading } from './records.ts'
 import { runPf, type PfOutcome } from './write.ts'
 
@@ -45,6 +47,8 @@ const REMOTE_METHODS: readonly (readonly [string, string])[] = [
   ['reviveInstruction', 'reviveInstruction'],
   ['removeInstruction', 'removeInstruction'],
   ['setCyclePolicy', 'setCyclePolicy'],
+  ['readConfig', 'readConfig'],
+  ['setConfig', 'setConfig'],
 ]
 
 /**
@@ -151,6 +155,46 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   async setCyclePolicy(sessionId: SessionId, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome> {
     if (!CYCLE_POLICY_KEYS.includes(key)) return { ok: false, text: `不认得这个策略键：${key}` }
     return this.pf(sessionId, ['cycle', 'policy', cycle, key, value])
+  }
+
+  /**
+   * 把这个工作区的项目设置读出来。
+   *
+   * 读的是工具印的那四行——值住三层（出厂默认 / 全局 / 项目），有效值与它来自哪一层都只有
+   * 工具说得清：全局那一层住在家目录里，工作区文件口子看不进去。所以这一手起一条命令，而不是
+   * 读一份文件。
+   * @param sessionId - 会话身份；工作区根由它自己的会话头解析。
+   * @returns 工具印出来的每一行，连同它这一趟成了没有。
+   */
+  async readConfig(sessionId: SessionId): Promise<PathfinderConfigReading> {
+    const project = await workspaceRootOf(this.ctx, sessionId)
+    const outcome = await runPf(this.ctx, project, ['config', 'list'], new AbortController().signal)
+    return {
+      project,
+      ok: outcome.ok,
+      text: outcome.text,
+      entries: outcome.ok ? parseConfigList(outcome.text) : {},
+    }
+  }
+
+  /**
+   * 写一条项目设置。改的永远是**这个项目那一层**：不带 `--global`（那一层跟着人走，面板这一格
+   * 改的是这个工作区自己的事）。
+   *
+   * 没有 `--project <根>` 这一手：命令就跑在工作区根上，`config set` 的 `--project` 默认是当前
+   * 目录——落点一处不差，而写面那条命令行里的路径一律不过参数闸（它只放行 `[A-Za-z0-9_.:+-]`，
+   * Windows 的路径带反斜杠，加引号又会被 cmd 认错）。
+   *
+   * 值合不合法由工具判：它那一条 `parse_value` 是唯一的判据，非零退出时什么都没落盘。这一手
+   * 只拦键——不认得的键不往命令行上递。
+   * @param sessionId - 会话身份。
+   * @param key - 设置键。
+   * @param value - 要写进去的值。
+   * @returns 工具说了什么。
+   */
+  async setConfig(sessionId: SessionId, key: string, value: string): Promise<PfOutcome> {
+    if (!CONFIG_KEYS.includes(key as ConfigKey)) return { ok: false, text: `不认得这个设置键：${key}` }
+    return this.pf(sessionId, ['config', 'set', key, value])
   }
 
   /** 一条写命令：现算工作区根，再交给工具那一层。 */

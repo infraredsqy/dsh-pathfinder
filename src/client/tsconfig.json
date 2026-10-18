@@ -16,5 +16,5 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["./**/*.ts", "./**/*.tsx", "../model/**/*.ts", "../host/contract.ts", "../host/write.ts", "../host/gateway.ts", "../host/settings-fields.ts"]
+  "include": ["./**/*.ts", "./**/*.tsx", "../model/**/*.ts", "../host/contract.ts", "../host/write.ts", "../host/gateway.ts", "../host/settings-fields.ts", "../host/project-config.ts"]
 }

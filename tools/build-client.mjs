@@ -33,9 +33,10 @@
 // 开头的类（`.pf-pagewrap`）不算，照样加前缀。认错的话那条规则会原样进包、落在页面根上管到
 // DSH 的整个外壳，页面上不报错，所以真漏出去的那一条在这儿非零退出。
 //
-// 另有一处不在那六张表里：蓝本的主面板末位还挂着 `settings.css`（它的「设置」那一格住着
-// 设置页），里面与设置页版面无关的两条（舞台与框）在主面板上是生效的，照 CARRIED 取进来
-// ——不取整张表，也不在这里抄第二份。
+// 另有一处不在那六张表里：蓝本的主面板末位还挂着 `settings.css`——那一格的「设置」看法就是
+// 这张表画的（舞台、框、设置那一列的版面），而同一张表里还住着另一页（h-settings）的规矩。
+// 所以按 CARRIED 逐条取：主面板上真的生效的那几条，选择器一条一条明写在这儿，不取整张表，
+// 也不在这里抄第二份。
 //
 //   node tools/build-client.mjs
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -63,7 +64,10 @@ const SHEETS = [
 ]
 
 /** 蓝本那一页末位还挂着、但整张表不该进包的那几张：取它里面落在主面板 DOM 上的那几条。 */
-const CARRIED = [{ sheet: 'styles/settings.css', selectors: ['.pf-stage', '.pf-frame'] }]
+const CARRIED = [{
+  sheet: 'styles/settings.css',
+  selectors: ['.pf-stage', '.pf-frame', '.pf-configwrap', '.pf-configwrap .pf-scroll', '.pf-config', '.pf-config .pf-setrow', '.pf-vlayer'],
+}]
 
 /** 主面板那一层。 */
 const SCOPE = '.pf-page'

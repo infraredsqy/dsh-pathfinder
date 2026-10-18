@@ -165,21 +165,27 @@ const { readProject } = await import(pathToFileURL(join(root, 'src', 'model', 'i
 
 /** 起进程那一侧的最小替身：与宿主那份一样走 execFile，一样隐藏窗口。 */
 function spawner() {
+  let foundExecutable = null
   return {
     async resolveExecutable(command) {
-      return await new Promise((resolve, reject) => {
-        execFile('where', [command], { encoding: 'utf8', windowsHide: true }, (error, stdout) => {
-          if (error !== null) {
-            reject(error)
-            return
-          }
-          const found = String(stdout).split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0)
-          /* PATH 上那个同名的 sh 垫片排在 `.cmd` 前面，两者都不是这里要的那一个：
-           * 起得来的只有带可执行扩展名的那个。 */
-          const runnable = found.find((line) => /\.(cmd|exe|bat|com)$/iu.test(line))
-          resolve(runnable ?? found[0] ?? command)
+      /* 真部署里这条口子按 PATH 解一次就记着；夹具这一趟要叫十几条命令，每条都去 `where`
+       * 一遍是白花的。解出来的那个名字一次就够。 */
+      if (foundExecutable === null) {
+        foundExecutable = await new Promise((resolve, reject) => {
+          execFile('where', [command], { encoding: 'utf8', windowsHide: true }, (error, stdout) => {
+            if (error !== null) {
+              reject(error)
+              return
+            }
+            const found = String(stdout).split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0)
+            /* PATH 上那个同名的 sh 垫片排在 `.cmd` 前面，两者都不是这里要的那一个：
+             * 起得来的只有带可执行扩展名的那个。 */
+            const runnable = found.find((line) => /\.(cmd|exe|bat|com)$/iu.test(line))
+            resolve(runnable ?? found[0] ?? command)
+          })
         })
-      })
+      }
+      return foundExecutable
     },
     spawn(spec) {
       const collected = {}
@@ -231,6 +237,8 @@ function workspaceFiles(fallbackRoot) {
   }
 }
 
+const hostProcesses = spawner()
+
 const hostCtx = {
   workspaceFiles: workspaceFiles(workspace),
   sessions: {
@@ -243,7 +251,8 @@ const hostCtx = {
     },
   },
   sandboxPolicy: { workspaceRoot: workspace },
-  get: (name) => (name === 'sessionPersistence' ? undefined : name === 'subprocess' ? spawner() : undefined),
+  /* 真宿主上这就是一条服务：同一个口子，每次问到的是同一份。 */
+  get: (name) => (name === 'sessionPersistence' ? undefined : name === 'subprocess' ? hostProcesses : undefined),
   provide: () => undefined,
 }
 
@@ -264,6 +273,8 @@ const remoteFace = {
   reviveInstruction: wrapped((...values) => gateway.reviveInstruction(...values)),
   removeInstruction: wrapped((...values) => gateway.removeInstruction(...values)),
   setCyclePolicy: wrapped((...values) => gateway.setCyclePolicy(...values)),
+  readConfig: wrapped((...values) => gateway.readConfig(...values)),
+  setConfig: wrapped((...values) => gateway.setConfig(...values)),
 }
 
 /* ---- 3. 浏览器半身挂进 jsdom ------------------------------------------- */
@@ -558,6 +569,13 @@ const trackedPort = {
     writeCalls.push(`setPolicy/${key}`)
     return track(panel.port.setPolicy(id, cycle, key, value))
   },
+  readConfig(id) {
+    return track(panel.port.readConfig(id))
+  },
+  setConfig(id, key, value) {
+    writeCalls.push(`setConfig/${key}`)
+    return track(panel.port.setConfig(id, key, value))
+  },
 }
 /** 等这一趟的面板动作走完：写完了它还会再读一次，所以一直等到没有在飞的东西。 */
 const settle = async () => {
@@ -837,7 +855,7 @@ check(
  * 「某一组规则整条不见了」——把页头那批 `.pf-count` 从进包的路上整批丢掉，上面照样全绿。
  * 这里补一条整体尺子：进包的 css 是 `mock/` 那几张表的机械改写（只重写选择器，声明一个
  * 字节不动），所以逐表逐条比得出来——套着它的那几层 at-rule、选择器、声明正文三样都要
- * 对得上；差额只允许是明写取进来的 `CARRIED` 那两条。
+ * 对得上；差额只允许是明写取进来的 `CARRIED` 那几条。
  *
  * 尺子**自己**写一份表清单与一份收拢映射，不 import 构建口那一份：拿被测方自己的算法算
  * 期望值，尺子就等于没量（把某一批规则丢掉的那次改动会在两边同时生效，照样全绿）。
@@ -858,7 +876,10 @@ const SHEETS = [
   { sheet: 'styles/field.css', scope: '.is-embed' },
   { sheet: 'styles/register.css', scope: '.is-embed' },
 ]
-const CARRIED = [{ sheet: 'styles/settings.css', selectors: ['.pf-stage', '.pf-frame'] }]
+const CARRIED = [{
+  sheet: 'styles/settings.css',
+  selectors: ['.pf-stage', '.pf-frame', '.pf-configwrap', '.pf-configwrap .pf-scroll', '.pf-config', '.pf-config .pf-setrow', '.pf-vlayer'],
+}]
 const SCOPE = '.pf-page'
 /** 蓝本里写在页面根上的那几段：收拢后落到那一层自己身上。 */
 const PAGE_ROOTS = new Set([':root', 'html', 'body'])
@@ -984,7 +1005,7 @@ const carriedGot = productEntries.slice(cursor, cursor + carriedWanted.length)
 cursor += carriedWanted.length
 const carriedBad = firstMismatch(carriedWanted, carriedGot)
 check(
-  '整张 settings.css 不进包，只按明写取进来的两条（.pf-stage / .pf-frame）与 mock/ 逐条等价',
+  '整张 settings.css 不进包，只按明写取进来的那几条（舞台、框、设置那一列的版面）与 mock/ 逐条等价',
   carriedBad === null && carriedWanted.length === CARRIED[0].selectors.length,
   `${String(carriedWanted.length)} 条对上 ｜ ${carriedBad === null ? '逐条相等' : carriedBad.reading}`,
 )
@@ -1390,6 +1411,258 @@ check(
   writeCalls.length === writesBefore && recordDigest() === recordBefore,
   `写面调用 ${String(writeCalls.length - writesBefore)} 次 ｜ 记录 ${recordDigest() === recordBefore ? '一个字节没动' : '变了'}`,
 )
+
+/* ---- 4d. 设置那一格：这个工作区自己的项目设置，读出来、就在这里改 --------------
+ *
+ * 四行、三种控件、行尾一枚层签，照蓝本。两侧读数：一边是面板上摆出来的，一边是**真工具**
+ * 对着同一份工作区印的那四行。改一处写回**这个项目那一层**，改完重读一遍——读数落在那份
+ * 记录文件上（`workspace/.pf/config.json`），面板自己回读的那一份不作数。这一节跑在临时拷贝
+ * 上，本仓那份记录库一个字节不动。
+ *
+ * 非法值那两档：一个越界数字（数字框里真敲进去），一个不在候选表里的档位（下拉里塞一枚假的
+ * 候选值再选它——真面板上点不出这一手，塞的这一枚就是为了把那句话逼出来）。两趟都要落在
+ * 「记录保持原值、界面回到原值」上。
+ */
+
+const { parseConfigList } = await import(pathToFileURL(join(root, 'src', 'host', 'project-config.ts')).href)
+const listed = await runPf(hostCtx, workspace, ['config', 'list'], new AbortController().signal)
+const truth = parseConfigList(listed.text)
+/** 记录里那三个层名读作面板上那三个词（蓝本给的那一份说法）。 */
+const LAYER_WORD = { default: '默认', project: '本项目', global: '全局' }
+check(
+  '设置那一格：真工具对着这份工作区印得出四行设置',
+  listed.ok && Object.keys(truth).length === 4,
+  listed.text.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).join(' ｜ '),
+)
+
+const storedConfig = () => JSON.parse(readFileSync(join(record, 'config.json'), 'utf8'))
+/** 一份面板里那一格的读数：四行的键、控件上摆的值、行尾那枚层签。 */
+const configReadings = (scope) => [...(scope?.querySelectorAll('#pane-config .pf-setrow') ?? [])].map((row) => {
+  const pick = row.querySelector('select')
+  const box = row.querySelector('input')
+  const pressed = [...row.querySelectorAll('.pf-segbtn')].find((button) => button.getAttribute('aria-pressed') === 'true')
+  return {
+    key: row.getAttribute('data-key'),
+    name: row.querySelector('.pf-setlabel')?.textContent ?? '',
+    value: pick !== null ? pick.value : box !== null ? box.value : pressed?.textContent === '开' ? 'on' : pressed === undefined ? '（未设置）' : 'off',
+    layer: row.querySelector('.pf-vlayer')?.textContent ?? '（没有层签）',
+  }
+})
+
+await act(async () => { tabs[5].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await settle()
+const configPane = container.querySelector('#pane-config')
+const shownFirst = configReadings(container)
+/** 工具那一侧的期望：每一行的值，加上它住的那一层读作哪个词。 */
+const wantedFirst = ['worktree_mode', 'test_tier', 'max_agents', 'issue_repair'].map((key) => ({
+  key,
+  value: truth[key]?.value ?? '（工具没印这一行）',
+  layer: truth[key] === undefined || truth[key].layer === null ? '（没有层签）' : LAYER_WORD[truth[key].layer],
+}))
+check(
+  '设置那一格：四行的值与层签逐行与真工具印的那份对上',
+  JSON.stringify(shownFirst.map((row) => [row.key, row.value, row.layer]))
+    === JSON.stringify(wantedFirst.map((row) => [row.key, row.value, row.layer])),
+  `工具那边：${wantedFirst.map((row) => `${row.key}=${row.value}(${row.layer})`).join(' ')} ｜ 面板这边：${shownFirst.map((row) => `${row.key}=${row.value}(${row.layer})`).join(' ')}`,
+)
+check(
+  '设置那一格：四行、三种控件、四枚层签都在',
+  shownFirst.length === 4
+    && configPane?.querySelectorAll('select').length === 2
+    && configPane?.querySelectorAll('input.pf-numin').length === 1
+    && configPane?.querySelectorAll('.pf-seg').length === 1
+    && configPane?.querySelectorAll('.pf-vlayer').length === 4,
+  `行=${String(shownFirst.length)} 下拉=${String(configPane?.querySelectorAll('select').length)} 数字框=${String(configPane?.querySelectorAll('input.pf-numin').length)} 开-关=${String(configPane?.querySelectorAll('.pf-seg').length)} 层签=${String(configPane?.querySelectorAll('.pf-vlayer').length)} ｜ 名字=${shownFirst.map((row) => row.name).join('/')}`,
+)
+
+/* 每一行的控件各递一手：下拉与数字框走**原型上的 setter**（React 在节点自己身上记着上一次
+ * 的值，直接写 `element.value` 会被它当成没变过），开-关那一枚点一下就行。 */
+const rowIn = (scope, key) => [...(scope?.querySelectorAll('#pane-config .pf-setrow') ?? [])]
+  .find((row) => row.getAttribute('data-key') === key)
+const setSelect = async (row, value) => {
+  const select = row.querySelector('select')
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set
+  await act(async () => {
+    setValue.call(select, value)
+    select.dispatchEvent(new window.Event('change', { bubbles: true }))
+  })
+  await settle()
+}
+const typeNumber = async (row, value) => {
+  const field = row.querySelector('input')
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+  await act(async () => {
+    field.focus()
+    setValue.call(field, String(value))
+    field.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await act(async () => { field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+  await settle()
+}
+const pressToggle = async (row, word) => {
+  const button = [...row.querySelectorAll('.pf-segbtn')].find((one) => one.textContent === word)
+  await act(async () => { button.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+  await settle()
+}
+const noteLine = () => [...container.querySelectorAll('.pf-innone')].map((node) => node.textContent ?? '').join(' | ')
+const other = (list, current) => list.find((one) => one !== current) ?? current
+
+/* 四行各改一次，都改成另一个合法值。 */
+const wrote = []
+const worktreeRow = rowIn(container, 'worktree_mode')
+const worktreeNext = other([...worktreeRow.querySelectorAll('option')].map((option) => option.value), worktreeRow.querySelector('select').value)
+await setSelect(worktreeRow, worktreeNext)
+wrote.push(`worktree_mode → ${worktreeNext}`)
+check(
+  'worktree 档改一次：记录里真的是那个值，面板上跟着换成它',
+  storedConfig().worktree_mode === worktreeNext && rowIn(container, 'worktree_mode').querySelector('select').value === worktreeNext,
+  `记录里=${String(storedConfig().worktree_mode)} 面板上=${rowIn(container, 'worktree_mode').querySelector('select').value}`,
+)
+
+const tierRow = rowIn(container, 'test_tier')
+const tierNext = other([...tierRow.querySelectorAll('option')].map((option) => option.value), tierRow.querySelector('select').value)
+await setSelect(tierRow, tierNext)
+wrote.push(`test_tier → ${tierNext}`)
+check(
+  '测试档改一次：记录里真的是那个值，面板上跟着换成它',
+  storedConfig().test_tier === tierNext && rowIn(container, 'test_tier').querySelector('select').value === tierNext,
+  `记录里=${String(storedConfig().test_tier)} 面板上=${rowIn(container, 'test_tier').querySelector('select').value}`,
+)
+
+const agentRow = rowIn(container, 'max_agents')
+const agentNext = String(Number(agentRow.querySelector('input').value) + 1)
+await typeNumber(agentRow, agentNext)
+wrote.push(`max_agents → ${agentNext}`)
+check(
+  '并行上限改一次：记录里真的是那个数，框里跟着换成它',
+  storedConfig().max_agents === Number(agentNext) && rowIn(container, 'max_agents').querySelector('input').value === agentNext,
+  `记录里=${String(storedConfig().max_agents)} 框里=${rowIn(container, 'max_agents').querySelector('input').value}`,
+)
+
+const issueRow = rowIn(container, 'issue_repair')
+await pressToggle(issueRow, '关')
+wrote.push('issue_repair → off')
+check(
+  'issue 开关改一次：记录里真的是那个值，面板上跟着换成它',
+  storedConfig().issue_repair === 'off' && rowIn(container, 'issue_repair').querySelector('.pf-segbtn[aria-pressed="true"]')?.textContent === '关',
+  `记录里=${String(storedConfig().issue_repair)} 面板上按下的是=${String(rowIn(container, 'issue_repair').querySelector('.pf-segbtn[aria-pressed="true"]')?.textContent)}`,
+)
+lines.push(`      设置那一格四行各改一次：${wrote.join(' ｜ ')}`)
+
+/* 写完四行：四个值都住在这个项目那一层，层签跟着真住处一起翻。 */
+const shownAfter = configReadings(container)
+const configNow = storedConfig()
+check(
+  '写完这四行：层签四枚全读作「本项目」（写的永远是这一层），值与记录里那四个值一致',
+  shownAfter.length === 4 && shownAfter.every((row) => row.layer === '本项目')
+    && shownAfter.every((row) => row.value === String(configNow[row.key])),
+  `层签=${shownAfter.map((row) => `${row.key}=${row.layer}`).join(' ')} ｜ 面板上=${JSON.stringify(shownAfter.map((row) => row.value))} ｜ 记录里=${JSON.stringify(configNow)}`,
+)
+
+/* 非法值 1：越界数字。记录保持原值，框里回到原值，工具那句话落在面板底下那条提示行上。 */
+const beforeIllegal = storedConfig()
+await typeNumber(rowIn(container, 'max_agents'), '0')
+check(
+  '越界数字不落记录：记录保持原值，框里回到原值，提示行摆的是工具那句话',
+  storedConfig().max_agents === beforeIllegal.max_agents
+    && rowIn(container, 'max_agents').querySelector('input').value === String(beforeIllegal.max_agents)
+    && noteLine().includes('正整数'),
+  `记的是 0 ｜ 记录里=${String(storedConfig().max_agents)} 框里=${rowIn(container, 'max_agents').querySelector('input').value} 提示行=${noteLine() === '' ? '（空）' : noteLine()}`,
+)
+
+/* 非法值 2：不在候选表里的档位。下拉里塞一枚假的候选值再选它——真面板上点不出这一手。 */
+const forgedRow = rowIn(container, 'test_tier')
+const forgedSelect = forgedRow.querySelector('select')
+const forged = window.document.createElement('option')
+forged.value = 'partial'
+forged.textContent = 'partial'
+forgedSelect.appendChild(forged)
+await setSelect(forgedRow, 'partial')
+forged.remove()
+check(
+  '非法档位不落记录：记录保持原值，下拉回到原值，提示行摆的是工具那句话',
+  storedConfig().test_tier === beforeIllegal.test_tier
+    && rowIn(container, 'test_tier').querySelector('select').value === beforeIllegal.test_tier
+    && noteLine().includes('minimal'),
+  `记的是 partial ｜ 记录里=${String(storedConfig().test_tier)} 下拉里=${rowIn(container, 'test_tier').querySelector('select').value} 提示行=${noteLine() === '' ? '（空）' : noteLine()}`,
+)
+
+/* 那一列的两枚把手：默认 720，左右各一枚贴着列缘，拖一下改列宽，双击回默认。 */
+const wrap = configPane?.querySelector('.pf-configwrap')
+const configWidth = () => wrap?.style.getPropertyValue('--pf-config-w') ?? ''
+const grips = () => [...(configPane?.querySelectorAll('.pf-grip') ?? [])]
+check(
+  '那一列：默认 720，左右各一枚把手，标签与上下限都在',
+  configWidth() === '720px' && grips().length === 2
+    && grips()[0].getAttribute('data-side') === 'left' && grips()[1].getAttribute('data-side') === 'right'
+    && grips()[0].getAttribute('aria-valuemin') === '480' && grips()[0].getAttribute('aria-valuemax') === '960',
+  `宽度=${configWidth()} 把手=${grips().map((grip) => `${String(grip.getAttribute('data-side'))}/min=${String(grip.getAttribute('aria-valuemin'))}/max=${String(grip.getAttribute('aria-valuemax'))}`).join(' ')}`,
+)
+const arrow = async (grip, key, shift = false) => {
+  await act(async () => {
+    grip.dispatchEvent(new window.KeyboardEvent('keydown', { key, shiftKey: shift, bubbles: true }))
+  })
+}
+await arrow(grips()[1], 'ArrowRight')
+const afterStep = configWidth()
+await arrow(grips()[1], 'ArrowRight', true)
+const afterBig = configWidth()
+await arrow(grips()[0], 'ArrowLeft')
+const afterLeft = configWidth()
+for (let round = 0; round < 20; round += 1) await arrow(grips()[1], 'ArrowRight')
+const afterClamp = configWidth()
+await act(async () => { grips()[1].dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })) })
+check(
+  '那一列的把手：一步 24、按住 shift 一步 48、左边那一枚往左推是放宽、拖到 960 就停、双击回 720',
+  afterStep === '744px' && afterBig === '792px' && afterLeft === '816px'
+    && afterClamp === '960px' && configWidth() === '720px',
+  `默认 720px → 右一步 ${afterStep} → shift 一步 ${afterBig} → 左扳手往左 ${afterLeft} → 顶到头 ${afterClamp} → 双击 ${configWidth()}`,
+)
+/* 真拖一下：jsdom 没有指针捕获那三个方法，先补上桩（与明细那道缝同一套量法）。 */
+const dragged = grips()[1]
+const configCaptured = new Set()
+dragged.setPointerCapture = (id) => { configCaptured.add(id) }
+dragged.hasPointerCapture = (id) => configCaptured.has(id)
+dragged.releasePointerCapture = (id) => { configCaptured.delete(id) }
+const configPointerAt = (type, clientX) => {
+  const event = new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 0, button: 0 })
+  Object.defineProperty(event, 'pointerId', { value: 1 })
+  return event
+}
+await act(async () => {
+  dragged.dispatchEvent(configPointerAt('pointerdown', 100))
+  dragged.dispatchEvent(configPointerAt('pointermove', 140))
+})
+const afterDrag = configWidth()
+await act(async () => { dragged.dispatchEvent(configPointerAt('pointerup', 140)) })
+check(
+  '那一列真拖得动：右侧缘往右挪 40px，列宽 +80（两侧对称、中心不动）',
+  afterDrag === '800px',
+  `拖前 720px ｜ 指针挪 +40px 后列宽=${afterDrag}`,
+)
+await act(async () => { grips()[1].dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })) })
+
+/* 重开一份面板（同一份记录、同一条会话）：四行的读数与刚才那四个值还对得上。 */
+const reopenHost = window.document.createElement('div')
+window.document.body.appendChild(reopenHost)
+const reopenRoot = createRoot(reopenHost)
+await act(async () => {
+  reopenRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId, prefs: panel.prefs }))
+})
+await settle()
+await act(async () => { reopenHost.querySelector('#tab-config')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await settle()
+const reopened = configReadings(reopenHost)
+const storedAfter = storedConfig()
+check(
+  '重开一份面板：设置那一格的四行与记录里那四个值还对得上',
+  reopened.length === 4
+    && reopened.every((row) => row.value === String(storedAfter[row.key]))
+    && reopened.every((row) => row.layer === '本项目'),
+  `重开后面板上=${JSON.stringify(reopened.map((row) => `${row.key}=${row.value}`))} ｜ 记录里=${JSON.stringify(storedAfter)}`,
+)
+await act(async () => { reopenRoot.unmount() })
+lines.push(`      设置那一格收尾时记录里那四个值：${JSON.stringify(storedAfter)}`)
 
 /* ---- 5. 明细那道缝：真有入口，真拖得动，重开之后还在 -------------------- */
 

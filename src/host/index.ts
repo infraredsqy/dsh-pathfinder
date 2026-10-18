@@ -40,6 +40,8 @@ export { runPf } from './write.ts'
 export type { PfOutcome } from './write.ts'
 export { readReading, readWholeFile } from './records.ts'
 export type { PathfinderScope, WorkspaceFilesPort } from './records.ts'
+export { CONFIG_KEYS, parseConfigList } from './project-config.ts'
+export type { ConfigEntry, ConfigKey, ConfigLayer, PathfinderConfigReading } from './project-config.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
