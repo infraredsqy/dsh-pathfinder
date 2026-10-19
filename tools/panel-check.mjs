@@ -1720,10 +1720,9 @@ check(
   `aria-pressed=${String(fullKey?.getAttribute('aria-pressed'))} 设置文档里=${String(settingsDoc().showOtherStates)}`,
 )
 /* 反方向：上一段量的是「面板→文档」这一趟，这一条从设置里那一行翻，量「文档→面板」——
-   翻到关，那一排当场回到「精简」、未解决之外的行从登记簿里退出去；再翻回来还原。 */
+   翻到关，那一排当场回到「精简」、未解决之外的行从登记簿里退出去。 */
 const issueRowIds = () => [...(issuePane?.querySelectorAll('button.pf-row[data-issue]') ?? [])]
   .map((row) => row.getAttribute('data-issue'))
-const poolAllIds = project.pool.groups.flatMap((group) => group.entries.map((entry) => entry.id))
 const segPressed = (label) => [...(issuePane?.querySelectorAll('.pf-segbtn') ?? [])]
   .find((button) => button.textContent === label)?.getAttribute('aria-pressed')
 await flipSwitch('问题池里显示未解决之外的')
@@ -1734,14 +1733,83 @@ check(
     && JSON.stringify(issueRowIds()) === JSON.stringify(openIds),
   `面板上那一档=精简(${String(segPressed('精简'))}) 完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 行=${JSON.stringify(issueRowIds())}`,
 )
+/* 再翻回来：非 open 的组按登记簿的既有设计折成堆（设计法「折叠不动版面」）。一堆折不折的
+   契约在 pool.tsx 的 foldOf：先看手点没点过（folds 表，组件 state——翻档不重置），没点过
+   再看选中落没落在这一堆，落入哪堆哪堆自动展开；选中的来源照 fallback 那半句：未解决的
+   首条，清空时放下的三堆按 已承认→已解决→已驳回 取首条。这份夹具是活数据，未解决迟早
+   清零，期望不许假设「完整档默认全折」——开合、行集合、条数全部从 project.pool 现算。 */
+const stackedGroups = project.pool.groups.filter((group) => group.key !== 'open')
+const foldButtons = () => [...(issuePane?.querySelectorAll('.pf-register .pf-fold') ?? [])]
+const foldReadings = () => foldButtons().map((button) => [
+  button.getAttribute('aria-expanded'),
+  (button.textContent ?? '').replace(/\s+/gu, ' ').trim(),
+])
+const headLabels = () => [...(issuePane?.querySelectorAll('.pf-register .pf-head-label') ?? [])]
+  .map((node) => node.textContent ?? '')
 await flipSwitch('问题池里显示未解决之外的')
+/* 选中这一刻落在哪一堆（pool.tsx 的 fallback：open 首条，清空时才轮到放下的三堆）。 */
+const pickedGroupKey = (openGroup?.entries.length ?? 0) > 0
+  ? 'open'
+  : settingsDoc().showOtherStates !== true
+    ? null
+    : ['acknowledged', 'resolved', 'rejected']
+      .map((key) => stackedGroups.find((group) => group.key === key))
+      .find((group) => (group?.entries.length ?? 0) > 0)?.key ?? null
+/** 一堆此刻该开着吗：folds 是夹具替组件记的那张手点桌（点一下翻一面，翻档不动它）。 */
+const foldIsOpen = (folds, group) => folds[group.key] ?? (pickedGroupKey !== null && pickedGroupKey === group.key)
+const expectedFoldReadings = (folds) => stackedGroups.map((group) => (foldIsOpen(folds, group)
+  ? ['true', '收起']
+  : ['false', `展开其余 ${String(group.entries.length)} 条`]))
+const expectedRowIds = (folds) => project.pool.groups.flatMap((group) => (
+  group.key === 'open' || foldIsOpen(folds, group) ? group.entries.map((entry) => entry.id) : []
+))
 check(
-  '翻回开：那一排回到「完整」，未解决之外的行回到登记簿里（收尾还原）',
-  segPressed('完整') === 'true'
-    && settingsDoc().showOtherStates === true
-    && JSON.stringify(issueRowIds()) === JSON.stringify(poolAllIds),
-  `面板上那一档=完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 行数=${String(issueRowIds().length)}（未解决 ${String(openIds.length)} 条，全部 ${String(poolAllIds.length)} 条）`,
+  '翻回开：折堆头回到登记簿（组名在、每堆一枚展开钮标着条数），选中落入的那堆自动展开、其余折着',
+  segPressed('完整') === 'true' && settingsDoc().showOtherStates === true
+    && stackedGroups.length > 0
+    && JSON.stringify(issueRowIds()) === JSON.stringify(expectedRowIds({}))
+    && JSON.stringify(headLabels()) === JSON.stringify(project.pool.groups.map((group) => group.label))
+    && JSON.stringify(foldReadings()) === JSON.stringify(expectedFoldReadings({})),
+  `面板上那一档=完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 选中落在=${String(pickedGroupKey ?? '（无处）')} ｜ 行数=${String(issueRowIds().length)}（契约现算 ${String(expectedRowIds({}).length)} 条） ｜ 展开钮=${JSON.stringify(foldReadings())}（记录里非 open 的堆：${stackedGroups.map((group) => `${group.label} ${String(group.entries.length)} 条`).join('、') || '（没有）'}）`,
 )
+/* 点其中一堆的折堆钮：这一堆翻到与先前相反的一面，行集合与各堆开合跟着契约走。未解决有
+   条目时那堆是折着的，这一下就是「点开」；未解决清了、选中落进放下的堆时，这一下点的就
+   是「收起」——两种形态走同一条派生，不跳过任何一种。再翻到关，堆整个退出去——展开中
+   的那堆也在内。 */
+if (foldButtons()[0] !== undefined) {
+  const clickedGroup = stackedGroups[0]
+  const foldsAfterClick = { [clickedGroup.key]: !foldIsOpen({}, clickedGroup) }
+  await click(foldButtons()[0])
+  check(
+    '点其中一堆的折堆钮：这一堆翻到相反的一面（该组行集合跟着开合现出或收起，身份从记录那一堆来），别的堆不受牵连',
+    JSON.stringify(issueRowIds()) === JSON.stringify(expectedRowIds(foldsAfterClick))
+      && JSON.stringify(foldReadings()) === JSON.stringify(expectedFoldReadings(foldsAfterClick)),
+    `行数=${String(issueRowIds().length)}（未解决 ${String(openIds.length)} ＋ ${clickedGroup.label} ${String(clickedGroup.entries.length)}${foldIsOpen(foldsAfterClick, clickedGroup) ? '，这一堆现出' : '，这一堆收起'}） ｜ 展开钮=${JSON.stringify(foldReadings())}`,
+  )
+  await flipSwitch('问题池里显示未解决之外的')
+  check(
+    '翻到关：堆整个退出去——展开钮一枚不剩（展开中的那堆也在内），那一档停在「精简」',
+    segPressed('精简') === 'true' && segPressed('完整') === 'false'
+      && settingsDoc().showOtherStates === false
+      && foldButtons().length === 0
+      && JSON.stringify(issueRowIds()) === JSON.stringify(openIds),
+    `面板上那一档=精简(${String(segPressed('精简'))}) ｜ 展开钮剩 ${String(foldButtons().length)} 枚 ｜ 行数=${String(issueRowIds().length)}（未解决 ${String(openIds.length)} 条）`,
+  )
+  /* 收尾还原：翻回「完整」，把点过的那一堆翻回去——面板回到进这一节时的样子。展开状态跨
+     翻档保留（folds 是组件 state，翻档不重置），还原那一下能收对靠的就是这条，这里钉住：
+     还原后的开合与行集合照同一张 folds 桌现算——当前夹具下就是每堆 aria-expanded=false
+     的全折样子；未解决清空的形态下则是选中那一堆照契约回到展开。 */
+  await flipSwitch('问题池里显示未解决之外的')
+  if (foldButtons()[0] !== undefined) await click(foldButtons()[0])
+  const foldsAfterRestore = { ...foldsAfterClick, [clickedGroup.key]: !foldIsOpen(foldsAfterClick, clickedGroup) }
+  check(
+    '收尾还原：翻回「完整」再把点过的那堆翻回去，面板回到进这一节时的样子（折叠跨翻档保留，开合与行集合照契约现算）',
+    segPressed('完整') === 'true' && settingsDoc().showOtherStates === true
+      && JSON.stringify(issueRowIds()) === JSON.stringify(expectedRowIds(foldsAfterRestore))
+      && JSON.stringify(foldReadings()) === JSON.stringify(expectedFoldReadings(foldsAfterRestore)),
+    `面板上那一档=完整(${String(segPressed('完整'))}) ｜ 行数=${String(issueRowIds().length)}（契约现算 ${String(expectedRowIds(foldsAfterRestore).length)} 条） ｜ 展开钮=${JSON.stringify(foldReadings())}（契约现算 ${JSON.stringify(expectedFoldReadings(foldsAfterRestore))}）`,
+  )
+}
 check(
   '两个看法都不落笔：点过一遍，写面一次都没被叫过，记录一个字节没动',
   writeCalls.length === writesBefore && recordDigest() === recordBefore,
