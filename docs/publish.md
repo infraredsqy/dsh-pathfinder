@@ -76,7 +76,7 @@ dsh plugin --profile <名字> add dsh-pathfinder      # 用户侧
 作者侧把 `npm pack` 出的那一个 `.tgz` 传成 Release 的附件；用户侧下载附件，然后
 
 ```sh
-dsh plugin --profile <名字> add ./dsh-pathfinder-0.1.0.tgz
+dsh plugin --profile <名字> add ./dsh-pathfinder-0.1.0-alpha.1.tgz
 ```
 
 这条路与 npm 那一条装的是同一份预构建产物，不跑任何构建脚本。
