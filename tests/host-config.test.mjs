@@ -1,14 +1,14 @@
 /* 设置那一格的两条端点：锁的是「工具印的那几行读成什么」与「写的那一条命令长什么样」。
  *
- * 这一格读是把 `pf config list` 印出来的几行读开，写是把一条 `config set` 递出去，
- * 自己不判值合不合法（那是工具那一侧），也不自己拼 `.pf` 底下的路径。
+ * 这一格读是把 `pf config list` 印出来的几行读开；写是把一条 `config set` 递出去，键与值
+ * 都不拦，一并交工具判（它对不认得的键报错、非零退出、不落盘），也不自己拼 `.pf` 底下的路径。
  *
  *   node --test tests/
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
-import { CONFIG_KEYS, parseConfigList } from '../src/host/project-config.ts'
+import { parseConfigList } from '../src/host/project-config.ts'
 
 /** 本机 `pf config list` 印的那四行，原样。 */
 const LISTED = [
@@ -55,7 +55,8 @@ function wordsOf(spec) {
 test('工具印的四行：值与它住哪一层都读出来', () => {
   const entries = parseConfigList(LISTED)
 
-  assert.deepEqual(Object.keys(entries).sort(), [...CONFIG_KEYS].sort())
+  /* 键就是工具印出来的那几个：这里不立清单，印出来什么就读什么。 */
+  assert.deepEqual(Object.keys(entries).sort(), ['issue_repair', 'max_agents', 'test_tier', 'worktree_mode'])
   assert.deepEqual(entries['max_agents'], { value: '1', layer: 'project' })
   assert.deepEqual(entries['test_tier'], { value: 'full', layer: 'project' })
   assert.deepEqual(entries['worktree_mode'], { value: 'off', layer: 'project' })
@@ -127,14 +128,15 @@ test('写一条：pf config set <键> <值>，落的是项目那一层（不带 
   assert.equal(subprocess.specs[0].cwd, 'C:\\workspace')
 })
 
-test('无法识别的键：不递命令，直接拒', async () => {
-  const subprocess = fakeSubprocess()
+test('没登记的键照递：这一手不立放行表，键与值一并交工具判', async () => {
+  const subprocess = fakeSubprocess({ exitCode: 1, stderr: "Error: 'spawner' 不是可配的键" })
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const outcome = await gateway.setConfig('s1', '', 'spawner', 'dsh')
 
+  /* 命令照递，工具的那句报错原样上浮——仓内不再有「无法识别的设置键」这道闸。 */
   assert.equal(outcome.ok, false)
-  assert.deepEqual(subprocess.specs, [])
-  assert.match(outcome.text, /无法识别的设置键/u)
+  assert.deepEqual(wordsOf(subprocess.specs[0]), ['config', 'set', 'spawner', 'dsh'])
+  assert.match(outcome.text, /spawner/u)
 })
 
 test('值合不合法由工具判：面板这一手照递，回来的是它那一句话', async () => {

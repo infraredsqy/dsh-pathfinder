@@ -14,7 +14,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { bindTypertRemote, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import type { TypertGatewayBinding } from '@deepseek-ai/dsh-typert-protocol'
 import type { PathfinderReading, PathfinderReadOptions, PathfinderRecords } from './contract.ts'
-import { CONFIG_KEYS, parseConfigList, type ConfigKey, type PathfinderConfigReading } from './project-config.ts'
+import { parseConfigList, type PathfinderConfigReading } from './project-config.ts'
 import { readReading } from './records.ts'
 import { readSessionNotes, type PathfinderSessionsReading } from './sessions.ts'
 import { runPf, type PfOutcome } from './write.ts'
@@ -240,8 +240,9 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * 目录，落点一处不差；而写面那条命令行里的路径一律不过参数闸，它只放行 `[A-Za-z0-9_.:+-]`，
    * Windows 的路径带反斜杠，加引号又会被 cmd 认错。
    *
-   * 值合不合法由工具判：它那一条 `parse_value` 是唯一的判据，非零退出时什么都没落盘。这一手
-   * 只拦键，不认得的键不往命令行上递。
+   * 值合不合法由工具判：它那一条 `parse_value` 是唯一的判据，非零退出时什么都没落盘。键也是
+   * 同一个待遇：工具认得哪些键只有工具说得清，这里不立放行表，键与值一并照递——它对不认得的
+   * 键报错、非零退出、不落盘，那句话原样上浮。
    * @param sessionId - 会话身份。
    * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
    * @param key - 设置键。
@@ -249,7 +250,6 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * @returns 工具说了什么。
    */
   async setConfig(sessionId: SessionId, workspaceRoot: string, key: string, value: string): Promise<PfOutcome> {
-    if (!CONFIG_KEYS.includes(key as ConfigKey)) return { ok: false, text: `无法识别的设置键：${key}` }
     return this.#pf(sessionId, workspaceRoot, ['config', 'set', key, value])
   }
 

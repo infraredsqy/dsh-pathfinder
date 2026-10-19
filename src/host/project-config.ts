@@ -1,19 +1,10 @@
 /**
- * 这个工作区的项目设置：工具那一条命令印出来的四行，读成一份读数。
+ * 这个工作区的项目设置：工具那一条命令印出来的那几行，读成一份读数。
  *
  * 有效值与「它来自哪一层」只有工具知道（全局那一层住在家目录里，工作区文件口子看不进去），
- * 所以这一份只把 `pf config list` 印出来的每一行读开，不做第二套判断。
+ * 所以这一份只把 `pf config list` 印出来的每一行读开，不做第二套判断。工具认得哪些键也归
+ * 工具说：这里不立键的清单，印出来什么就读什么。
  */
-
-/**
- * 设置的键，与工具那一侧 `CONFIG_SPEC` 的键逐字相同。
- *
- * 写面按这张表放行：不认得的键不往命令行上递。这张表不管取值，一个值合不合法由工具自己判
- * （它那一份 `parse_value` 是唯一的判据），这里不抄第二份，抄了就会跟它漂移。
- */
-export const CONFIG_KEYS = ['max_agents', 'test_tier', 'worktree_mode', 'issue_repair'] as const
-
-export type ConfigKey = (typeof CONFIG_KEYS)[number]
 
 /** 一个值实际住在哪一层。 */
 export type ConfigLayer = 'default' | 'project' | 'global'

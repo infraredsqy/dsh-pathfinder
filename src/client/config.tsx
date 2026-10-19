@@ -1,20 +1,20 @@
 /**
- * 主面板第六格：这个工作区自己的项目设置。四行，一行一个控件，行尾一枚小签说这个值住在哪一层。
+ * 主面板第六格：这个工作区自己的项目设置。一行一个键、一行一个控件，行尾一枚小签说这个值住在哪一层。
  *
- * 读与写都走工具：有效值与「它来自哪一层」由工具印出来，写落在这个项目那一层。这一层不做第二套
- * 判断——一个值合不合法由工具说。页面上不摆乐观更新：控件印的永远是最近一次读回来的那份读数，
- * 改一下就写回、再读一遍，工具拒了的时候控件自己就回到原位。
+ * 读与写都走工具：有哪些键、有效值与「它来自哪一层」都由工具印出来，行的次序也跟着读数走，
+ * 写落在这个项目那一层。这一层不做第二套判断——键与值合不合法都由工具说。页面上不摆乐观更新：
+ * 控件印的永远是最近一次读回来的那份读数，改一下就写回、再读一遍，工具拒了的时候控件自己就回到原位。
  */
 import * as React from 'react'
-import type { ConfigEntry, ConfigKey, PathfinderConfigReading } from '../host/project-config.ts'
+import type { ConfigEntry, PathfinderConfigReading } from '../host/project-config.ts'
 import {
   clampConfigWidth,
-  CONFIG_ROWS,
   CONFIG_WIDTH,
   CONFIG_WIDTH_BIG,
   CONFIG_WIDTH_MAX,
   CONFIG_WIDTH_MIN,
   CONFIG_WIDTH_STEP,
+  configRowsOf,
   LAYER_WORDS,
   pickState,
   type ConfigRow,
@@ -92,8 +92,9 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
     return () => { live = false }
   }, [noNodes, active, sessionId, workspaceRoot, port, tick, note])
 
-  /* 写一下：工具说什么就是什么，写完再读一遍——控件印的永远跟着重读回来那一份走。 */
-  const send = React.useCallback((key: ConfigKey, next: string): void => {
+  /* 写一下：工具说什么就是什么，写完再读一遍——控件印的永远跟着重读回来那一份走。
+     键不拦：没登记的键也照递，工具不认得时它那句话原样回到提示行上。 */
+  const send = React.useCallback((key: string, next: string): void => {
     const after = (): void => { setTick((round) => round + 1) }
     port.setConfig(sessionId, workspaceRoot, key, next).then(
       (outcome) => {
@@ -127,7 +128,7 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
         <div className="pf-scroll" role="region" aria-label="设置" tabIndex={0}>
           {reading === null ? null : (
             <div className="pf-config">
-              {CONFIG_ROWS.map((row) => (
+              {configRowsOf(reading.entries).map((row) => (
                 <Row
                   key={row.key}
                   row={row}
@@ -164,7 +165,9 @@ function Row(props: {
         ? <Pick row={row} entry={entry} noteId={noteId} onWrite={props.onWrite} />
         : row.kind === 'num'
           ? <NumberBox row={row} entry={entry} noteId={noteId} revision={props.revision} onWrite={props.onWrite} />
-          : <Toggle row={row} entry={entry} noteId={noteId} onWrite={props.onWrite} />}
+          : row.kind === 'toggle'
+            ? <Toggle row={row} entry={entry} noteId={noteId} onWrite={props.onWrite} />
+            : <TextBox row={row} entry={entry} noteId={noteId} revision={props.revision} onWrite={props.onWrite} />}
       {entry === undefined || entry.layer === null
         ? null
         : <span className="pf-tag pf-vlayer" data-layer={entry.layer}>{LAYER_WORDS[entry.layer]}</span>}
@@ -222,6 +225,45 @@ function NumberBox(props: {
       onCommit={(typed) => {
         if (typed.length === 0 || typed === held) return
         props.onWrite(typed)
+      }}
+    />
+  )
+}
+
+/**
+ * 文本那一枚（没登记的键用的）：改完才写（回车或失焦），中间敲的字只活在这个框里，规矩与
+ * 数字那一枚同一套——读数来了才让位，工具拒了的那个词不赖在框里。能摆到这一行上的键都是
+ * 读数里有的，所以框里起头就是读数那一个值。
+ */
+function TextBox(props: {
+  readonly row: ConfigRow
+  readonly entry: ConfigEntry | undefined
+  readonly noteId: string
+  readonly revision: number
+  readonly onWrite: (value: string) => void
+}): React.ReactElement {
+  const held = props.entry?.value ?? ''
+  const [text, setText] = React.useState(held)
+  React.useEffect(() => { setText(held) }, [held, props.revision])
+  const commit = (): void => {
+    const typed = text.trim()
+    if (typed.length === 0 || typed === held) return
+    props.onWrite(typed)
+  }
+  return (
+    <input
+      className="pf-numin"
+      type="text"
+      spellCheck={false}
+      aria-label={props.row.name}
+      aria-describedby={props.noteId}
+      value={text}
+      onChange={(event) => setText(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter') return
+        event.preventDefault()
+        commit()
       }}
     />
   )
