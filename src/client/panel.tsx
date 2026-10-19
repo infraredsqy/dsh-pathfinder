@@ -76,6 +76,9 @@ const PREFS_NOT_KEPT = '显示偏好未能保存：设置服务未连接，本�
 /** 这个工作区里没有这份记录时，面板正文摆的那一句。 */
 const NO_RECORD = '当前工作区没有 pathfinder 的记录。'
 
+/** 这条会话落在某个工作区里、读者却挑了「未分组」：那一格不是哪个根，名下没有记录可读。 */
+const UNGROUPED_EMPTY = '未分组名下没有记录；这条会话属于清单里的某个工作区。'
+
 /** 记录在、四份来源一份都解不出来时摆的另一句：与没记录是两件事。 */
 const UNREADABLE_RECORD = '无法读取当前工作区的记录。'
 
@@ -170,6 +173,10 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   }, [pickedSpace, mine, items])
   /* 递给宿主半身的那个根：空字符串＝没挑，按这条会话自己那个根读。 */
   const workspaceRoot = chosen?.path ?? ''
+  /* 会话明明落在某个工作区里、读者却挑了「未分组」：未分组不是哪个根，不读。不作这一步，空根
+   * 会顺着这条会话的 cwd 读回它所属的那个工作区——多半就是方才那个，字面一动不动，看着像没刷新。
+   * 这条会话自己就在未分组那一桶里时，「未分组」仍是它自己那个根，照旧读。 */
+  const pickedNone = pickedSpace === null && mine !== undefined
   /* 面板自己的偏好：读数从设置那一份表单上来，写回也从这条口子出去；设置服务还没接上时它给的是
    * 出厂那几条，面板照常画。 */
   const store = props.prefs ?? DEFAULT_SOURCE
@@ -197,6 +204,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
       setLoad({ phase: 'failed', message: '尚未选中会话，无法确定工作区。' })
       return undefined
     }
+    if (pickedNone) return undefined
     let live = true
     setLoad({ phase: 'loading' })
     port.read(sessionId, workspaceRoot).then(
@@ -211,13 +219,13 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
       },
     )
     return () => { live = false }
-  }, [port, sessionId, workspaceRoot, tick])
+  }, [port, sessionId, workspaceRoot, tick, pickedNone])
 
   /* 会话笔记：这一格最近开过的那条会话住在记录库那一层按节点分的小份笔记上，由宿主半身那条端点
    * 交回来。只有当前那一格（看板）有卡片要点，所以只在这一格露面那一趟去读；读不回来就按空画。
    * 写面那几条动不到笔记，`tick` 不跟。 */
   React.useEffect(() => {
-    if (tab !== 'now' || sessionId === undefined || sessionId.length === 0) {
+    if (pickedNone || tab !== 'now' || sessionId === undefined || sessionId.length === 0) {
       setNotes(NO_NOTES)
       return undefined
     }
@@ -227,7 +235,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
       () => { if (live) setNotes(NO_NOTES) },
     )
     return () => { live = false }
-  }, [port, sessionId, workspaceRoot, tab])
+  }, [port, sessionId, workspaceRoot, tab, pickedNone])
 
   /* 卡上那一下：记录里那条会话此刻在本机上，卡片才点得动。会话身份两处都认——先看这台机器自己
    * 的笔记，再看记录本体上那个字段。名册或导航口子缺一样，这一屏的卡片就都安安静静地摆着。 */
@@ -334,16 +342,18 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
 
   const active = VIEWS.find((view) => view.id === tab) ?? VIEWS[0] as View
 
-  /* 这一屏有没有话可说。四份来源里一份都列不到，就是那个工作区里没有这份记录；列到了、却一份也
-   * 解不出来，就是读不动。两种情形六格都无话可说，这一格收成一句话——牌位与工作区留着，标签、
-   * 计数与正文一起收走。 */
-  const nothing = load.phase === 'failed'
-    ? load.message
-    : reading !== null && everySourceIs(reading, 'missing')
-      ? NO_RECORD
-      : reading !== null && everySourceIs(reading, 'unusable')
-        ? UNREADABLE_RECORD
-        : null
+  /* 这一屏有没有话可说。挑了「未分组」而这条会话有归属，就是那一格名下无记录；四份来源里一份都
+   * 列不到，就是那个工作区里没有这份记录；列到了、却一份也解不出来，就是读不动。三种情形六格都
+   * 无话可说，这一格收成一句话——牌位与工作区留着，标签、计数与正文一起收走。 */
+  const nothing = pickedNone
+    ? UNGROUPED_EMPTY
+    : load.phase === 'failed'
+      ? load.message
+      : reading !== null && everySourceIs(reading, 'missing')
+        ? NO_RECORD
+        : reading !== null && everySourceIs(reading, 'unusable')
+          ? UNREADABLE_RECORD
+          : null
 
   return (
     <div className="pf-page">
