@@ -57,6 +57,30 @@ test('插件名与依赖声明就是宿主那三样', () => {
   assert.deepEqual(inject, ['workspaceFiles', 'sessions', 'sandboxPolicy'])
 })
 
+test('出口面收在插件协议要的那四样上：内部件不再从入口过一遍', async () => {
+  const entry = await import('../src/host/index.ts')
+
+  assert.equal(entry.name, 'pathfinder-records')
+  assert.deepEqual(entry.inject, ['workspaceFiles', 'sessions', 'sandboxPolicy'])
+  assert.equal(typeof entry.apply, 'function')
+  assert.ok('Config' in entry, 'Config 要在出口面上：DSH 拿它建那一节的设置命名空间')
+
+  for (const internal of [
+    'rootFor',
+    'workspaceRootOf',
+    'CYCLE_POLICY_KEYS',
+    'runPf',
+    'readReading',
+    'readWholeFile',
+    'CONFIG_KEYS',
+    'parseConfigList',
+  ]) {
+    assert.equal(entry[internal], undefined, `${internal} 没有外部消费者，不该再从入口出口`)
+  }
+  /* 网关类留在出口面上：tools/panel-check.mjs 这位自证夹具要从入口现造一个网关。 */
+  assert.equal(typeof entry.PathfinderRecordsGateway, 'function')
+})
+
 test('活着的会话头说话：它写的 cwd 就是取数的那个根', async () => {
   const { ctx, provided, asked } = fakeContext({
     live: { s1: { header: { cwd: 'C:\\from-the-live-session' } } },

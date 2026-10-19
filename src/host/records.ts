@@ -59,8 +59,12 @@ const COLLECTION_KEY = {
   issues: 'issues',
 } as const
 
-/** 口子在目标不存在时给的那一个码；只有它算「工作区里没有这一份」。 */
-const NOT_FOUND = 'workspace-file/not-found'
+/**
+ * 口子在目标不存在时给的那一个码；只有它算「工作区里没有这一份」。
+ *
+ * 这是工作区文件口子的错误契约，全仓只写这一处：sessions.ts 判「这一层目录在不在」用的也是它。
+ */
+export const NOT_FOUND = 'workspace-file/not-found'
 
 /** 口子对一页的字节数另有上限：这一页超了它拒绝，不替我们截短。 */
 const PAGE_TOO_LARGE = 'workspace-file/too-large'
@@ -71,7 +75,8 @@ const PAGE_LIMIT_REFUSED = 'gateway/bad-request'
 /** 默认档被拒、又还没从哪一页学到口子那一档时的减半起点。 */
 const SHRINK_FROM_LINES = 256
 
-function isAbsent(error: unknown): boolean {
+/** 这一次的错算不算「工作区里没有这一份」；判据就是 {@link NOT_FOUND} 那一个码。 */
+export function isAbsent(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === NOT_FOUND
 }
 
@@ -99,9 +104,13 @@ function collect(key: keyof typeof COLLECTION_KEY, parsed: unknown): unknown {
   const value = parsed[COLLECTION_KEY[key]]
   if (key === 'cycles' || key === 'instructions') {
     if (!Array.isArray(value)) return undefined
-    return value.map((item) => (isMapLike(item) ? { ...item } : undefined)).every((item) => item !== undefined)
-      ? value.map((item) => ({ ...(item as Record<string, unknown>) }))
-      : undefined
+    // 一趟走完：逐条验形兼拷贝，撞上不合形的条目当场判这一份取不动。
+    const out: Record<string, unknown>[] = []
+    for (const item of value) {
+      if (!isMapLike(item)) return undefined
+      out.push({ ...item })
+    }
+    return out
   }
   if (!isMapLike(value)) return undefined
   const out: Record<string, unknown> = {}

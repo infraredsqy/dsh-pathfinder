@@ -15,7 +15,6 @@ import {
   DEFAULT_SOURCE,
   INFO_LABELS,
   PANEL_PREF_FIELDS,
-  POLICY_KEYS,
   SIDE_DEFAULT,
   SIDE_MAX,
   SIDE_MIN,
@@ -1213,6 +1212,3 @@ function DeleteConfirm(props: {
 
 /** 写面那三个动作的名字，仅供调用方对着读。 */
 export const WRITE_VERBS: readonly WriteVerb[] = ['archive', 'revive', 'remove']
-
-/** 那三个键的次序，面板与工具一致。 */
-export const POLICY_ORDER: readonly CyclePolicyKey[] = POLICY_KEYS

@@ -15,7 +15,6 @@ import {
   VIEW_IDS,
 } from '../host/settings-fields.ts'
 import type { InfoLevel, ViewId } from '../host/settings-fields.ts'
-import type { CyclePolicyKey } from '../host/gateway.ts'
 
 export type { InfoLevel, ViewId }
 export { INFO_LEVELS, PANEL_PREF_DEFAULTS, PANEL_PREF_FIELDS, SIDE_DEFAULT, SIDE_MAX, SIDE_MIN, VIEW_IDS }
@@ -350,6 +349,3 @@ export function createPrefsSource(): PrefsStore {
 
 /** 设置服务一直没到场时面板读的那一份：出厂那几条，写回一律不作数。 */
 export const DEFAULT_SOURCE: PrefsSource = createPrefsSource()
-
-/** 一条线自己的三个策略数，键与工具那边逐字相同。 */
-export const POLICY_KEYS: readonly CyclePolicyKey[] = ['parallel', 'test_seconds_limit', 'issue_pool_weight_limit']

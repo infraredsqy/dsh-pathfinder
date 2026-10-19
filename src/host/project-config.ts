@@ -48,8 +48,8 @@ export interface ConfigEntry {
  * 失败（那一层由调用方按抛处置）。工具没成时 `entries` 是空的，面板照「记录里没有」画。
  */
 export interface PathfinderConfigReading {
-  /** 命令跑在哪个根上，也就是设置落在哪一份记录里的那个根。 */
-  readonly project: string
+  /** 这次读的绝对工作区根，与四份记录那份读数同一个名字；设置落在它那份记录里。 */
+  readonly workspaceRoot: string
   readonly ok: boolean
   /** 工具原话；没成时就是它给的那个理由。 */
   readonly text: string

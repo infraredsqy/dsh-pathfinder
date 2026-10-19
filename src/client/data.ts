@@ -36,7 +36,7 @@ export interface PanelPort {
   /** 点名那个工作区里的四份记录。 */
   read(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderReading>
   /** 点名那个工作区里每一格最近开过的那条会话：卡上那一下要去的地方。 */
-  readSessions(sessionId: string, workspaceRoot: string): Promise<PathfinderSessionsReading>
+  readSessions(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderSessionsReading>
   /** 记下一条指令：把用户的原话与范围递给工具。 */
   say(sessionId: string, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<PfOutcome>
   /** 归档 / 复原 / 删除一条指令。 */
@@ -44,7 +44,7 @@ export interface PanelPort {
   /** 写一条线自己的一个策略数。 */
   setPolicy(sessionId: string, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome>
   /** 点名那个工作区的项目设置：有效值与它住在哪一层，从工具那一条命令上来。 */
-  readConfig(sessionId: string, workspaceRoot: string): Promise<PathfinderConfigReading>
+  readConfig(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderConfigReading>
   /** 写一条项目设置；落的永远是这个项目那一层。 */
   setConfig(sessionId: string, workspaceRoot: string, key: string, value: string): Promise<PfOutcome>
 }
@@ -142,8 +142,8 @@ function remotePort(namespace: Service): PanelPort {
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
-    async readSessions(sessionId, workspaceRoot) {
-      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot })
+    async readSessions(sessionId, workspaceRoot, signal) {
+      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot }, signal)
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
@@ -159,8 +159,8 @@ function remotePort(namespace: Service): PanelPort {
       const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
-    async readConfig(sessionId, workspaceRoot) {
-      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot })
+    async readConfig(sessionId, workspaceRoot, signal) {
+      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot }, signal)
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
@@ -173,9 +173,9 @@ function remotePort(namespace: Service): PanelPort {
 
 /** 载体那一层：自己拼端点与参数，回来的还是 `{ ok, value }` 那一副脸。 */
 function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
-  const call = async <T>(method: string, args: Readonly<Record<string, unknown>>): Promise<Answer<T>> => {
+  const call = async <T>(method: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<Answer<T>> => {
     try {
-      const answer = await rpc.call('/api', `${NAMESPACE}/${method}`, { args }, undefined)
+      const answer = await rpc.call('/api', `${NAMESPACE}/${method}`, { args }, signal)
       return unwrap<T>(answer)
     } catch (error) {
       return { ok: false, message: textOf(error) }
@@ -183,13 +183,13 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
   }
   return {
     source: 'carrier',
-    async read(sessionId, workspaceRoot) {
-      const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot))
+    async read(sessionId, workspaceRoot, signal) {
+      const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot), signal)
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
-    async readSessions(sessionId, workspaceRoot) {
-      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot })
+    async readSessions(sessionId, workspaceRoot, signal) {
+      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot }, signal)
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },
@@ -205,8 +205,8 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
       const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
       return answer.ok ? answer.value : { ok: false, text: answer.message }
     },
-    async readConfig(sessionId, workspaceRoot) {
-      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot })
+    async readConfig(sessionId, workspaceRoot, signal) {
+      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot }, signal)
       if (!answer.ok) throw new Error(answer.message)
       return answer.value
     },

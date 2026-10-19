@@ -91,11 +91,20 @@ test('读一趟：跑的就是 config list，跑在这个工作区的根上', as
   const reading = await gateway.readConfig('s1', '')
 
   assert.equal(reading.ok, true)
-  assert.equal(reading.project, 'C:\\workspace')
+  assert.equal(reading.workspaceRoot, 'C:\\workspace')
   assert.equal(reading.entries['max_agents']?.value, '1')
   assert.equal(reading.entries['issue_repair']?.layer, 'default')
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['config', 'list'])
   assert.equal(subprocess.specs[0].cwd, 'C:\\workspace')
+})
+
+test('readConfig 认 options 上的取消信号：递进来的那条原样到进程口子', async () => {
+  const subprocess = fakeSubprocess({ stdout: LISTED })
+  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
+  const mine = new AbortController()
+  await gateway.readConfig('s1', '', { signal: mine.signal })
+
+  assert.equal(subprocess.specs[0].signal, mine.signal, '进程口子收到的得是调用方那条信号，不是端点自己新造的')
 })
 
 test('读那一趟没成：如实说它没成，一行都不编', async () => {

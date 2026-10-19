@@ -8,12 +8,14 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { NOT_FOUND } from '../src/host/records.ts'
 import { readSessionNotes } from '../src/host/sessions.ts'
 
 function fakePort(files, { absent = false, phantom = [] } = {}) {
+  /* 假口子按 records.ts 出口的那个码装「没有」：契约全仓一处，谁漂移了这里当场断。 */
   const missing = () => {
     const error = new Error('no entry here')
-    error.code = 'workspace-file/not-found'
+    error.code = NOT_FOUND
     return error
   }
   return {
@@ -56,7 +58,7 @@ test('一层目录原样搬回去：每份文件都在，名字照旧、内容�
 
   assert.equal(reading.state, 'read')
   assert.equal(reading.recordPath, '.pf/meta/sessions')
-  assert.equal(reading.project, 'C:\\ws')
+  assert.equal(reading.workspaceRoot, 'C:\\ws')
   assert.deepEqual(reading.notes, { 'n-1.json': note, '顺手记的一笔.txt': '不是 JSON 也照搬' })
 })
 

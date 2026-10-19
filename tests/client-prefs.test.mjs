@@ -370,3 +370,9 @@ test('宿主那份 schema：字段的种类、出厂默认与上下限就是字�
     extra: {},
   })
 })
+
+test('prefs 不再带 POLICY_KEYS：那份与宿主逐字重复的策略键清单已撤', async () => {
+  const prefs = await import('../src/client/prefs.ts')
+
+  assert.equal(prefs.POLICY_KEYS, undefined, '策略键只留 host/gateway.ts 的 CYCLE_POLICY_KEYS 一份')
+})

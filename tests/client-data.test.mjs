@@ -87,13 +87,13 @@ test('远程那条路上，三个写动作各叫哪一个端点', async () => {
 })
 
 test('远程那条路上，设置那两条各叫哪一个端点', async () => {
-  const { calls, namespace } = fakeNamespace({ ok: true, value: { project: 'C:\\ws', ok: true, text: '', entries: {} } })
+  const { calls, namespace } = fakeNamespace({ ok: true, value: { workspaceRoot: 'C:\\ws', ok: true, text: '', entries: {} } })
   const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? namespace : undefined) })
 
   const reading = await port.readConfig('s1', 'C:\\picked')
   await port.setConfig('s1', 'C:\\picked', 'test_tier', 'minimal')
 
-  assert.equal(reading.project, 'C:\\ws')
+  assert.equal(reading.workspaceRoot, 'C:\\ws')
   assert.deepEqual(calls.map((call) => call.method), ['readConfig', 'setConfig'])
   assert.deepEqual(calls[0].values, ['s1', 'C:\\picked'])
   assert.deepEqual(calls[1].values, ['s1', 'C:\\picked', 'test_tier', 'minimal'])
@@ -129,7 +129,7 @@ test('远程那一层取数失败：读数照抛，不编一份空的', async ()
 })
 
 test('会话笔记那一条：端点叫 readSessions(sessionId, 工作区根)，搬回来的原样带回来', async () => {
-  const { calls, namespace } = fakeNamespace({ ok: true, value: { project: 'C:\\ws', recordPath: '.pf/meta/sessions', state: 'read', notes: { 'n-1.json': '{"run":[]}' } } })
+  const { calls, namespace } = fakeNamespace({ ok: true, value: { workspaceRoot: 'C:\\ws', recordPath: '.pf/meta/sessions', state: 'read', notes: { 'n-1.json': '{"run":[]}' } } })
   const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? namespace : undefined) })
 
   const reading = await port.readSessions('s1', 'C:\\picked')

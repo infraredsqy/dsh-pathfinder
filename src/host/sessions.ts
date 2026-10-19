@@ -7,15 +7,12 @@
  * 读数照常给。
  */
 import { RECORD_SESSIONS } from './contract.ts'
-import { readWholeFile, type PathfinderScope, type WorkspaceFilesPort } from './records.ts'
-
-/** 口子在目标不存在时给的那一个码；只有它算「这个工作区里没有笔记」。 */
-const NOT_FOUND = 'workspace-file/not-found'
+import { isAbsent, readWholeFile, type PathfinderScope, type WorkspaceFilesPort } from './records.ts'
 
 /** 面板搬会话笔记拿到的那一份。 */
 export interface PathfinderSessionsReading {
-  /** 记录所在的那个工作区根，绝对路径。 */
-  readonly project: string
+  /** 这次读的绝对工作区根，与四份记录那份读数同一个名字。 */
+  readonly workspaceRoot: string
   /** 笔记住的那一层目录，工作区相对。 */
   readonly recordPath: string
   /**
@@ -25,10 +22,6 @@ export interface PathfinderSessionsReading {
   readonly state: 'read' | 'missing'
   /** 这一层里每份文件的原样：键是文件名，值是文件里那串字；哪份算笔记由读数判。 */
   readonly notes: Readonly<Record<string, string>>
-}
-
-function isAbsent(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === NOT_FOUND
 }
 
 /**
@@ -46,7 +39,7 @@ export async function readSessionNotes(
   scope: PathfinderScope,
   signal: AbortSignal,
 ): Promise<PathfinderSessionsReading> {
-  const reading = { project: scope.workspaceRoot, recordPath: RECORD_SESSIONS }
+  const reading = { workspaceRoot: scope.workspaceRoot, recordPath: RECORD_SESSIONS }
   let entries: readonly { readonly name: string; readonly type: string }[]
   try {
     entries = (await port.list(scope, RECORD_SESSIONS, signal)).entries

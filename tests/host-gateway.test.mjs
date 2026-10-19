@@ -173,7 +173,7 @@ test('会话笔记那一条：网关把那一层按节点分的小份笔记原�
   try {
     const answer = await call('readSessions', { sessionId: 's1', workspaceRoot: '' })
     assert.equal(answer.ok, true, String(answer.message))
-    assert.equal(answer.value.project, root)
+    assert.equal(answer.value.workspaceRoot, root)
     assert.equal(answer.value.state, 'read')
     assert.deepEqual(Object.keys(answer.value.notes), ['n-1.json'])
     assert.deepEqual(JSON.parse(answer.value.notes['n-1.json']), {
@@ -198,6 +198,43 @@ test('会话笔记那一条：这一层目录不在时交回空的一份，不�
   } finally {
     await ctx.stop?.()
   }
+})
+
+test('readSessions 认 options 上的取消信号：调用方递的那一条原样到口子', async () => {
+  /* options 是线上参数，信号过不了网关的边界校验；options.signal 与 read 的一样只在进程内可达，
+   * 所以这一条照 read 的进程内口径量：直调方法，看口子收到的信号是谁的那一条。 */
+  const seen = []
+  const gateway = new PathfinderRecordsGateway({
+    workspaceFiles: {
+      async list(scope, path, signal) {
+        seen.push(signal)
+        return { path, entries: [], truncated: false }
+      },
+      async read() {
+        throw new Error('nothing to read in this test')
+      },
+    },
+    sessions: { get: () => ({ header: { cwd: 'C:\\ws' } }) },
+    sandboxPolicy: { workspaceRoot: 'C:\\ws' },
+  })
+  const mine = new AbortController()
+  await gateway.readSessions('s1', '', { signal: mine.signal })
+
+  assert.ok(seen.length > 0, '这一趟要真走到口子上，才谈得上信号到没到')
+  for (const one of seen) {
+    assert.equal(one, mine.signal, '口子收到的信号得是调用方递的那一条，不是端点自己新造的')
+  }
+})
+
+test('端点表漏登记在构造时当场报错：类上有而表里没有的方法不再静默', () => {
+  /* 同一座子先量基类：装得上——后面报的是漏登记，不是构造这件事本身。 */
+  assert.doesNotThrow(() => new PathfinderRecordsGateway({}))
+  class LeakyGateway extends PathfinderRecordsGateway {
+    sneak() {
+      return 'not an endpoint'
+    }
+  }
+  assert.throws(() => new LeakyGateway({}), /漏登记/u)
 })
 
 test('记下一条那条端点：原话过网关这一关，落成工具那一句', { skip: !wired }, async () => {
@@ -232,7 +269,7 @@ test('三个写端点与那条策略端点：网关也都叫得动', { skip: !wi
     assert.equal(policy.ok, true, String(policy.message))
     const listed = await call('readConfig', { sessionId: 's1', workspaceRoot: '' })
     assert.equal(listed.ok, true, String(listed.message))
-    assert.equal(listed.value.project, root)
+    assert.equal(listed.value.workspaceRoot, root)
     const written = await call('setConfig', { sessionId: 's1', workspaceRoot: '', key: 'test_tier', value: 'minimal' })
     assert.equal(written.ok, true, String(written.message))
   } finally {

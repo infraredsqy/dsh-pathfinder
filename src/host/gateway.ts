@@ -35,18 +35,26 @@ export const CYCLE_POLICY_KEYS: readonly CyclePolicyKey[] = [
   'issue_pool_weight_limit',
 ]
 
-/** 端点表：左边是类上的方法名，右边是浏览器半身叫的那个名字。 */
-const REMOTE_METHODS: readonly (readonly [string, string])[] = [
-  ['read', 'read'],
-  ['addInstruction', 'addInstruction'],
-  ['archiveInstruction', 'archiveInstruction'],
-  ['reviveInstruction', 'reviveInstruction'],
-  ['removeInstruction', 'removeInstruction'],
-  ['setCyclePolicy', 'setCyclePolicy'],
-  ['readConfig', 'readConfig'],
-  ['setConfig', 'setConfig'],
-  ['readSessions', 'readSessions'],
+/** 端点表：类上这些方法各挂一个与方法同名的端点；谁在类上而不在这张表里，构造时当场报错。 */
+const REMOTE_METHODS: readonly string[] = [
+  'read',
+  'addInstruction',
+  'archiveInstruction',
+  'reviveInstruction',
+  'removeInstruction',
+  'setCyclePolicy',
+  'readConfig',
+  'setConfig',
+  'readSessions',
 ]
+
+/**
+ * 调用方没递信号来时端点用的那一条：永不取消。
+ *
+ * 「永不取消」是这一层的既定取舍（这几手都是小份读写，等得起），但这个写法全模块只立这一处；
+ * 四个用它的地方都从这条常量取。
+ */
+const NEVER_ABORT = new AbortController().signal
 
 /**
  * 给一个实例上的方法挂上端点记号。
@@ -88,7 +96,21 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    */
   constructor(ctx: Context, serviceKey = 'pathfinderRecords') {
     this.ctx = ctx
-    for (const [method, endpoint] of REMOTE_METHODS) markRemote(this, method, endpoint)
+    const registered = new Set<string>()
+    for (const method of REMOTE_METHODS) {
+      markRemote(this, method, method)
+      registered.add(method)
+    }
+    /* 漏登记不许静默：类上（含子类）叫得动却没有端点记号的方法，浏览器半身永远看不到它，
+     * 而谁都不会因此报错——把这件事从静默变响动，构造时当场说破。真私有的 `#pf` 不在
+     * 原型上，扫描看不见它。 */
+    for (let proto = Object.getPrototypeOf(this); proto !== null && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+      for (const name of Object.getOwnPropertyNames(proto)) {
+        if (name === 'constructor' || registered.has(name)) continue
+        if (typeof Reflect.get(proto, name) !== 'function') continue
+        throw new Error(`端点表漏登记：方法 ${name} 在类上，却没有挂进 REMOTE_METHODS，浏览器半身看不到它。`)
+      }
+    }
     this.typertRemote = bindTypertRemote(this, serviceKey)
   }
 
@@ -103,7 +125,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * @returns 那个工作区里的记录，原样。
    */
   async read(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderReading> {
-    const signal = options?.signal ?? new AbortController().signal
+    const signal = options?.signal ?? NEVER_ABORT
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
     return readReading(this.ctx.workspaceFiles, { sessionId, workspaceRoot: root }, signal)
   }
@@ -133,7 +155,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
     if (scope === 'node' && node.length > 0) args.push('--node', node)
     /* `--text` 站在最后一项：它后面那一项就是原话，别的开关排在它前面。 */
     args.push('--text')
-    return this.pf(sessionId, workspaceRoot, args, text)
+    return this.#pf(sessionId, workspaceRoot, args, text)
   }
 
   /**
@@ -144,7 +166,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * @returns 工具说了什么。
    */
   async archiveInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
-    return this.pf(sessionId, workspaceRoot, ['instruction', 'resolve', id, '--state', 'withdrawn'])
+    return this.#pf(sessionId, workspaceRoot, ['instruction', 'resolve', id, '--state', 'withdrawn'])
   }
 
   /**
@@ -155,7 +177,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * @returns 工具说了什么。
    */
   async reviveInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
-    return this.pf(sessionId, workspaceRoot, ['instruction', 'revive', id])
+    return this.#pf(sessionId, workspaceRoot, ['instruction', 'revive', id])
   }
 
   /**
@@ -166,7 +188,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * @returns 工具说了什么。
    */
   async removeInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
-    return this.pf(sessionId, workspaceRoot, ['instruction', 'rm', id])
+    return this.#pf(sessionId, workspaceRoot, ['instruction', 'rm', id])
   }
 
   /**
@@ -183,7 +205,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    */
   async setCyclePolicy(sessionId: SessionId, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome> {
     if (!CYCLE_POLICY_KEYS.includes(key)) return { ok: false, text: `无法识别的策略键：${key}` }
-    return this.pf(sessionId, workspaceRoot, ['cycle', 'policy', cycle, key, value])
+    return this.#pf(sessionId, workspaceRoot, ['cycle', 'policy', cycle, key, value])
   }
 
   /**
@@ -192,15 +214,18 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * 读的是工具印的那四行：值住三层（出厂默认 / 全局 / 项目），全局那一层住在家目录里，工作区
    * 文件口子看不进去，有效值与它来自哪一层都只有工具说得清，所以这一手起一条命令，而不是读
    * 一份文件。
+   *
+   * 参数表写在一行里、末尾不留逗号，理由同 `read`。
    * @param sessionId - 会话身份。
    * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
+   * @param options - 可选的取消信号。
    * @returns 工具印出来的每一行，连同它这一趟成了没有。
    */
-  async readConfig(sessionId: SessionId, workspaceRoot: string): Promise<PathfinderConfigReading> {
+  async readConfig(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderConfigReading> {
     const project = await rootFor(this.ctx, sessionId, workspaceRoot)
-    const outcome = await runPf(this.ctx, project, ['config', 'list'], new AbortController().signal)
+    const outcome = await runPf(this.ctx, project, ['config', 'list'], options?.signal ?? NEVER_ABORT)
     return {
-      project,
+      workspaceRoot: project,
       ok: outcome.ok,
       text: outcome.text,
       entries: outcome.ok ? parseConfigList(outcome.text) : {},
@@ -225,7 +250,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    */
   async setConfig(sessionId: SessionId, workspaceRoot: string, key: string, value: string): Promise<PfOutcome> {
     if (!CONFIG_KEYS.includes(key as ConfigKey)) return { ok: false, text: `无法识别的设置键：${key}` }
-    return this.pf(sessionId, workspaceRoot, ['config', 'set', key, value])
+    return this.#pf(sessionId, workspaceRoot, ['config', 'set', key, value])
   }
 
   /**
@@ -234,18 +259,25 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * 读的是记录库里那一层按节点分的小份笔记：会话身份住在这台机器自己的笔记上，一条会话只在
    * 开它的那台机器上活着。它与四份记录一样住在工作区里，所以走同一条只读口子；这一手只搬数，
    * 「每一格该看哪条」由模型层读。
+   *
+   * 参数表写在一行里、末尾不留逗号，理由同 `read`。
    * @param sessionId - 会话身份。
    * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
+   * @param options - 可选的取消信号。
    * @returns 那一层里每份文件的名字与内容，连同这一层的结局。
    */
-  async readSessions(sessionId: SessionId, workspaceRoot: string): Promise<PathfinderSessionsReading> {
+  async readSessions(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderSessionsReading> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
-    return readSessionNotes(this.ctx.workspaceFiles, { sessionId, workspaceRoot: root }, new AbortController().signal)
+    return readSessionNotes(this.ctx.workspaceFiles, { sessionId, workspaceRoot: root }, options?.signal ?? NEVER_ABORT)
   }
 
-  private async pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[], said?: string): Promise<PfOutcome> {
+  /**
+   * 六条写端点合用的那一条起命令的路；真私有的 `#pf` 不在原型上，端点表的漏登记扫描看不见它。
+   * @param signal - 调用方取消；不给就用 {@link NEVER_ABORT} 那一条。
+   */
+  async #pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[], said?: string, signal?: AbortSignal): Promise<PfOutcome> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
-    return runPf(this.ctx, root, args, new AbortController().signal, said)
+    return runPf(this.ctx, root, args, signal ?? NEVER_ABORT, said)
   }
 }
 
