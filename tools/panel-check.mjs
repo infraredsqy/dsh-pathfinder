@@ -826,8 +826,10 @@ check(
 /* ---- 3d. 顶上那枚工作区选择器：挑哪一个就读哪一个 ------------------------
  *
  * 名单照 DSH 那份清单来（标题 + 末尾那一档「未分组」）、默认停在这条会话落在的那个桶、
- * 换一档就把那个根递给宿主，而那个根读出来的东西当场换到屏上。换的那一档递出去的是绝对
- * 路径（`askedRoots` 逐档比）；「未分组」递的是空字符串——那正是这条会话自己那个根。
+ * 换一档就把那个根递给宿主，而那个根读出来的东西当场换到屏上。换的那几档递出去的是绝对
+ * 路径（`askedRoots` 逐档比）；「未分组」不是哪个根，分两支（afb7ca0 定的契约）：会话
+ * 落在某个桶里时一趟读数都不发，面板收成「未分组名下没有记录」那一句，选择器留着；
+ * 会话谁的桶都不在时，它就归「未分组」那一堆，递空字符串照旧读它自己那个根。
  */
 const spaceItems = [
   { workspaceId: 'w-main', path: workspace, title: '主工作区', sessionIds: [sessionId] },
@@ -891,14 +893,64 @@ check(
 
 askedRoots.length = 0
 await pickWorkspace('')
+const spaceUngrouped = flat(spaceHost.querySelector('.pf-none p'))
+const ungroupedSelect = spaceHost.querySelector('.pf-head .pf-pick select')
 check(
-  '拨到「未分组」：递一个空字符串（这条会话自己那个根），记录又画回来，六格与计数都在',
-  askedRoots.includes('') && spaceHost.querySelector('.pf-none') === null
-    && spaceHost.querySelectorAll('.pf-pane').length === 6 && spaceHost.querySelector('.pf-count') !== null,
-  `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 六格 ${String(spaceHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${spaceHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
+  '拨到「未分组」：这条会话有归属，一趟读数都不发，正文收成「未分组名下没有记录」那一句，选择器还留着',
+  askedRoots.length === 0 && spaceUngrouped === '未分组名下没有记录；这条会话属于清单里的某个工作区。'
+    && ungroupedSelect !== null && ungroupedSelect.value === ''
+    && spaceHost.querySelector('.pf-tabs') === null && spaceHost.querySelectorAll('.pf-pane').length === 0,
+  `问过的根=${JSON.stringify([...new Set(askedRoots)])} ｜ .pf-none p=${JSON.stringify(spaceUngrouped)} ｜ 选择器=${ungroupedSelect === null ? '（没了）' : `选中=${JSON.stringify(ungroupedSelect.value)}`} ｜ 六格 ${String(spaceHost.querySelectorAll('.pf-pane').length)} 格`,
 )
 
 await act(async () => { spaceRoot.unmount() })
+
+/* 真在所有工作区之外的会话那一支：同一份清单，只是哪个桶都不收这条会话——DSH 把它归到
+ * 「未分组」，默认就停在那儿。afb7ca0 正文里「照旧读自己那个根」说的就是这一支。 */
+const loneSnapshot = { items: spaceItems.map((item) => ({ ...item, sessionIds: [] })) }
+const loneSource = { getSnapshot: () => loneSnapshot, subscribe: () => () => undefined }
+const loneHost = window.document.createElement('div')
+window.document.body.appendChild(loneHost)
+const loneRoot = createRoot(loneHost)
+askedRoots.length = 0
+await act(async () => {
+  loneRoot.render(React.createElement(panel.Panel, {
+    port: trackedPort, sessionId, prefs: panel.prefs, workspaces: loneSource,
+  }))
+})
+await settle()
+const loneSelect = () => loneHost.querySelector('.pf-head .pf-pick select')
+check(
+  '谁的桶都不在的会话：默认就停在「未分组」，照旧递空字符串读它自己那个根，六格与计数都在',
+  loneSelect() !== null && loneSelect().value === ''
+    && askedRoots.length > 0 && askedRoots.every((one) => one === '')
+    && loneHost.querySelector('.pf-none') === null
+    && loneHost.querySelectorAll('.pf-pane').length === 6 && loneHost.querySelector('.pf-count') !== null,
+  `选中=${JSON.stringify(loneSelect()?.value)} ｜ 问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 六格 ${String(loneHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${loneHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
+)
+
+/* 拨去别处再拨回「未分组」也是同一支：pickedSpace 摆到 null 而这条会话没有归属，读数照发——
+ * 收成一句话的那一支只落在有归属的会话上（上一趟）。 */
+await act(async () => {
+  loneSelect().value = 'w-empty'
+  loneSelect().dispatchEvent(new window.Event('change', { bubbles: true }))
+})
+await settle()
+askedRoots.length = 0
+await act(async () => {
+  loneSelect().value = ''
+  loneSelect().dispatchEvent(new window.Event('change', { bubbles: true }))
+})
+await settle()
+check(
+  '拨去别处再拨回「未分组」：没有归属的会话照旧读它自己那个根，六格与计数都在',
+  askedRoots.length > 0 && askedRoots.every((one) => one === '')
+    && loneHost.querySelector('.pf-none') === null
+    && loneHost.querySelectorAll('.pf-pane').length === 6 && loneHost.querySelector('.pf-count') !== null,
+  `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 六格 ${String(loneHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${loneHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
+)
+
+await act(async () => { loneRoot.unmount() })
 
 /* 产物那份 css 里九个 `--pf-*` 的声明点，按面板 DOM 上解析出来的值量：声明落在
  * `.pf-page body` / `.pf-page :root` 这类匹配不到任何元素的选择器上时，这里读出来就是空串
