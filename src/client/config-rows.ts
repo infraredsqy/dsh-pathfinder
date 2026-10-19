@@ -63,7 +63,6 @@ const UNREGISTERED_CAPTION = '这一键还没有它的说法，值合不合法�
  * 版面不跟着工具印的次序晃）；没登记的键跟在后面，次序照读数，照键名直显、给一枚文本框——
  * 写面不拦键，值合不合法由工具判。
  * @param entries - `pf config list` 读出来的键到「值 + 层」的表。
- * @returns 面板该摆的那些行：已知的在前照表序，没登记的在后照读数序。
  */
 export function configRowsOf(entries: Readonly<Record<string, ConfigEntry>>): readonly ConfigRow[] {
   const rows: ConfigRow[] = []

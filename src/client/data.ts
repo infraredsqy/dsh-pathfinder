@@ -71,7 +71,6 @@ interface Carrier {
  * 两处都试：先问上下文自己的 `get`，再问属性代理。取不到就是取不到——这一层不抛，调用方按
  * 「没有」处置。
  * @param owner - 一个上下文（插件自己的，或注入回调给的那个）。
- * @param name - 服务名。
  */
 export function serviceAt(owner: unknown, name: string): Service | undefined {
   const holder = owner as { get?: (key: string) => unknown } | null | undefined

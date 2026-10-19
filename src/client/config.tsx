@@ -29,7 +29,6 @@ const WRITE_FAILED = '这次写入没有生效。'
 
 const SIDES: readonly (readonly [string, boolean])[] = [['开', true], ['关', false]]
 
-/** 一行的读数走到哪一步了。 */
 type Load =
   | { readonly phase: 'loading' }
   | { readonly phase: 'ok'; readonly reading: PathfinderConfigReading }
@@ -204,7 +203,6 @@ function Pick(props: {
 /**
  * 数字那一枚：改完才写（回车或失焦），中间敲的字只活在这个框里。
  *
- * 提交的规则在这说话：空着的时候没有数可写，留住记录里那一个；没改过的那一个也不必再写一遍。
  * `revision` 每写一次就翻一格，翻的时候框里跟着换成重读回来那一份——工具拒了的那个数不赖在框里。
  */
 function NumberBox(props: {

@@ -35,8 +35,6 @@ export function report(what: string, error: unknown): void {
  *
  * `what` 是这一路装配说自己的名字：wire 里抛的、`inject` 本身抛的，都用它留那一声警告。
  * @param ctx - 浏览器半身那一个插件上下文。
- * @param names - 要等的服务名。
- * @param what - 出岔子时警告里那一句话。
  * @param wire - 服务到场后怎么接；抛了不外泄。
  */
 export function injectAt(ctx: unknown, names: readonly string[], what: string, wire: (owner: unknown) => void): void {

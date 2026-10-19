@@ -66,8 +66,6 @@ export function workspacesAt(owner: unknown): WorkspaceSource | undefined {
  *
  * 「桶」就是 DSH 那一栏的分组：会话身份出现在某个工作区的 `sessionIds` 里，它就落在那一个里；
  * 一个都不出现就是未分组——DSH 自己也是这么读的。
- * @param items - 此刻的工作区清单。
- * @param sessionId - 会话身份；没有会话时是 `undefined`。
  */
 export function bucketOf(
   items: readonly WorkspaceChoice[],

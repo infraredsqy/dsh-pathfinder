@@ -49,10 +49,6 @@ const GROUP_WORDS: readonly { readonly key: IssueState; readonly standing: boole
 
 /**
  * 读那一刻的问题池。
- * @param nodes - 节点那一份，记录原样：重量表写在某条活儿自己的说明里。
- * @param cycles - 线路那一份，记录原样：策略线挂在某条线自己身上。
- * @param issues - 问题池那一份，记录原样。
- * @param at - 读到哪一刻。
  */
 export function readPool(
   nodes: Readonly<Record<string, PathfinderNode>>,
@@ -141,8 +137,6 @@ export function readPool(
 
 /**
  * 记录里写着的那份重量表。
- * @param nodes - 节点那一份，记录原样。
- * @returns 读得出来就是那一份；记录里没写就是 `null`。
  */
 export function readWeights(nodes: Readonly<Record<string, PathfinderNode>>): PoolWeights | null {
   for (const node of Object.values(nodes)) {
@@ -157,7 +151,6 @@ export function readWeights(nodes: Readonly<Record<string, PathfinderNode>>): Po
 
 /**
  * 那条策略线：哪条线自己立了 `issue_pool_weight_limit`。
- * @returns 第一个立过的数；没有一条线立过就是 `null`。
  */
 export function readLine(cycles: readonly PathfinderCycle[]): number | null {
   for (const cycle of cycles) {
@@ -172,7 +165,6 @@ export function readLine(cycles: readonly PathfinderCycle[]): number | null {
  *
  * 记录自己的词属于写它的那一刻：最后改动时刻还没到，那个词就还没生效，这一条按还没结掉
  * 读。记录里写的不是那四个词（或者根本没写），也按还没结掉读——没人结掉它。
- * @param written - 记录里那个最后改动时刻，原样：那一刻还没到，这个词就还不算数。
  */
 function statusOf(recordStatus: string | undefined, written: Date | null, at: Date): IssueState {
   if (recordStatus === undefined || !writtenBy(written, at)) return 'open'

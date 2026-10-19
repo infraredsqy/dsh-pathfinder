@@ -27,7 +27,6 @@ import { LineSettings } from './line-settings.tsx'
 import { NotesPane } from './notes.tsx'
 import { IssuePool } from './pool.tsx'
 
-/** 六个看法：身份、标签上的字、以及这一格要不要吃掉整块地界。 */
 interface View {
   readonly id: ViewId
   readonly label: string

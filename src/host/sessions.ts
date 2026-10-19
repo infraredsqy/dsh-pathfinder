@@ -29,10 +29,6 @@ export interface PathfinderSessionsReading {
  *
  * 一份文件搬不动（页过不去、列到了却读不出）时跳过那一份：那一格有没有会话由读数对着搬到的
  * 部分判，别的份照搬。
- * @param port - 工作区文件口子。
- * @param scope - 这一次读的位置。
- * @param signal - 调用方取消。
- * @returns 那一层里每份文件的名字与内容，连同这一层的结局。
  */
 export async function readSessionNotes(
   port: WorkspaceFilesPort,

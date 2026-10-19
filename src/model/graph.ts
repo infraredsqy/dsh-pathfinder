@@ -8,8 +8,6 @@ import type { DepsWord, GraphEdge, GraphReading, NodeReading } from './contract.
 
 /**
  * 读那一刻的依赖场。
- * @param nodes - 那一刻的节点读数，按记录里的顺序。
- * @returns 分层、边、以及最深的那一层。
  */
 export function readGraph(nodes: readonly NodeReading[]): GraphReading {
   const depends = new Map<string, readonly string[]>()
@@ -58,8 +56,6 @@ export function readGraph(nodes: readonly NodeReading[]): GraphReading {
  * 可开工只认读数自己那一个值——进行中的一格状态也是 `todo`、欠的前置也可能一件不剩，照
  * 别的字段拼就会把别人手里正做的那一格印成可开工。落定的、进行中的、放下的不欠这个问题，
  * 什么都不说。
- * @param node - 那一刻的一格读数。
- * @returns 那句话；这一格不欠这个问题就是 `null`。
  */
 export function depsWord(node: NodeReading): DepsWord | null {
   if (node.ready) return { word: '可开工', ready: true, count: null }

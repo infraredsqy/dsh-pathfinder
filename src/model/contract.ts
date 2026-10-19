@@ -19,7 +19,6 @@ export interface RecordsAtMoment {
   readonly instructions: readonly PathfinderInstruction[]
   /** 输入形状收全四份记录，但这一格不算问题池的读数，它的判据不在这里。 */
   readonly issues: Readonly<Record<string, PathfinderIssue>>
-  /** 读到哪一刻。 */
   readonly at: Date
 }
 
@@ -33,7 +32,6 @@ export type NodeState = 'todo' | 'shelved' | 'completed'
  * 人闸：这一格什么时候要一个人。一个词 + 那一刻，词只有三个，判据全在记录里，这里不新增数据。
  */
 export interface GateReading {
-  /** 是哪一种闸。 */
   readonly kind: 'shelved' | 'manual' | 'checkpoint'
   /** 读作哪一个词：等待处理 / 手动节点 / 检查点。 */
   readonly word: '等待处理' | '手动节点' | '检查点'
@@ -59,7 +57,6 @@ export interface StepReading {
 export interface NodeReading {
   readonly id: string
   readonly title?: string
-  /** 那一刻的状态：三个词里的一个。 */
   readonly state: NodeState
   /**
    * 进行中：那一刻有条线握着它、且它还没交付；以线路记录里的持有关系为准。
@@ -306,7 +303,6 @@ export interface PoolCensus {
 
 /** 那一刻的项目读数。 */
 export interface ProjectReading {
-  /** 读到哪一刻。 */
   readonly at: Date
   readonly nodes: readonly NodeReading[]
   /** 同一份读数按身份取。 */
@@ -319,6 +315,5 @@ export interface ProjectReading {
   readonly instructions: readonly InstructionReading[]
   /** 那一刻的依赖场：谁挡着谁。 */
   readonly graph: GraphReading
-  /** 那一刻的问题池。 */
   readonly pool: PoolReading
 }

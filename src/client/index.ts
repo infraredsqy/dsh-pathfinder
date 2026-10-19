@@ -106,7 +106,6 @@ export function apply(ctx: unknown): void {
  * 它比 {@link PathfinderPanel} 多一件事：中央栏那一格是根作用域、不注入 `sessionId`，所以这一层
  * 从 `useSessions` 快照里挑当前那一条；座席要是自己递了 `sessionId`，那个说话。同一份快照还交出
  * 一份名册，面板拿它对记录里那条会话在不在本机。
- * @param props - 座席递过来的几样。
  */
 function Entry(props: PanelArgs & { readonly useSessions?: unknown }): React.ReactElement {
   ensureStyle()

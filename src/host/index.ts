@@ -45,7 +45,6 @@ export { PathfinderRecordsGateway }
 
 /**
  * 装上 `ctx.pathfinderRecords`。服务随这条插件所在的那根 fiber 一起卸载。
- * @param ctx - 宿主上下文。
  */
 export function apply(ctx: Context): void {
   ctx.provide('pathfinderRecords', new PathfinderRecordsGateway(ctx))

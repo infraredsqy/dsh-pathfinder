@@ -57,8 +57,6 @@ function layerOf(word: string): ConfigLayer | null {
 /**
  * 把 `pf config list` 印出来的那几行读成一份表。认不出的行跳过（工具另会往那一路印
  * `Warning:` 之类的话，那是别的输出）；一行里的值空着也跳过：值空着就给不出读数。
- * @param text - 命令交回来的正文。
- * @returns 键到「值 + 它住哪一层」的表；一行都认不出时是空的。
  */
 export function parseConfigList(text: string): Record<string, ConfigEntry> {
   const out: Record<string, ConfigEntry> = {}

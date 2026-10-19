@@ -127,12 +127,6 @@ function collect(key: keyof typeof COLLECTION_KEY, parsed: unknown): unknown {
  * 页大小先取口子自己那一档：请求里省掉 `limit`，它给默认档。它拒了这一页（字节数超它那一页
  * 的上限，或请求的行数超过它那一档）就把这一页的行数减半重取，一直收到整份读完；单行本身
  * 就超上限（收到一行也过不去）才是真的读不动，照抛给调用方判。
- *
- * @param port - 工作区文件口子。
- * @param scope - 这一次读的位置。
- * @param path - 工作区相对路径。
- * @param signal - 调用方取消。
- * @returns 整份文件的文本。
  */
 export async function readWholeFile(
   port: WorkspaceFilesPort,
@@ -175,10 +169,6 @@ export async function readWholeFile(
  *
  * 取不到的四份来源给空集合，读数照常返回：工作区里没有记录是一种正常读数，面板据此
  * 「什么都没发生」地画。真出错（列目录被拒、调用方取消）照抛，不在这里咽掉。
- * @param port - 工作区文件口子。
- * @param scope - 这一次读的位置。
- * @param signal - 调用方取消。
- * @returns 那个工作区里的记录，原样。
  */
 export async function readReading(
   port: WorkspaceFilesPort,

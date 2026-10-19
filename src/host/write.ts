@@ -30,12 +30,7 @@ const MAX_BYTES = 64 * 1024
 
 /**
  * 起一条 `pf` 命令，把它的输出收回来。
- * @param ctx - 宿主上下文；起进程的口子从它上面现取。
- * @param workspaceRoot - 记录所在的那个工作区根，命令就跑在那里。
- * @param args - 命令与参数，逐项过闸。
- * @param signal - 调用方取消。
  * @param said - 用户的原话，接在命令末尾原样递过去；给了它就换一条不经 shell 的 argv。
- * @returns 工具退出码是不是 0，以及它说了什么。
  */
 export async function runPf(
   ctx: Context,
@@ -147,10 +142,6 @@ const INTERPRETERS: readonly (readonly [string, ...string[]])[] = [
 
 /**
  * 带原话那一条的开头：解释器、它的开关、`pf.py`。
- * @param subprocess - 起进程那一侧；解释器的路径问它。
- * @param pf - 解析出来的 `pf` 路径，`pf.py` 与它并排躺着。
- * @param signal - 调用方取消。
- * @returns 这一条 argv 的前几项，原话与参数由调用方接在后头。
  */
 async function scriptArgs(subprocess: Spawner, pf: string, signal: AbortSignal): Promise<readonly string[]> {
   for (const [command, ...flags] of INTERPRETERS) {

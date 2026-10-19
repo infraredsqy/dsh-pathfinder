@@ -82,8 +82,6 @@ const GLOBAL_CHOICE: ScopeChoice = { value: 'global', label: '全局', scope: 'g
  *
  * 蓝本那一行也只摆这三样，只是它每回只点得到最上面那个在跑着的格；真面板里在手里的是哪
  * 一格由记录自己说，没有就是没有这一项。
- * @param cycles - 那一刻记录里那几条线。
- * @param inHand - 此刻在手里的那一格；没有就只留前两样。
  */
 function scopeChoices(cycles: readonly CycleReading[], inHand: NodeReading | null): readonly ScopeChoice[] {
   const out: ScopeChoice[] = [GLOBAL_CHOICE]

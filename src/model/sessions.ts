@@ -25,8 +25,6 @@ function refsOf(note: Record<string, unknown>, kind: 'discussion' | 'run'): read
  * 两类各按自己的时刻比：`at` 是记录自己写的那串时刻文本，两边同一种写法，直接按文本比。
  * 时刻一样（或两处都没写）时，跑这一格的那条压过讨论的那条：同一刻开的两条里，读者要
  * 找的是眼下这一格在做的那条。
- * @param note - 解出来的一格笔记；形状不对时什么也解不出。
- * @returns 会话身份；一条都解不出来就是 `undefined`。
  */
 export function latestSessionOf(note: unknown): string | undefined {
   const held = asRecord(note)
@@ -49,8 +47,6 @@ export function latestSessionOf(note: unknown): string | undefined {
 
 /**
  * 一层笔记读成读数：键是节点身份，值是该看的那条会话。
- * @param notes - 宿主半身搬回来的一层笔记：键是文件名，值是文件里那串字。
- * @returns 每一格该看的那条会话；一格都没读出来就是空的一份。
  */
 export function readSessions(notes: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
   const out: Record<string, string> = {}

@@ -68,7 +68,6 @@ interface NodeFacts {
 
 /**
  * 读那一刻的项目。
- * @param input - 四份记录 + 读到哪一刻。
  * @throws 进来的不是一个时刻时给 TypeError：一个说不通的时刻，读出来每个字都不作数。
  */
 export function readProject(input: RecordsAtMoment): ProjectReading {
@@ -310,7 +309,6 @@ function readNode(
 
 /**
  * 这一格要不要一个人：一个词 + 那一刻。判据全在记录里，不要人的格没有这个词。
- * @param lineLast - 走过它那条线在那一刻走过的最后一步。
  */
 function gateOf(facts: {
   readonly id: string

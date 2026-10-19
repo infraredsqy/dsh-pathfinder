@@ -12,7 +12,6 @@ export function two(n: number): string {
 
 /**
  * 钟点：`HH:MM`。
- * @param moment - 那一刻；没有就给 `--`（不编一个钟点）。
  */
 export function clock(moment: Date | null): string {
   return moment ? `${two(moment.getHours())}:${two(moment.getMinutes())}` : '--'
@@ -20,8 +19,6 @@ export function clock(moment: Date | null): string {
 
 /**
  * 日子的叫法：今天 / 昨天 / 前天 / `N月N日`。
- * @param moment - 那一刻；没有就是空。
- * @param at - 读到哪一刻：今天昨天前天的参照是它那一天。
  */
 export function dayLabel(moment: Date | null, at: Date): string {
   if (!moment) return ''
@@ -45,7 +42,6 @@ function splitSeconds(seconds: number | null): { readonly unit: 'seconds' | 'min
 
 /**
  * 时长的紧凑写法：`41s` / `24m` / `2h14` / `3h`。
- * @param seconds - 多少秒；没有就是 `--`，是负数（那一刻还没到）也给 `--`。
  */
 export function duration(seconds: number | null): string {
   const parts = splitSeconds(seconds)
@@ -57,7 +53,6 @@ export function duration(seconds: number | null): string {
 
 /**
  * 时长的长写法：`3 秒` / `5 分钟` / `2 小时 14 分`。
- * @param seconds - 多少秒；没有就是「没有记录」，是负数也给「没有记录」。
  */
 export function durationLong(seconds: number | null): string {
   const parts = splitSeconds(seconds)
@@ -69,8 +64,6 @@ export function durationLong(seconds: number | null): string {
 
 /**
  * 从那一刻到 `at` 过了多久，紧凑写法。
- * @param moment - 那一刻；没有就是 `--`。
- * @param at - 读到哪一刻。
  */
 export function elapsedSince(moment: Date | null, at: Date): string {
   return moment === null ? '--' : duration(secondsBetween(moment, at))
@@ -78,8 +71,6 @@ export function elapsedSince(moment: Date | null, at: Date): string {
 
 /**
  * 相对这一刻的说法：刚刚 / `N 分钟前` / `N 小时前` / `N 天前`。
- * @param moment - 那一刻；没有就是空。
- * @param at - 读到哪一刻。
  */
 export function ago(moment: Date | null, at: Date): string {
   if (!moment) return ''

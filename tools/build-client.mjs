@@ -95,9 +95,7 @@ function closingBrace(css, open) {
 
 /**
  * 走一张表，把每条规则的选择器交给 `rewrite`。
- * @param css - 表身。
  * @param rewrite - 收到这条规则的选择器，返回改写后的那一串；返回 `null` 就把这条丢掉。
- * @returns 改写后的表身。
  */
 function mapRules(css, rewrite) {
   let out = ''
@@ -137,9 +135,6 @@ function mapRules(css, rewrite) {
  * 子串那一版（`part.includes('.pf-page')`）会把 `.pf-pagewrap`、`.pf-pagefoot` 这类名字
  * 认成「已经在面板那一层里了」，那条规则整条漏出去落在页面根上；这些名字切出来的记号是
  * `pf-pagewrap`，与 `pf-page` 不等，照样加前缀。
- *
- * @param part - 逗号列表里的一段选择器。
- * @param className - 这一层那枚类名（不带点）。
  */
 function hasScopeClass(part, className) {
   return part
@@ -154,7 +149,6 @@ function markerPattern(marker) {
 }
 
 /**
- * @param part - 逗号列表里的一段选择器。
  * @param scope - 这一层（见 `pageLayer` / `embedLayer`）。
  * @returns 收拢后的那几段（`*` 这类要拆成两段：这一层自己 + 后代）。
  */

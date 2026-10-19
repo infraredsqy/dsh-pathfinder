@@ -32,10 +32,6 @@ function otherStatesWord(pool: PoolReading): string {
     .join(' · ')
 }
 
-/**
- * 问题那一格。
- * @param props - 那一刻的项目读数、这一格此刻读的是哪一档、以及换那一档那一手。
- */
 export function IssuePool(props: {
   readonly project: ProjectReading
   readonly showOtherStates: boolean

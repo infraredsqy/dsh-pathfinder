@@ -234,7 +234,6 @@ export function createPrefsSource(): PrefsStore {
   let off: (() => void) | null = null
   let snapshot: PrefsSnapshot = UNAVAILABLE
 
-  /** 把这一刻的读数交给订阅者。 */
   const announce = (): void => {
     for (const listener of [...listeners]) {
       try {

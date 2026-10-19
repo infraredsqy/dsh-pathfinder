@@ -15,10 +15,6 @@ import { nodeName, nodeHover } from './nodes.ts'
 const FALLBACK_W = 1280
 const FALLBACK_H = 720
 
-/**
- * 依赖那一格。
- * @param props - 那一刻的项目读数，以及这一格此刻在不在屏上。
- */
 export function DependencyField(props: { readonly project: ProjectReading; readonly active: boolean }): React.ReactElement {
   const { graph, nodes } = props.project
   const fieldRef = React.useRef<HTMLDivElement | null>(null)

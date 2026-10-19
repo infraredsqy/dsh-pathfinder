@@ -51,10 +51,6 @@ export interface Scene {
   readonly edges: readonly { readonly from: string; readonly to: string; readonly d: string; readonly cls: string }[]
 }
 
-/**
- * 把一张图排出来、画出来。
- * @param input - 层与边、地界多大、此刻读的是哪一档、选中了谁、抠没抠出来。
- */
 export function sceneOf(input: {
   readonly graph: GraphReading
   readonly nodes: readonly NodeReading[]

@@ -71,7 +71,6 @@ export function BoardPane(props: {
 
 /**
  * 三列看板：进行中（等待处理的排在上头）、刚完成、即将进线。
- * @param props - 那一刻的读数、每列几张卡，以及卡上那一下的去处。
  */
 function BoardColumns(props: { readonly project: ProjectReading; readonly cap: number; readonly go: CardGo | null }): React.ReactElement {
   const { columns } = props.project
@@ -123,7 +122,6 @@ function Column(props: { readonly items: readonly Paired[]; readonly cap: number
  *
  * 记录里没写会话、或那条会话不在这台机器上时，这一格在这台机器上没有去处：卡片照旧摆着，只是没
  * 有可点的样子。屏上不给一句解释——去处没了这件事，卡片自己说得出。
- * @param props - 这一格、它的读法、它的去处，以及叫哪一手。
  */
 function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date }): React.ReactElement {
   const { node, kind, target, go, at } = props

@@ -16,8 +16,7 @@ npm run bundle:client  # lib/client.js（浏览器半身）
 
 这三条绑在 `prepack` 上，`npm pack` 与 `npm publish` 会自己跑一遍。
 
-`package.json` 的 `files` 只收两个运行时入口（`lib/host/index.js`、`lib/client.js`）、`lib/types/**/*.d.ts`
-与 `cordis.patch.yml`，于是
+`package.json` 的 `files` 只收两个运行时入口与 `lib/types/**/*.d.ts`、`cordis.patch.yml`，于是
 `npm pack` 出的那一个 `.tgz` 就是分发件本身（`lib/client-body.js` 是浏览器那一步的中间件，构建脚本
 用完当场删掉，不进包）。包里两个口子：
 
@@ -40,9 +39,9 @@ npm run bundle:client  # lib/client.js（浏览器半身）
 那条取数口子才接得上。摘掉之后面板应用得早，中央栏那一格正文里没有记录的数，摆的是「该部署未连接
 寻路记录服务，无法读取记录。」（宿主那一侧的端点 `/api/pathfinderRecords/read` 照旧是好的）。
 
-`engines.dsh` 收在 `>=0.2.1-rc.2 <0.2.2`：装的时候与 profile 起的时候，DSH 版本落在范围外就拒。
-口径收这么窄，是因为宿主半身有一处**运行时的**外部依赖 `@deepseek-ai/dsh-typert-protocol`（与 DSH
-本体锁步同版本发布），0.2.x 里换一个 rc 它就可能动；要放宽得先在那个 DSH 上重量一遍。
+`engines.dsh` 那段范围收得很窄，出处是 `package.json`：宿主半身有一处**运行时的**外部依赖
+`@deepseek-ai/dsh-typert-protocol`（与 DSH 本体锁步同版本发布），0.2.x 里换一个 rc 它就可能动；要放宽
+得先在那个 DSH 上重量一遍。
 
 包面那几条前提由 `tests/package-surface.test.mjs` 看着（`npm test` 跑）。改包面之后跑一遍。
 
@@ -57,8 +56,8 @@ npm pack --pack-destination .tmp/pack
 `tar --force-local -tzf <路径>`，且 `--force-local` 必须排在短选项前面。
 
 同一份内容打出来的 `.tgz`，sha256 是稳定的（`npm pack` 把归档里每个成员的 mtime 归一，产物因此
-可复现）；要核对手上那份出自哪份源码，跑 `Get-FileHash -Algorithm SHA256 <那份 .tgz>`，拿它与构建
-那一份记下的哈希比。
+可复现）；要核对手上那份出自哪份源码，跑 `Get-FileHash -Algorithm SHA256 <那份 .tgz>`，拿它与源码
+那一侧打出来的那份比。
 
 ## 三条安装路子
 
@@ -76,7 +75,7 @@ dsh plugin --profile <名字> add dsh-pathfinder      # 用户侧
 作者侧把 `npm pack` 出的那一个 `.tgz` 传成 Release 的附件；用户侧下载附件，然后
 
 ```sh
-dsh plugin --profile <名字> add ./dsh-pathfinder-0.1.0-alpha.1.tgz
+dsh plugin --profile <名字> add ./dsh-pathfinder-<版本>.tgz
 ```
 
 这条路与 npm 那一条装的是同一份预构建产物，不跑任何构建脚本。
@@ -115,9 +114,8 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
 
 ## 已知限制
 
-- **发布那一发不在本机做**：本机没登录（`npm whoami` 报 `ENEEDAUTH`），registry 是只读镜像
-  `https://registry.npmmirror.com`。npm 那条腿要在有凭据、能写 registry 的机器上执行。
-- **GitHub Release 那条腿要先有远端**：本仓 `git remote -v` 是空的，先加远端、再建一个 release 放附件。
+- **发布那一发不在本机做**：npm 那条腿要在能写 registry、有凭据的机器上执行。
+- **GitHub Release 那条腿要先有远端**：先给本仓加远端，再建一个 release 放附件。
 - **`engines.dsh` 只对 `0.2.1-rc.2` 实测过**：换一个 DSH 版本要重量一遍再改这一行。被范围挡下是预期
   行为——DSH 报 `incompatible-version` 并印出 `allow-version` 那条命令，豁免记在 profile 的
   `compatibility.json` 里，插件升版与 DSH 升版都不继承。

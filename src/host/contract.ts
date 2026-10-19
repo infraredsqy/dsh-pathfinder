@@ -57,10 +57,7 @@ export interface PathfinderReadOptions {
  */
 export interface PathfinderRecords {
   /**
-   * @param sessionId - 会话身份；工作区文件口子按它认路径，`workspaceRoot` 空着时也由它定根。
    * @param workspaceRoot - 要读的那个工作区根，绝对路径；空字符串＝这条会话自己那个根。
-   * @param options - 可选的取消信号。
-   * @returns 那个工作区里的记录，原样。
    */
   read(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderReading>
 }

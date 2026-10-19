@@ -15,10 +15,6 @@ import { cutAt, text, toMoment } from './fields.ts'
  *
  * 那一刻还没说出口的那几句（`at` 没写、或者晚于那一刻）不在这份读数里：记录里没有那一刻，
  * 就没有这一句。算不算数只在说出口的那几句里判。
- * @param source - 指令那一份，记录原样。
- * @param nodeById - 那一刻的节点读数：绑在某一格上的句子，按那一格在那一刻的状态量。
- * @param cycleById - 那一刻的线路读数：绑在某条线上的句子，按那条线在不在服务里量。
- * @param at - 读到哪一刻。
  */
 export function readInstructions(
   source: readonly PathfinderInstruction[],
@@ -69,7 +65,6 @@ export function readInstructions(
  * 范围那个词只在这里读这一遍：认不得的写法不另立词表——它的读法以范围读数为准（管得着），
  * 组里落在「这一格」。组内还算数的排在前头、新说的在前，读者先遇到此刻正管着他的那几句；
  * 空组不收。
- * @param project - 那一刻的项目读数，分组用的几条线从它来。
  * @param entries - 这一刻真的要摆上页面的那几条；已归档的露不露面由调用方先筛过。
  */
 export function groupInstructions(

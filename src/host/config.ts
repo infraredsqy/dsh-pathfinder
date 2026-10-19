@@ -28,8 +28,6 @@ const schemastery: Schemastery | null = await import('@deepseek-ai/schemastery')
  * 看不见，而多标一个不犯错。老副本（3.18.1 那一档）没有 `.volatile()`，在它上面调用会把
  * 模块的求值过程整个打断、连读面一起带走，所以先探一次——探不到就把字段原样交出去，
  * 代价只是设置页里看不见。
- * @param z - 一份 schemastery。
- * @returns 对象节点，字段名与出厂默认都来自 `settings-fields.ts` 那一份表。
  */
 export function buildConfig(z: Schemastery): Schema<Record<string, unknown>> {
   const canMark = typeof z.boolean().volatile === 'function'

@@ -2,5 +2,5 @@
 
 > 本文件是路牌，上限 15 行：一行一条，只写这一层有什么、什么时候看。
 
-- `design-principles.md` —— 动手改界面之前必读的**法**：它不装现状与取值（取值住在 `mock/tokens.css`）；加任何内容需要 user explicit approval
+- `design-principles.md` —— 动手改界面之前必读的**法**
 - `publish.md` —— 发布与安装：改包面、要发一版、或别人装不上时看

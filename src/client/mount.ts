@@ -45,7 +45,6 @@ interface SessionInList {
  * 也会进 `byId`，两头都不等于「当前打开的那条」。`selectedId` / `currentId` / `activeId` 那三个
  * 探针服务的是别的形状与替身，有就先用；三者都没有、也没人挂 `mainView` 时，才落到清单一头那条
  * 兜底。
- * @param snapshot - `useSessions` 那一刻的快照。
  */
 export function currentSessionOf(snapshot: unknown): string | undefined {
   if (typeof snapshot !== 'object' || snapshot === null) return undefined
@@ -79,7 +78,6 @@ export function currentSessionOf(snapshot: unknown): string | undefined {
  *
  * 两处都算数：`ids` 是宿主清单的次序，`byId` 是清单行加上本地留着的那些。面板拿这份名册比对
  * 记录里那条会话在不在本机上——两处都没有它，卡上那一下就没有去处。
- * @param snapshot - `useSessions` 那一刻的快照。
  */
 export function knownSessionsOf(snapshot: unknown): ReadonlySet<string> {
   const known = new Set<string>()

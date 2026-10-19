@@ -61,9 +61,6 @@ const NEVER_ABORT = new AbortController().signal
  *
  * 标准装饰器把记号交给构造期的一段初始化回调去落；这里直接把那段回调叫一次，`this` 给的是
  * 这个实例，于是记号落在它原型上的同一个位置——网关读记号的那一路分不出这两者。
- * @param instance - 刚造出来的那个实例。
- * @param method - 类上的方法名。
- * @param endpoint - 端点名。
  */
 function markRemote(instance: object, method: string, endpoint: string): void {
   const implementation: unknown = Reflect.get(instance, method)
@@ -91,7 +88,6 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   readonly ctx: Context
 
   /**
-   * @param ctx - 宿主上下文。
    * @param serviceKey - 服务键，也就是远程命名空间；平常不必给。
    */
   constructor(ctx: Context, serviceKey = 'pathfinderRecords') {
@@ -121,8 +117,6 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * 「签名说不清」而整条端点叫不动。省掉最后那个取消信号跟传一个空对象是同一件事。
    * @param sessionId - 会话身份；工作区文件口子按它认路径。
    * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param options - 可选的取消信号。
-   * @returns 那个工作区里的记录，原样。
    */
   async read(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderReading> {
     const signal = options?.signal ?? NEVER_ABORT
@@ -139,13 +133,9 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    *
    * 参数表写在一行里、末尾不留逗号：网关按方法源码切参数，理由与下面那条 `setCyclePolicy`
    * 一样。
-   * @param sessionId - 会话身份。
    * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param text - 用户的原话，原样。
-   * @param scope - 三个范围里的一个。
    * @param cycle - 绑哪条线，给线身份；别的范围传空字符串。
    * @param node - 绑哪一格，给格身份；别的范围传空字符串。
-   * @returns 工具说了什么。
    */
   async addInstruction(sessionId: SessionId, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<PfOutcome> {
     if (!INSTRUCTION_SCOPES.includes(scope)) return { ok: false, text: `无法识别的范围：${scope}` }
@@ -160,10 +150,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
 
   /**
    * 归档一条指令：它从记录里还在生效的那一堆挪进归档，句子留在原处。
-   * @param sessionId - 会话身份。
    * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param id - 指令身份。
-   * @returns 工具说了什么。
    */
   async archiveInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
     return this.#pf(sessionId, workspaceRoot, ['instruction', 'resolve', id, '--state', 'withdrawn'])
@@ -171,10 +158,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
 
   /**
    * 把一条归档的指令放回生效那一堆。
-   * @param sessionId - 会话身份。
    * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param id - 指令身份。
-   * @returns 工具说了什么。
    */
   async reviveInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
     return this.#pf(sessionId, workspaceRoot, ['instruction', 'revive', id])
@@ -182,10 +166,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
 
   /**
    * 把一条指令连正文一起从记录里拿走；这一步退不回去。
-   * @param sessionId - 会话身份。
    * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param id - 指令身份。
-   * @returns 工具说了什么。
    */
   async removeInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
     return this.#pf(sessionId, workspaceRoot, ['instruction', 'rm', id])
@@ -196,12 +177,8 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    *
    * 参数表写在一行里、末尾不留逗号：网关按方法源码切参数，它先按逗号分段再逐段认
    * 名字，末尾那一个逗号会切出一段空字符串，于是整条端点被它判成「签名说不清」。
-   * @param sessionId - 会话身份。
    * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param cycle - 线路身份。
-   * @param key - 三个键里的一个。
    * @param value - 正整数；`off` 是「这条线没立这一条」。
-   * @returns 工具说了什么。
    */
   async setCyclePolicy(sessionId: SessionId, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome> {
     if (!CYCLE_POLICY_KEYS.includes(key)) return { ok: false, text: `无法识别的策略键：${key}` }
@@ -216,10 +193,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * 一份文件。
    *
    * 参数表写在一行里、末尾不留逗号，理由同 `read`。
-   * @param sessionId - 会话身份。
    * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param options - 可选的取消信号。
-   * @returns 工具印出来的每一行，连同它这一趟成了没有。
    */
   async readConfig(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderConfigReading> {
     const project = await rootFor(this.ctx, sessionId, workspaceRoot)
@@ -243,11 +217,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * 值合不合法由工具判：它那一条 `parse_value` 是唯一的判据，非零退出时什么都没落盘。键也是
    * 同一个待遇：工具认得哪些键只有工具说得清，这里不立放行表，键与值一并照递——它对不认得的
    * 键报错、非零退出、不落盘，那句话原样上浮。
-   * @param sessionId - 会话身份。
    * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param key - 设置键。
-   * @param value - 要写进去的值。
-   * @returns 工具说了什么。
    */
   async setConfig(sessionId: SessionId, workspaceRoot: string, key: string, value: string): Promise<PfOutcome> {
     return this.#pf(sessionId, workspaceRoot, ['config', 'set', key, value])
@@ -261,10 +231,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * 「每一格该看哪条」由模型层读。
    *
    * 参数表写在一行里、末尾不留逗号，理由同 `read`。
-   * @param sessionId - 会话身份。
    * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param options - 可选的取消信号。
-   * @returns 那一层里每份文件的名字与内容，连同这一层的结局。
    */
   async readSessions(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderSessionsReading> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
@@ -286,10 +253,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
  * 才按会话身份解析。
  *
  * 点名优先是这一层的全部意义：那条会话此刻落在哪个工作区，与读者要看哪一个没有关系。
- * @param ctx - 宿主上下文。
- * @param sessionId - 会话身份。
  * @param workspaceRoot - 点名的工作区根，绝对路径；空字符串＝没点名。
- * @returns 这一次的工作区根，绝对路径。
  */
 export async function rootFor(ctx: Context, sessionId: SessionId, workspaceRoot: string): Promise<string> {
   if (typeof workspaceRoot === 'string' && workspaceRoot.length > 0) return workspaceRoot
@@ -300,9 +264,6 @@ export async function rootFor(ctx: Context, sessionId: SessionId, workspaceRoot:
  * 按会话身份解析工作区根：先问活着的会话，有活着的会话头就不再问落盘的头；两处都没有 cwd
  * （含整条会话没人认得）时落到沙箱策略记的那个根。工作区文件口子自己那条解析用的也是这个
  * 次序，所以这里解析出来的根与它读文件时认的那个根是同一个。
- * @param ctx - 宿主上下文。
- * @param sessionId - 会话身份。
- * @returns 那条会话的工作区根，绝对路径。
  */
 export async function workspaceRootOf(ctx: Context, sessionId: SessionId): Promise<string> {
   const live = ctx.sessions.get(sessionId)?.header
