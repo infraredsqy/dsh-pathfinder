@@ -6,7 +6,7 @@
  * `live` 比一次；存量记录里那些工具不再认领的旧值不折算、一律按已归档读，读到旧值不许抛。
  * 量不着的东西一律算：绑上一条已经不在的线或一格、范围是不认识的写法，这些都按算数读。
  */
-import type { PathfinderInstruction } from '../host/contract.ts'
+import type { PathfinderInstruction } from './records.ts'
 import type { CycleReading, InstructionGroupReading, InstructionReading, NodeReading, ProjectReading } from './contract.ts'
 import { cutAt, text, toMoment } from './fields.ts'
 

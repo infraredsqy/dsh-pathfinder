@@ -5,7 +5,7 @@
  * 时刻之前写下来才算数，记录里没有那一刻就空着，不拿 0 顶上。进行中以线路记录里的持有关系
  * 为准：谁在做它这个问题记在线路那一侧，卡片自己的字段只回答「交付了没有」。
  */
-import type { PathfinderCycle, PathfinderNode, PathfinderStep } from '../host/contract.ts'
+import type { PathfinderCycle, PathfinderNode, PathfinderStep } from './records.ts'
 import type {
   ColumnReadings,
   CycleReading,

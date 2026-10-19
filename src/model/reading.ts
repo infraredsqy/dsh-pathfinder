@@ -3,7 +3,7 @@
  *
  * 判读归这一层，画的那一层只取着用：这两条只吃读数、不碰 DOM，在这一层才量得出、锁得住。
  */
-import type { PathfinderReading, PathfinderSourceState } from '../host/contract.ts'
+import type { PathfinderReading, PathfinderSourceState } from './records.ts'
 import type { CycleReading, NodeReading, ProjectReading } from './contract.ts'
 
 /** 明细那五组的钥匙：等待处理、进行中、可开工、未开始、已交付。 */

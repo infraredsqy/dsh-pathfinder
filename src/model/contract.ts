@@ -9,7 +9,7 @@ import type {
   PathfinderInstruction,
   PathfinderIssue,
   PathfinderNode,
-} from '../host/contract.ts'
+} from './records.ts'
 
 /** 模型要的东西：四份记录，外加「读到哪一刻」。 */
 export interface RecordsAtMoment {

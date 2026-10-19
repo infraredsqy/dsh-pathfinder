@@ -8,7 +8,7 @@
  * 重量表与策略线在记录里都不在现成字段上：前者写在某条维护活儿自己的说明里
  * （`P3/P2/P1/P0 = 1/2/4/8`），后者是某条线路自己立的 `issue_pool_weight_limit`。
  */
-import type { PathfinderCycle, PathfinderIssue, PathfinderNode } from '../host/contract.ts'
+import type { PathfinderCycle, PathfinderIssue, PathfinderNode } from './records.ts'
 import type {
   IssueGroupReading,
   IssueReading,

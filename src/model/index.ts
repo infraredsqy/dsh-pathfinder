@@ -4,6 +4,7 @@
  * 它不取数（记录由数据桥那一格递进来）、不画界面、不碰 DOM，也没有全局状态：同一份输入给
  * 同一份输出。
  */
+export type * from './records.ts'
 export type * from './contract.ts'
 export { readProject } from './project.ts'
 export { depsWord, readGraph } from './graph.ts'
