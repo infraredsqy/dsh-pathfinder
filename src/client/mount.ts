@@ -10,6 +10,7 @@
  */
 import * as React from 'react'
 import type { PathfinderPanelApi } from './index.ts'
+import { injectAt, report, serveOn, type SlotsService } from './context.ts'
 import { serviceAt } from './data.ts'
 import { NO_WORKSPACES, workspacesAt, type WorkspaceSource } from './workspaces.ts'
 
@@ -116,14 +117,7 @@ export function createSessionNav(ctx: unknown): SessionNav {
     if (found !== undefined && typeof found.openSession === 'function') face = found as NavigationFace
   }
   take(ctx)
-  if (face === undefined) {
-    const holder = ctx as { inject?: (names: readonly string[], callback: (owner: unknown) => void) => unknown } | null | undefined
-    try {
-      holder?.inject?.(['uiWorkspace'], take)
-    } catch (error) {
-      report('那条导航口子没接上', error)
-    }
-  }
+  if (face === undefined) injectAt(ctx, ['uiWorkspace'], '那条导航口子没接上', take)
   return {
     open(target) {
       if (face === undefined) return
@@ -161,12 +155,7 @@ export function createWorkspaceNav(ctx: unknown): WorkspaceSource {
   }
   adopt(workspacesAt(ctx))
   if (face === undefined) {
-    const holder = ctx as { inject?: (names: readonly string[], callback: (owner: unknown) => void) => unknown } | null | undefined
-    try {
-      holder?.inject?.(['workspaces'], (owner) => { adopt(workspacesAt(owner)) })
-    } catch (error) {
-      report('那份工作区清单没接上', error)
-    }
+    injectAt(ctx, ['workspaces'], '那份工作区清单没接上', (owner) => { adopt(workspacesAt(owner)) })
   }
   return {
     getSnapshot: () => face?.getSnapshot() ?? NO_WORKSPACES.getSnapshot(),
@@ -213,19 +202,6 @@ function PanelIcon(props: { readonly size?: number }): React.ReactElement {
   )
 }
 
-interface ClientContext {
-  inject?: (names: readonly string[], callback: (owner: unknown) => void) => unknown
-}
-
-interface SlotsService {
-  inject?: (key: string, register: () => unknown) => unknown
-  register?: (options: unknown, component: (props: never) => React.ReactNode) => unknown
-}
-
-interface EffectOwner {
-  effect?: (run: () => () => void, name?: string) => unknown
-}
-
 /**
  * 把调度中心两处接到各自的槽位上。
  *
@@ -247,33 +223,19 @@ export function registerSeats(
   api: PathfinderPanelApi,
   dropStyles: () => void,
 ): void {
-  const holder = ctx as ClientContext | null | undefined
-  if (holder === null || holder === undefined || typeof holder.inject !== 'function') return
-  try {
-    holder.inject(['slots'], (owner) => {
-      try {
-        const slots = serviceAt(owner, 'slots') as SlotsService | undefined
-        if (slots === undefined || typeof slots.inject !== 'function' || typeof slots.register !== 'function') return
-        const nav = createSessionNav(ctx)
-        const workspaces = createWorkspaceNav(ctx)
-        const serve = (): (() => void) => {
-          const disposers = contribute(slots, api, nav, workspaces)
-          return () => {
-            for (const dispose of disposers.reverse()) dispose()
-            dropStyles()
-          }
-        }
-        const effect = (owner as EffectOwner).effect
-        if (typeof effect === 'function') effect.call(owner, serve, 'dsh-pathfinder: seats')
-        /* 没有 `effect` 的上下文：这里没人替它管卸载，`serve()` 交回的那一手也无处可交。 */
-        else serve()
-      } catch (error) {
-        report('调度中心那两处没挂上', error)
+  injectAt(ctx, ['slots'], '调度中心那两处没挂上', (owner) => {
+    const slots = serviceAt(owner, 'slots') as SlotsService | undefined
+    if (slots === undefined || typeof slots.inject !== 'function' || typeof slots.register !== 'function') return
+    const nav = createSessionNav(ctx)
+    const workspaces = createWorkspaceNav(ctx)
+    serveOn(owner, () => {
+      const disposers = contribute(slots, api, nav, workspaces)
+      return () => {
+        for (const dispose of disposers.reverse()) dispose()
+        dropStyles()
       }
-    })
-  } catch (error) {
-    report('调度中心那两处没挂上', error)
-  }
+    }, 'dsh-pathfinder: seats')
+  })
 }
 
 /**
@@ -309,11 +271,4 @@ function contribute(
     inject: () => ({ port: api.port, prefs: api.prefs, openSession: nav.open, workspaces }),
   }, api.Panel)))
   return disposers
-}
-
-/** 一条警告；这两处没挂上不该静悄悄。 */
-function report(what: string, error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error)
-  // eslint-disable-next-line no-console -- 装配失败必须留下一条可查的痕迹
-  console.warn(`dsh-pathfinder: ${what}：${message}`)
 }

@@ -5,6 +5,7 @@
  * 读数从口子上来，面板只负责画；面板自己那几个偏好从设置上来、也写回设置里去。
  */
 import * as React from 'react'
+import { report } from './context.ts'
 import { createPanelPort, type PanelPort } from './data.ts'
 import { currentSessionOf, knownSessionsOf, registerSeats, sessionsSnapshotOf } from './mount.ts'
 import { PathfinderPanel } from './panel.tsx'
@@ -121,11 +122,4 @@ function Entry(props: PanelArgs & { readonly useSessions?: unknown }): React.Rea
     knownSessions,
     workspaces: props.workspaces,
   })
-}
-
-/** 一条警告；面板的装配出了岔子不该静悄悄。 */
-function report(what: string, error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error)
-  // eslint-disable-next-line no-console -- 装配失败必须留下一条可查的痕迹
-  console.warn(`dsh-pathfinder: ${what}：${message}`)
 }

@@ -9,6 +9,7 @@ import { depsWord } from '../model/index.ts'
 import { CARD_GEOM, CARD_ZOOM, sceneOf } from './field-layout.ts'
 import type { NodeReading, ProjectReading } from '../model/index.ts'
 import type { Zoom } from './field-layout.ts'
+import { nodeName, nodeHover } from './nodes.ts'
 
 /** 量不到地界时用的尺子：面板还没露面时也画得出来，读数不至于算成 0。 */
 const FALLBACK_W = 1280
@@ -204,7 +205,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
               >
                 <span className={`pf-cell pf-mark ${stateClass(card.node)}`} />
                 <span className="pf-zbody">
-                  <span className="pf-ztitle">{titleOf(card.node)}</span>
+                  <span className="pf-ztitle">{nodeName(card.node)}</span>
                   {CARD_GEOM[card.full ? 3 : 2].full ? <CardDeps node={card.node} /> : null}
                 </span>
               </button>
@@ -247,14 +248,6 @@ function CardDeps(props: { readonly node: NodeReading }): React.ReactElement | n
   )
 }
 
-function titleOf(node: NodeReading): string {
-  return node.title ?? shortOf(node)
-}
-
-function shortOf(node: NodeReading): string {
-  return node.id.length > 8 ? node.id.slice(0, 8) : node.id
-}
-
 /** 一个记号的画法：落定的实心、进行中的用链接色、没开动的空心、还欠前置的更淡。 */
 function stateClass(node: NodeReading): string {
   if (node.state === 'completed') return 'is-done'
@@ -263,12 +256,10 @@ function stateClass(node: NodeReading): string {
   return node.ready ? 'is-todo' : 'is-wait'
 }
 
-/** 一个记号说的是什么：标题、八字把手，以及图形说不出来的那一件事——依赖上那句与卡片上
- *  那一行同一句话，都从读数那份措辞来。 */
+/** 一个记号说的是什么：名字与八字把手（共用那副节点名），以及图形说不出来的那一件事——
+ *  依赖上那句与卡片上那一行同一句话，都从读数那份措辞来。 */
 function hoverOf(node: NodeReading): string {
-  const short = shortOf(node)
-  const parts = [node.title === undefined ? short : node.title]
-  if (node.title !== undefined && node.title !== short) parts.push(short)
+  const parts = [nodeHover(node)]
   if (node.state === 'completed') parts.push('已交付')
   else if (node.state === 'shelved') parts.push('等待处理')
   else if (node.running) parts.push('进行中')

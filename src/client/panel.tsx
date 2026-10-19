@@ -5,10 +5,20 @@
  * 只把读数画出来。面板自己那几个显示偏好住在 Host 的设置文档里，经 `prefs.ts` 那条口子读写。
  */
 import * as React from 'react'
-import type { PathfinderReading, PathfinderSourceState } from '../host/contract.ts'
+import type { PathfinderReading } from '../host/contract.ts'
 import type { CyclePolicyKey, InstructionScope } from '../host/gateway.ts'
-import type { CycleReading, InstructionReading, NodeReading, ProjectReading } from '../model/index.ts'
-import { clock, dayLabel, duration, elapsedSince, groupInstructions, readProject, readSessions } from '../model/index.ts'
+import type { CycleReading, DetailGroupKey, InstructionReading, NodeReading, ProjectReading } from '../model/index.ts'
+import {
+  clock,
+  dayLabel,
+  duration,
+  elapsedSince,
+  everySourceIs,
+  groupInstructions,
+  nodesOf,
+  readProject,
+  readSessions,
+} from '../model/index.ts'
 import type { InfoLevel, PrefField, PrefsSource, ViewId } from './prefs.ts'
 import {
   clampSide,
@@ -20,8 +30,11 @@ import {
   SIDE_MIN,
   VIEW_LABELS,
 } from './prefs.ts'
-import type { PanelPort, WriteVerb } from './data.ts'
+import { NOT_ENABLED } from './constants.ts'
+import type { PanelPort } from './data.ts'
+import { nodeName, nodeHover } from './nodes.ts'
 import { bucketOf, NO_WORKSPACES, type WorkspaceSource } from './workspaces.ts'
+import { CommitNumberInput, Grip, ModalShell, Pill } from './widgets.tsx'
 import { ConfigPane } from './config.tsx'
 import { DependencyField, DepsChip } from './field.tsx'
 import { IssuePool } from './pool.tsx'
@@ -50,7 +63,7 @@ const FULL_FALLBACK = 3
 
 /** 明细那五组，顺序就是读者遇到它们的顺序。 */
 interface Group {
-  readonly key: 'shelved' | 'run' | 'ready' | 'wait' | 'done'
+  readonly key: DetailGroupKey
   readonly label: string
   readonly cls: string
   readonly deps: boolean
@@ -69,6 +82,9 @@ const GROUPS: readonly Group[] = [
 /** 收起归档时，一组里最多露几行不算数的。 */
 const NOTES_ROWS = 5
 
+/** 键盘挪明细那道缝时一步走多远；按住 shift 走两步。 */
+const SPLIT_STEP = 16
+
 /** 设置服务没到场时面板上那句话：这一下只活在这一屏上。 */
 const PREFS_NOT_KEPT = '显示偏好未能保存：设置服务未连接，本次改动只在当前页面生效。'
 
@@ -80,15 +96,6 @@ const UNGROUPED_EMPTY = '未分组名下没有记录；这条会话属于清单�
 
 /** 记录在、四份来源一份都解不出来时摆的另一句：与没记录是两件事。 */
 const UNREADABLE_RECORD = '无法读取当前工作区的记录。'
-
-/** 这个工作区里还没有节点那一份记录时，五个跟节点走的格子各自摆的那一句。 */
-const NOT_ENABLED = '当前工作区尚未启用 Pathfinder。'
-
-/** 四份来源是不是都落在同一个结局上。 */
-function everySourceIs(reading: PathfinderReading, state: PathfinderSourceState): boolean {
-  const states = Object.values(reading.sources)
-  return states.length > 0 && states.every((one) => one === state)
-}
 
 /** 一条线自己那三个数，一个数一行；名字与那句话都照蓝本。 */
 const POLICY_ROWS: readonly { key: CyclePolicyKey; name: string; note: string }[] = [
@@ -475,10 +482,18 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
                   </div>
                 ))}
               </div>
-              <SplitHandle
+              {/* 侧栏与正文之间那道缝：单边挪 Δ，量的是这一列的宽度。 */}
+              <Grip
+                id="detail-split"
+                label="调整线路侧栏的宽度"
                 value={sideWidth}
-                onChange={(px) => setSideWidth(px)}
+                min={SIDE_MIN}
+                max={SIDE_MAX}
+                clamp={clampSide}
+                step={SPLIT_STEP}
+                onChange={setSideWidth}
                 onCommit={(px) => keep(PANEL_PREF_FIELDS.sideWidth, clampSide(px))}
+                resetTo={SIDE_DEFAULT}
               />
               <div className="pf-linemain">
                 <div className="pf-scroll" role="region" aria-label="明细" tabIndex={0}>
@@ -611,15 +626,6 @@ function Census(props: { readonly project: ProjectReading }): React.ReactElement
   )
 }
 
-function Pill(props: { readonly cls: string; readonly n: number; readonly label: string }): React.ReactElement {
-  return (
-    <span className="pf-pill" title={props.label}>
-      <i className={`pf-cell ${props.cls}`} />
-      <b className="pf-num">{`× ${String(props.n)}`}</b>
-    </span>
-  )
-}
-
 /**
  * 三列看板：进行中（等待处理的排在上头）、刚完成、即将进线。
  * @param props - 那一刻的读数、每列几张卡，以及卡上那一下的去处。
@@ -723,21 +729,6 @@ function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date })
   )
 }
 
-/** 一格的标题：记录里那段标题；记录里没写标题的格才轮到 id 的短写。 */
-function nodeName(node: NodeReading): string {
-  return node.title ?? shortId(node.id)
-}
-
-/** 一格的悬停：全名，后面跟一段八字把手；名字本身就是那八个字时不重复一遍。 */
-function nodeHover(node: NodeReading): string {
-  const short = shortId(node.id)
-  return node.title === undefined || node.title === short ? nodeName(node) : `${node.title} · ${short}`
-}
-
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id
-}
-
 /** 读数里那一刻到 moment 的样子；没有那一刻就是 `--`。 */
 function timeOf(moment: Date | null, at: Date): string {
   return moment === null ? '--' : `${dayLabel(moment, at)} ${clock(moment)}`
@@ -793,45 +784,6 @@ function stateWord(cycle: CycleReading): string {
   return cycle.inService ? '运行中' : '停止'
 }
 
-/** 侧栏与正文之间那道缝：单边挪 Δ，量的是这一列的宽度。 */
-function SplitHandle(props: {
-  readonly value: number
-  readonly onChange: (px: number) => void
-  readonly onCommit: (px: number) => void
-}): React.ReactElement {
-  const { value, onChange, onCommit } = props
-  const from = React.useRef(0)
-  const base = React.useRef(value)
-  return (
-    <div
-      className="pf-grip"
-      id="detail-split"
-      role="separator"
-      aria-orientation="vertical"
-      tabIndex={0}
-      aria-label="调整线路侧栏的宽度"
-      aria-valuenow={value}
-      aria-valuemin={SIDE_MIN}
-      aria-valuemax={SIDE_MAX}
-      onPointerDown={(event) => {
-        from.current = event.clientX
-        base.current = value
-        event.currentTarget.setPointerCapture(event.pointerId)
-      }}
-      onPointerMove={(event) => {
-        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
-        const moved = Math.round(clampSide(base.current + (event.clientX - from.current)))
-        if (moved !== value) onChange(moved)
-      }}
-      onPointerUp={(event) => {
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-        onCommit(value)
-      }}
-      onDoubleClick={() => { onChange(SIDE_DEFAULT); onCommit(SIDE_DEFAULT) }}
-    />
-  )
-}
-
 /** 明细：选中那条线的节点清单，按五组分。 */
 function DetailList(props: { readonly cycle: CycleReading; readonly project: ProjectReading }): React.ReactElement {
   const { cycle, project } = props
@@ -845,19 +797,6 @@ function DetailList(props: { readonly cycle: CycleReading; readonly project: Pro
       })}
     </React.Fragment>
   )
-}
-
-/** 一组属于这条线的格子：走过它的算，它此刻正握着的也算。 */
-function nodesOf(key: Group['key'], cycle: CycleReading, project: ProjectReading): readonly NodeReading[] {
-  const mine = (list: readonly NodeReading[]): readonly NodeReading[] =>
-    list.filter((node) => node.cycleIds[0] === cycle.id || node.heldBy.includes(cycle.id))
-  if (key === 'shelved') return mine(project.columns.shelved)
-  if (key === 'run') return mine(project.columns.running)
-  if (key === 'ready') return mine(project.columns.ready)
-  if (key === 'wait') return mine(project.columns.blocked)
-  return mine(project.columns.completed)
-    .slice()
-    .sort((left, right) => (right.completedAt?.getTime() ?? 0) - (left.completedAt?.getTime() ?? 0))
 }
 
 /** 一组的组头与它下面的行。 */
@@ -1099,36 +1038,23 @@ function LineSettings(props: {
   readonly onWrite: (key: CyclePolicyKey, value: string) => void
 }): React.ReactElement | null {
   const { cycle, raw } = props
-  const modal = React.useRef<HTMLDivElement | null>(null)
-  React.useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') props.onClose() }
-    modal.current?.focus()
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [props])
   if (cycle === null) return null
   const policies = raw?.policies ?? {}
   return (
-    <div className="pf-modal" onClick={(event) => { if (event.target === event.currentTarget) props.onClose() }}>
-      <div className="pf-modal-panel" role="dialog" aria-modal="true" aria-labelledby="line-modal-name" ref={modal} tabIndex={-1}>
-        <div className="pf-modal-head">
-          <span className="pf-modal-name" id="line-modal-name" title={cycle.id}>{cycle.id}</span>
-          <button type="button" className="pf-mini" onClick={props.onClose}>关闭</button>
-        </div>
-        <div className="pf-fold">
-          <div className="pf-set">
-            {POLICY_ROWS.map((row) => (
-              <PolicyRow
-                key={row.key}
-                row={row}
-                value={policies[row.key]}
-                onWrite={(value) => props.onWrite(row.key, value)}
-              />
-            ))}
-          </div>
+    <ModalShell labelId="line-modal-name" name={cycle.id} nameTitle={cycle.id} onClose={props.onClose}>
+      <div className="pf-fold">
+        <div className="pf-set">
+          {POLICY_ROWS.map((row) => (
+            <PolicyRow
+              key={row.key}
+              row={row}
+              value={policies[row.key]}
+              onWrite={(value) => props.onWrite(row.key, value)}
+            />
+          ))}
         </div>
       </div>
-    </div>
+    </ModalShell>
   )
 }
 
@@ -1139,39 +1065,23 @@ function PolicyRow(props: {
 }): React.ReactElement {
   const { row } = props
   const current = typeof props.value === 'number' ? props.value : null
-  const [text, setText] = React.useState(current === null ? '' : String(current))
-  /* 记录里那个数变了（写完再读回来、或从别处改了），框里就跟着换成新的那个。 */
-  React.useEffect(() => {
-    setText(current === null ? '' : String(current))
-  }, [current])
   const noteId = `note-${row.key}`
-  /* 落笔那一手：框里的字变成一个值，空的就是「这条线没立这一条」。失焦与回车上都算改完了——
-   * 只认失焦的话，敲完字直接换一格看的人会以为已经写进去了。 */
-  const commit = (): void => {
-    const trimmed = text.trim()
-    props.onWrite(trimmed.length === 0 ? 'off' : trimmed)
-  }
   return (
     <div className="pf-setrow">
       <div className="pf-settext">
         <div className="pf-setlabel">{row.name}</div>
         <div className="pf-setcaption" id={noteId}>{row.note}</div>
       </div>
-      <input
-        className={`pf-numin${current === null ? ' is-unset' : ''}`}
-        type="number"
-        min={1}
-        aria-label={row.name}
-        aria-describedby={noteId}
-        placeholder={current === null ? '未设置' : ''}
-        value={text}
+      <CommitNumberInput
+        held={current === null ? '' : String(current)}
+        unset={current === null}
+        label={row.name}
+        describedBy={noteId}
         title={`${row.key} = ${current === null ? 'off' : String(current)} · pf cycle policy ${row.key}`}
-        onChange={(event) => setText(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter') return
-          event.preventDefault()
-          commit()
+        onCommit={(typed) => {
+          /* 落笔那一手：框里的字变成一个值，空的就是「这条线没立这一条」。失焦与回车上都算
+           * 改完了——只认失焦的话，敲完字直接换一格看的人会以为已经写进去了。 */
+          props.onWrite(typed.length === 0 ? 'off' : typed)
         }}
       />
     </div>
@@ -1185,30 +1095,16 @@ function DeleteConfirm(props: {
   readonly onCancel: () => void
   readonly onConfirm: () => void
 }): React.ReactElement {
-  React.useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') props.onCancel() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [props])
   return (
-    <div className="pf-modal" onClick={(event) => { if (event.target === event.currentTarget) props.onCancel() }}>
-      <div className="pf-modal-panel" role="dialog" aria-modal="true" aria-labelledby="ins-del-name">
-        <div className="pf-modal-head">
-          <span className="pf-modal-name" id="ins-del-name">{'删除这一条'}</span>
-          <button type="button" className="pf-mini" onClick={props.onCancel}>关闭</button>
-        </div>
-        <blockquote className="pf-del-said">{props.said}</blockquote>
-        <div className="pf-del-warn">
-          <p>{'此次删除将移除该指令的存在痕迹。'}</p>
-        </div>
-        <div className="pf-modal-acts">
-          <button type="button" className="pf-btn" onClick={props.onCancel}>取消</button>
-          <button type="button" className="pf-btn" onClick={props.onConfirm}>删除</button>
-        </div>
+    <ModalShell labelId="ins-del-name" name="删除这一条" onClose={props.onCancel}>
+      <blockquote className="pf-del-said">{props.said}</blockquote>
+      <div className="pf-del-warn">
+        <p>{'此次删除将移除该指令的存在痕迹。'}</p>
       </div>
-    </div>
+      <div className="pf-modal-acts">
+        <button type="button" className="pf-btn" onClick={props.onCancel}>取消</button>
+        <button type="button" className="pf-btn" onClick={props.onConfirm}>删除</button>
+      </div>
+    </ModalShell>
   )
 }
-
-/** 写面那三个动作的名字，仅供调用方对着读。 */
-export const WRITE_VERBS: readonly WriteVerb[] = ['archive', 'revive', 'remove']

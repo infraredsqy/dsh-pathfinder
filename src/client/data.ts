@@ -114,20 +114,96 @@ function remoteNamespace(ctx: unknown): Service | undefined {
   }
 }
 
-/** 一条读调用的参数：远程那一层按端点上的参数名摆，三个位置都在。 */
+/** 一条读调用的参数：三个位置都在。 */
 function readArgs(sessionId: string, workspaceRoot: string): Readonly<Record<string, unknown>> {
   return { sessionId, workspaceRoot, options: {} }
 }
 
-/** 远程命名空间那一条路。 */
+/**
+ * 每条端点按什么次序收实参：远程那一层按位置递参，实参照这张表摆。
+ *
+ * 端点换签名时这里跟着换——不靠「对象键序＝端点形参序」那条没有单一出处的约定，键序一变
+ * 就静默错位的债不留在这一层。
+ */
+const REMOTE_PARAM_ORDER: Readonly<Record<string, readonly string[]>> = {
+  read: ['sessionId', 'workspaceRoot', 'options'],
+  readSessions: ['sessionId', 'workspaceRoot'],
+  addInstruction: ['sessionId', 'workspaceRoot', 'text', 'scope', 'cycle', 'node'],
+  archiveInstruction: ['sessionId', 'workspaceRoot', 'id'],
+  reviveInstruction: ['sessionId', 'workspaceRoot', 'id'],
+  removeInstruction: ['sessionId', 'workspaceRoot', 'id'],
+  setCyclePolicy: ['sessionId', 'workspaceRoot', 'cycle', 'key', 'value'],
+  readConfig: ['sessionId', 'workspaceRoot'],
+  setConfig: ['sessionId', 'workspaceRoot', 'key', 'value'],
+}
+
+/** 端点这一趟收的那串实参：照形参表摆，表上没有的键不带。 */
+function positional(method: string, args: Readonly<Record<string, unknown>>): readonly unknown[] {
+  return (REMOTE_PARAM_ORDER[method] ?? []).map((key) => args[key])
+}
+
+/** 两条取数路各自交出的那一手：一条调用，回来的已经是摊开过的两分支。 */
+type PortCall = <T>(
+  method: string,
+  args: Readonly<Record<string, unknown>>,
+  signal?: AbortSignal,
+) => Promise<Answer<T>>
+
+/**
+ * 面板那条口子的共同骨架：七条口子写一遍，两条路只差 call 那一层与 signal 怎么递。
+ * @param source - 这一条口子最后是从哪一层接上的。
+ * @param call - 端点名字、具名参数与中止信号递给它，它把答案摊成两分支。
+ */
+function portFromCall(source: PanelPort['source'], call: PortCall): PanelPort {
+  return {
+    source,
+    async read(sessionId, workspaceRoot, signal) {
+      const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot), signal)
+      if (!answer.ok) throw new Error(answer.message)
+      return answer.value
+    },
+    async readSessions(sessionId, workspaceRoot, signal) {
+      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot }, signal)
+      if (!answer.ok) throw new Error(answer.message)
+      return answer.value
+    },
+    async say(sessionId, workspaceRoot, text, scope, cycle, node) {
+      const answer = await call<PfOutcome>('addInstruction', { sessionId, workspaceRoot, text, scope, cycle, node })
+      return answer.ok ? answer.value : { ok: false, text: answer.message }
+    },
+    async write(verb, sessionId, workspaceRoot, id) {
+      const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
+      return answer.ok ? answer.value : { ok: false, text: answer.message }
+    },
+    async setPolicy(sessionId, workspaceRoot, cycle, key, value) {
+      const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
+      return answer.ok ? answer.value : { ok: false, text: answer.message }
+    },
+    async readConfig(sessionId, workspaceRoot, signal) {
+      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot }, signal)
+      if (!answer.ok) throw new Error(answer.message)
+      return answer.value
+    },
+    async setConfig(sessionId, workspaceRoot, key, value) {
+      const answer = await call<PfOutcome>('setConfig', { sessionId, workspaceRoot, key, value })
+      return answer.ok ? answer.value : { ok: false, text: answer.message }
+    },
+  }
+}
+
+/** 远程命名空间那一条路：按形参表把实参摆成位置实参，signal 跟在最后。 */
 function remotePort(namespace: Service): PanelPort {
-  const call = async <T>(method: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<Answer<T>> => {
+  const call: PortCall = async <T>(
+    method: string,
+    args: Readonly<Record<string, unknown>>,
+    signal?: AbortSignal,
+  ): Promise<Answer<T>> => {
     const implementation = namespace[method]
     if (typeof implementation !== 'function') return { ok: false, message: `这条通道上没有 ${method} 这个操作。` }
     try {
       const answer = await (implementation as (...values: unknown[]) => Promise<unknown>).call(
         namespace,
-        ...Object.values(args),
+        ...positional(method, args),
         ...(signal === undefined ? [] : [signal]),
       )
       return unwrap<T>(answer)
@@ -135,45 +211,16 @@ function remotePort(namespace: Service): PanelPort {
       return { ok: false, message: textOf(error) }
     }
   }
-  return {
-    source: 'remote',
-    async read(sessionId, workspaceRoot, signal) {
-      const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot), signal)
-      if (!answer.ok) throw new Error(answer.message)
-      return answer.value
-    },
-    async readSessions(sessionId, workspaceRoot, signal) {
-      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot }, signal)
-      if (!answer.ok) throw new Error(answer.message)
-      return answer.value
-    },
-    async say(sessionId, workspaceRoot, text, scope, cycle, node) {
-      const answer = await call<PfOutcome>('addInstruction', { sessionId, workspaceRoot, text, scope, cycle, node })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
-    },
-    async write(verb, sessionId, workspaceRoot, id) {
-      const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
-    },
-    async setPolicy(sessionId, workspaceRoot, cycle, key, value) {
-      const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
-    },
-    async readConfig(sessionId, workspaceRoot, signal) {
-      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot }, signal)
-      if (!answer.ok) throw new Error(answer.message)
-      return answer.value
-    },
-    async setConfig(sessionId, workspaceRoot, key, value) {
-      const answer = await call<PfOutcome>('setConfig', { sessionId, workspaceRoot, key, value })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
-    },
-  }
+  return portFromCall('remote', call)
 }
 
 /** 载体那一层：自己拼端点与参数，回来的还是 `{ ok, value }` 那一副脸。 */
 function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
-  const call = async <T>(method: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<Answer<T>> => {
+  const call: PortCall = async <T>(
+    method: string,
+    args: Readonly<Record<string, unknown>>,
+    signal?: AbortSignal,
+  ): Promise<Answer<T>> => {
     try {
       const answer = await rpc.call('/api', `${NAMESPACE}/${method}`, { args }, signal)
       return unwrap<T>(answer)
@@ -181,40 +228,7 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
       return { ok: false, message: textOf(error) }
     }
   }
-  return {
-    source: 'carrier',
-    async read(sessionId, workspaceRoot, signal) {
-      const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot), signal)
-      if (!answer.ok) throw new Error(answer.message)
-      return answer.value
-    },
-    async readSessions(sessionId, workspaceRoot, signal) {
-      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot }, signal)
-      if (!answer.ok) throw new Error(answer.message)
-      return answer.value
-    },
-    async say(sessionId, workspaceRoot, text, scope, cycle, node) {
-      const answer = await call<PfOutcome>('addInstruction', { sessionId, workspaceRoot, text, scope, cycle, node })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
-    },
-    async write(verb, sessionId, workspaceRoot, id) {
-      const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
-    },
-    async setPolicy(sessionId, workspaceRoot, cycle, key, value) {
-      const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
-    },
-    async readConfig(sessionId, workspaceRoot, signal) {
-      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot }, signal)
-      if (!answer.ok) throw new Error(answer.message)
-      return answer.value
-    },
-    async setConfig(sessionId, workspaceRoot, key, value) {
-      const answer = await call<PfOutcome>('setConfig', { sessionId, workspaceRoot, key, value })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
-    },
-  }
+  return portFromCall('carrier', call)
 }
 
 /** 两条都没接上时的那条口子：每一次读都明说取不到。 */

@@ -19,14 +19,13 @@ import {
   pickState,
   type ConfigRow,
 } from './config-rows.ts'
+import { NOT_ENABLED } from './constants.ts'
 import type { PanelPort } from './data.ts'
+import { CommitNumberInput, Grip } from './widgets.tsx'
 
 const READ_FAILED = '无法读取该工作区的项目设置。'
 
 const WRITE_FAILED = '这次写入没有生效。'
-
-/** 这个工作区里还没有节点那一份记录时，这一格摆的那一句——五个跟节点走的格子说的是同一句。 */
-const NOT_ENABLED = '当前工作区尚未启用 Pathfinder。'
 
 const SIDES: readonly (readonly [string, boolean])[] = [['开', true], ['关', false]]
 
@@ -202,8 +201,8 @@ function Pick(props: {
 /**
  * 数字那一枚：改完才写（回车或失焦），中间敲的字只活在这个框里。
  *
- * 敲一半的数不是一个值，所以它不往记录上去；`revision` 每写一次就翻一格，翻的时候把框里那一份
- * 草稿丢掉，换成重读回来那一份。
+ * 提交的规则在这说话：空着的时候没有数可写，留住记录里那一个；没改过的那一个也不必再写一遍。
+ * `revision` 每写一次就翻一格，翻的时候框里跟着换成重读回来那一份——工具拒了的那个数不赖在框里。
  */
 function NumberBox(props: {
   readonly row: ConfigRow
@@ -212,31 +211,17 @@ function NumberBox(props: {
   readonly revision: number
   readonly onWrite: (value: string) => void
 }): React.ReactElement {
-  const [draft, setDraft] = React.useState<string | null>(null)
   const held = props.entry?.value ?? ''
-  React.useEffect(() => { setDraft(null) }, [held, props.revision])
-  const commit = (): void => {
-    const typed = (draft ?? '').trim()
-    setDraft(null)
-    /* 空着的时候没有数可写，留住记录里那一个；没改过的那一个也不必再写一遍。 */
-    if (typed.length === 0 || typed === held) return
-    props.onWrite(typed)
-  }
   return (
-    <input
-      className={`pf-numin${props.entry === undefined ? ' is-unset' : ''}`}
-      type="number"
-      min={1}
-      aria-label={props.row.name}
-      aria-describedby={props.noteId}
-      placeholder={props.entry === undefined ? '未设置' : ''}
-      value={draft ?? held}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter') return
-        event.preventDefault()
-        commit()
+    <CommitNumberInput
+      held={held}
+      unset={props.entry === undefined}
+      label={props.row.name}
+      describedBy={props.noteId}
+      revision={props.revision}
+      onCommit={(typed) => {
+        if (typed.length === 0 || typed === held) return
+        props.onWrite(typed)
       }}
     />
   )
@@ -269,10 +254,9 @@ function Toggle(props: {
 }
 
 /**
- * 列缘那一对把手。
- *
- * 量法照蓝本那一枚共用构件：单侧挪 Δ、宽窄变 2Δ、中心不动，所以指针一直抓在列缘上；双击回默认，
- * 左右方向键走一步，按住 shift 走大步。左边那一枚的 `out` 是 -1：方向键挪的是这一侧的缘。
+ * 列缘那一对把手：拖、键盘、双击都在共用那枚 Grip 上，这里只说这一对的量法——
+ * 单侧挪 Δ、宽窄变 2Δ、中心不动，指针一直抓在列缘上；左边那一枚的 `out` 是 -1：方向键
+ * 挪的是这一侧的缘。
  */
 function ConfigGrip(props: {
   readonly side: 'left' | 'right'
@@ -281,45 +265,20 @@ function ConfigGrip(props: {
 }): React.ReactElement {
   const { side, value, onChange } = props
   const out = side === 'left' ? -1 : 1
-  const from = React.useRef(0)
-  const base = React.useRef(value)
   return (
-    <div
-      className="pf-grip"
-      data-side={side}
-      role="separator"
-      aria-orientation="vertical"
-      tabIndex={0}
-      aria-label="调整设置那一列的宽度"
-      data-width={value}
-      aria-valuenow={value}
-      aria-valuemin={CONFIG_WIDTH_MIN}
-      aria-valuemax={CONFIG_WIDTH_MAX}
-      onPointerDown={(event) => {
-        from.current = event.clientX
-        base.current = value
-        /* 合成事件里没有真的 pointer，抓不住也不算错：那一下本来就没在拖。 */
-        try {
-          event.currentTarget.setPointerCapture(event.pointerId)
-        } catch (error) {
-          from.current = event.clientX
-        }
-      }}
-      onPointerMove={(event) => {
-        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
-        const moved = clampConfigWidth(base.current + out * (event.clientX - from.current) * 2)
-        if (moved !== value) onChange(moved)
-      }}
-      onPointerUp={(event) => {
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-      }}
-      onDoubleClick={() => onChange(CONFIG_WIDTH)}
-      onKeyDown={(event) => {
-        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-        const step = (event.shiftKey ? CONFIG_WIDTH_BIG : CONFIG_WIDTH_STEP) * (event.key === 'ArrowRight' ? 1 : -1)
-        onChange(clampConfigWidth(value + out * step))
-        event.preventDefault()
-      }}
+    <Grip
+      label="调整设置那一列的宽度"
+      value={value}
+      min={CONFIG_WIDTH_MIN}
+      max={CONFIG_WIDTH_MAX}
+      clamp={clampConfigWidth}
+      dragGain={out * 2}
+      keyGain={out}
+      step={CONFIG_WIDTH_STEP}
+      bigStep={CONFIG_WIDTH_BIG}
+      onChange={onChange}
+      resetTo={CONFIG_WIDTH}
+      attributes={{ 'data-side': side, 'data-width': String(value) }}
     />
   )
 }

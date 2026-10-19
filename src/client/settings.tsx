@@ -10,6 +10,7 @@ import { INFO_LEVELS, PANEL_PREF_FIELDS, VIEW_IDS } from '../host/settings-field
 import { DEFAULT_SOURCE, INFO_LABELS, VIEW_LABELS } from './prefs.ts'
 import type { PrefField, PrefsForm, PrefsSource, PrefsStore } from './prefs.ts'
 import { serviceAt } from './data.ts'
+import { injectAt, report, serveOn, type SlotsService } from './context.ts'
 import { SETTINGS_STYLE_ID, dropStyleTag, ensureStyleTag } from './style-tags.ts'
 
 /**
@@ -200,19 +201,11 @@ export function SettingsSection(props: SettingsSectionProps): React.ReactElement
   )
 }
 
-interface ClientContext {
-  inject?: (names: readonly string[], callback: (owner: unknown) => void) => unknown
-}
-
-interface SlotsService {
-  inject?: (key: string, register: () => unknown) => unknown
-  register?: (options: unknown, component: (props: SettingsSectionProps) => React.ReactElement) => unknown
-}
-
 /**
  * 把这一节接到设置上：先把面板那条口子接到 `configForms.get(SETTINGS_NAMESPACE)` 上（面板与
  * 设置页从此读同一份表单），再往 `settings.section` 里注册一条。两件事各挂在一条 `effect` 上，
- * 每一件都挡在自己的 `try` 里，`slots` 取不到时头一件照旧接得上、也照旧还得回去。
+ * 每一件都挡在自己的 `try` 里（装配共享件那一层挡），`slots` 取不到时头一件照旧接得上、也照旧
+ * 还得回去。
  *
  * 服务用动态的 `ctx.inject` 等（`ctx.get` 在这个部署里会摸空，而且悄无声息），取不到
  * `slots` / `configForms` 就安静地不做——这一层从不把插件的 `apply` 弄挂。那一节不挂在
@@ -225,77 +218,55 @@ interface SlotsService {
  * @param store - 面板与设置页共读的那条设置口子。
  */
 export function registerSettingsSection(ctx: unknown, store: PrefsStore): void {
-  const holder = ctx as ClientContext | null | undefined
-  if (holder === null || holder === undefined || typeof holder.inject !== 'function') return
-  try {
-    holder.inject(['slots', 'configForms'], (owner) => {
+  injectAt(ctx, ['slots', 'configForms'], '设置那一页没接上', (owner) => {
+    /* 交回的摘除器挂在它自己那条 `effect` 上：设置表单归 ui-settings 的服务，它比这条插件活
+     * 得久，接上去的每一个订阅者都得还回去，不然每次重载都在它上面多留一个。 */
+    const attachForm = (): (() => void) => {
+      const forms = serviceAt(owner, 'configForms')
+      const getForm = forms?.get
+      if (typeof getForm !== 'function') return () => undefined
       try {
-        const effect = (owner as { effect?: (run: () => () => void, name?: string) => unknown }).effect
-
-        /* 交回的摘除器挂在它自己那条 `effect` 上：设置表单归 ui-settings 的服务，它比这条插件活
-         * 得久，接上去的每一个订阅者都得还回去，不然每次重载都在它上面多留一个。 */
-        const attachForm = (): (() => void) => {
-          const forms = serviceAt(owner, 'configForms')
-          const getForm = forms?.get
-          if (typeof getForm !== 'function') return () => undefined
-          try {
-            return store.attach((getForm as (namespace: string) => PrefsForm).call(forms, SETTINGS_NAMESPACE))
-          } catch (error) {
-            report('设置表单没接上，面板按出厂那几条画', error)
-            return () => undefined
-          }
-        }
-        if (typeof effect === 'function') effect.call(owner, attachForm, 'dsh-pathfinder: settings form')
-        else attachForm()
-
-        const slots = serviceAt(owner, 'slots') as SlotsService | undefined
-        if (slots === undefined || typeof slots.inject !== 'function' || typeof slots.register !== 'function') return
-
-        let registration: unknown = null
-        const contribute = (): void => {
-          if (registration !== null) return
-          try {
-            registration = slots.inject?.(SECTION_SLOT, () => slots.register?.({
-              name: SECTION_SLOT,
-              id: SETTINGS_NAMESPACE,
-              order: SECTION_ORDER,
-              label: () => SECTION_LABEL,
-              /* 读数在槽位真的渲染时才绑：这一层不替它先读一遍。 */
-              inject: () => ({ source: store }),
-            }, SettingsSection))
-          } catch (error) {
-            registration = null
-            report('设置那一页没注册上', error)
-          }
-        }
-        const withdraw = (): void => {
-          if (registration === null) return
-          const dispose = registration
-          registration = null
-          try {
-            if (typeof dispose === 'function') dispose()
-          } catch (error) {
-            report('设置那一页没撤下来', error)
-          }
-        }
-        const serve = (): (() => void) => {
-          contribute()
-          return withdraw
-        }
-        if (typeof effect === 'function') effect.call(owner, serve, 'dsh-pathfinder: settings page')
-        else serve()
+        return store.attach((getForm as (namespace: string) => PrefsForm).call(forms, SETTINGS_NAMESPACE))
       } catch (error) {
-        report('设置那一页没接上', error)
+        report('设置表单没接上，面板按出厂那几条画', error)
+        return () => undefined
       }
-    })
-  } catch (error) {
-    report('设置那一页没接上', error)
-  }
-}
+    }
+    serveOn(owner, attachForm, 'dsh-pathfinder: settings form')
 
-/** 一条警告；设置这一节出了岔子不该静悄悄。 */
-function report(what: string, error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error)
-  // eslint-disable-next-line no-console -- 这一节没接上必须留下一条可查的痕迹
-  console.warn(`dsh-pathfinder: ${what}：${message}`)
+    const slots = serviceAt(owner, 'slots') as SlotsService | undefined
+    if (slots === undefined || typeof slots.inject !== 'function' || typeof slots.register !== 'function') return
+
+    let registration: unknown = null
+    const contribute = (): void => {
+      if (registration !== null) return
+      try {
+        registration = slots.inject?.(SECTION_SLOT, () => slots.register?.({
+          name: SECTION_SLOT,
+          id: SETTINGS_NAMESPACE,
+          order: SECTION_ORDER,
+          label: () => SECTION_LABEL,
+          /* 读数在槽位真的渲染时才绑：这一层不替它先读一遍。 */
+          inject: () => ({ source: store }),
+        }, SettingsSection))
+      } catch (error) {
+        registration = null
+        report('设置那一页没注册上', error)
+      }
+    }
+    const withdraw = (): void => {
+      if (registration === null) return
+      const dispose = registration
+      registration = null
+      try {
+        if (typeof dispose === 'function') dispose()
+      } catch (error) {
+        report('设置那一页没撤下来', error)
+      }
+    }
+    serveOn(owner, () => {
+      contribute()
+      return withdraw
+    }, 'dsh-pathfinder: settings page')
+  })
 }

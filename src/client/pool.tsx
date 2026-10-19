@@ -8,6 +8,8 @@
 import * as React from 'react'
 import { ISSUE_STATE_WORDS } from '../model/index.ts'
 import type { IssueGroupReading, IssueReading, PoolReading, ProjectReading } from '../model/index.ts'
+import { NOT_ENABLED } from './constants.ts'
+import { Grip, Pill } from './widgets.tsx'
 
 /** 一个重量单位占几像素，以及两个单位之间那道缝。 */
 const SLOT = 6
@@ -18,9 +20,6 @@ const POOL_MIN = 320
 const CASE_MIN = 360
 /** 键盘挪那道缝时一步走多远。 */
 const BAR_STEP = 16
-
-/** 这个工作区里还没有问题那一份记录时，这一格摆的那一句——那五个跟节点走的格子说的是同一句。 */
-const NOT_ENABLED = '当前工作区尚未启用 Pathfinder。'
 
 function sevClass(severity: string | undefined): string {
   return `is-${severity ?? 'P3'}`
@@ -48,7 +47,6 @@ export function IssuePool(props: {
   const splitRef = React.useRef<HTMLDivElement | null>(null)
   const gutterRef = React.useRef<HTMLDivElement | null>(null)
   const [left, setLeft] = React.useState<number | null>(null)
-  const held = React.useRef<{ readonly at: number; readonly from: number } | null>(null)
   const [bar, setBar] = React.useState({ min: POOL_MIN, max: POOL_MIN, now: POOL_MIN })
   /* 拖动那道缝的当口：这个状态挂在这一格自己身上（不是页面根），样式表那三条跟着它走。 */
   const [dragging, setDragging] = React.useState(false)
@@ -96,9 +94,10 @@ export function IssuePool(props: {
     return () => window.removeEventListener('resize', onResize)
   }, [paintBar, barAt, left])
 
-  const moveBar = (to: number): void => {
+  /* 那道缝的边界：算出来的位置落到哪——左半边的下限与这一格现量出来的上限都在这一手里。 */
+  const clampBar = (to: number): number => {
     const at = barAt()
-    setLeft(Math.max(POOL_MIN, Math.min(Math.round(to), at.max)))
+    return Math.max(POOL_MIN, Math.min(Math.round(to), at.max))
   }
 
   /* 方向键挪到下一行；挑中的那一行就是右半边那一条。 */
@@ -229,44 +228,20 @@ export function IssuePool(props: {
           })}
         </div>
 
-        <div
-          className="pf-gutter"
+        {/* 登记簿与一案之间那道缝：拖、键盘、aria 都在共用那枚 Grip 上，这里只给它
+            这一格现量出来的两头。 */}
+        <Grip
           id="gutter"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="问题池与一案的宽度"
-          aria-valuemin={bar.min}
-          aria-valuemax={bar.max}
-          aria-valuenow={bar.now}
-          tabIndex={0}
-          ref={gutterRef}
-          onPointerDown={(event) => {
-            held.current = { at: event.clientX, from: barAt().now }
-            event.currentTarget.setPointerCapture(event.pointerId)
-            event.preventDefault()
-            setDragging(true)
-          }}
-          onPointerMove={(event) => {
-            if (held.current === null) return
-            moveBar(held.current.from + event.clientX - held.current.at)
-          }}
-          onPointerUp={(event) => {
-            held.current = null
-            setDragging(false)
-            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-              event.currentTarget.releasePointerCapture(event.pointerId)
-            }
-          }}
-          onPointerCancel={() => { held.current = null; setDragging(false) }}
-          onKeyDown={(event) => {
-            const at = barAt()
-            if (event.key === 'Home') moveBar(POOL_MIN)
-            else if (event.key === 'End') moveBar(at.max)
-            else if (event.key === 'ArrowLeft') moveBar(at.now - BAR_STEP)
-            else if (event.key === 'ArrowRight') moveBar(at.now + BAR_STEP)
-            else return
-            event.preventDefault()
-          }}
+          className="pf-gutter"
+          label="问题池与一案的宽度"
+          value={bar.now}
+          min={bar.min}
+          max={bar.max}
+          clamp={clampBar}
+          step={BAR_STEP}
+          gripRef={gutterRef}
+          onChange={setLeft}
+          onDragging={setDragging}
         />
 
         <aside className="pf-case" id="case" role="region" aria-label="一案" tabIndex={0}>
@@ -423,13 +398,4 @@ function prose(said: string): React.ReactNode {
 /** 一句话里的换行画成换行：记录里那几个字段是几行，这里就是几行。 */
 function proseLines(said: string): React.ReactNode[] {
   return said.split('\n').flatMap((line, at) => (at === 0 ? [line] : [<br key={`n${String(at)}`} />, line]))
-}
-
-function Pill(props: { readonly cls: string; readonly n: number; readonly label: string }): React.ReactElement {
-  return (
-    <span className="pf-pill" title={props.label}>
-      <i className={`pf-cell${props.cls.length === 0 ? '' : ` ${props.cls}`}`} />
-      <b className="pf-num">{`× ${String(props.n)}`}</b>
-    </span>
-  )
 }
