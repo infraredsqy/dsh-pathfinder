@@ -229,13 +229,14 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * 把点名那个工作区里每一格的会话笔记读出来。
+   * 把点名那个工作区里那一层的会话笔记原样搬回来。
    *
    * 读的是记录库里那一层按节点分的小份笔记：会话身份住在这台机器自己的笔记上，一条会话只在
-   * 开它的那台机器上活着。它与四份记录一样住在工作区里，所以走同一条只读口子。
+   * 开它的那台机器上活着。它与四份记录一样住在工作区里，所以走同一条只读口子；这一手只搬数，
+   * 「每一格该看哪条」由模型层读。
    * @param sessionId - 会话身份。
    * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
-   * @returns 每一格最近开过的那条会话，连同这一层笔记的结局。
+   * @returns 那一层里每份文件的名字与内容，连同这一层的结局。
    */
   async readSessions(sessionId: SessionId, workspaceRoot: string): Promise<PathfinderSessionsReading> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)

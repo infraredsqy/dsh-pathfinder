@@ -161,7 +161,7 @@ function recordDigest() {
 
 const { PathfinderRecordsGateway } = await import(pathToFileURL(join(root, 'src', 'host', 'index.ts')).href)
 const { runPf } = await import(pathToFileURL(join(root, 'src', 'host', 'write.ts')).href)
-const { readProject } = await import(pathToFileURL(join(root, 'src', 'model', 'index.ts')).href)
+const { readProject, readSessions } = await import(pathToFileURL(join(root, 'src', 'model', 'index.ts')).href)
 
 /** 起进程那一侧的最小替身：与宿主那份一样走 execFile，一样隐藏窗口。 */
 function spawner() {
@@ -645,6 +645,37 @@ check(
     && JSON.stringify(cardReadings) === JSON.stringify(expectedCards)
     && sum(cardReadings) === sum(expectedCards),
   `记录现算 胶囊=${JSON.stringify(expectedPills)} 三列=${JSON.stringify(expectedCards)} ｜ 面板上 胶囊=${JSON.stringify(pillReadings)} 三列=${JSON.stringify(cardReadings)} 总卡=${String(sum(cardReadings))}`,
+)
+
+/* 会话笔记：宿主半身把那一层目录原样搬回来，「每一格该去哪条会话」由模型层对着它读。夹具对着
+ * 拷来的那份记录自己现算一遍，跟「搬数 → 读数」这条链对账——键是文件名剥掉后缀，一格开过
+ * 好几条时取时刻最新的那条，同时刻跑的那条压过讨论的那条。 */
+const sessionsDir = join(record, 'meta', 'sessions')
+const wantSessions = {}
+for (const name of existsSync(sessionsDir) ? readdirSync(sessionsDir) : []) {
+  if (!name.endsWith('.json')) continue
+  let note
+  try {
+    note = JSON.parse(readFileSync(join(sessionsDir, name), 'utf8'))
+  } catch {
+    continue
+  }
+  let best
+  for (const [rank, kind] of [[1, 'run'], [0, 'discussion']]) {
+    for (const ref of Array.isArray(note?.[kind]) ? note[kind] : []) {
+      if (typeof ref?.session !== 'string' || ref.session.length === 0) continue
+      const at = typeof ref.at === 'string' ? ref.at : ''
+      if (best === undefined || at > best.at || (at === best.at && rank > best.rank)) best = { session: ref.session, at, rank }
+    }
+  }
+  if (best !== undefined) wantSessions[name.slice(0, -'.json'.length)] = best.session
+}
+const hauled = await gateway.readSessions(sessionId, '')
+const gotSessions = readSessions(hauled.notes)
+check(
+  '会话笔记：宿主搬回的原样经模型层读出，每一格该去的那条与夹具现算的对上',
+  JSON.stringify(gotSessions) === JSON.stringify(wantSessions),
+  `夹具现算 ${String(Object.keys(wantSessions).length)} 格 ｜ 链上读出 ${String(Object.keys(gotSessions).length)} 格`,
 )
 
 /* ---- 3c. 调度中心那两处：真产物挂上去，各露一面 --------------------------

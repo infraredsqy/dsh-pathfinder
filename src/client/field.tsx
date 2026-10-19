@@ -6,6 +6,7 @@
  * ——图在第一笔画出来之前就已经定了。
  */
 import * as React from 'react'
+import { depsWord } from '../model/index.ts'
 import type { GraphReading, NodeReading, ProjectReading } from '../model/index.ts'
 
 /** 三种读法：点阵、点阵铺到四列一屏、卡片（最上面那一档多带一行前置）。 */
@@ -256,25 +257,33 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
   )
 }
 
+/**
+ * 依赖那一栏的话，长在哪个看法都这一张脸：可开工，或者前置节点 N 个。
+ *
+ * 哪一句归这一格、词面是什么，都由读数说（`depsWord`）——这句话全仓只在 model 拼一处；这里
+ * 把数字从那句话里穿出来，前后两段原样摆回，只给穿出来的数字套上它那身记号（等宽、亮一档）
+ * ——那一身只有界面摆得出来。
+ */
+export function DepsChip(props: { readonly node: NodeReading }): React.ReactElement | null {
+  const { node } = props
+  const said = depsWord(node)
+  if (said === null) return null
+  const [head, tail] = said.count === null ? [said.word] : said.word.split(String(said.count))
+  return (
+    <span className={`pf-deps${said.ready ? ' is-ready' : ''}`}>
+      {head}
+      {tail !== undefined ? <b className="pf-num">{String(said.count)}</b> : null}
+      {tail}
+    </span>
+  )
+}
+
 /** 卡片上那一行：它还等不等、等几件。落定的、进行中的、放下的那一格都不写。 */
 function CardDeps(props: { readonly node: NodeReading }): React.ReactElement | null {
-  const { node } = props
-  /* 「可开工」只认读数自己那一栏（词表那三条判据算出来的值），不拿 `state` 自己拼：进行中的一
-     格 `state` 也是 `todo`，照 `state` 拼就会把别人手里正做的那一格印成可开工。 */
-  if (node.ready) {
-    return (
-      <span className="pf-zmeta">
-        <span className="pf-deps is-ready">可开工</span>
-      </span>
-    )
-  }
-  /* 还没进行中、只是真欠着前置的那一格：写几件。进行中的、放下的、落定的、以及一件都不欠的都不写。 */
-  if (node.state !== 'todo' || node.running || node.openDependencies.length === 0) return null
+  if (depsWord(props.node) === null) return null
   return (
     <span className="pf-zmeta">
-      <span className="pf-deps">
-        {'前置节点 '}<b className="pf-num">{String(node.openDependencies.length)}</b>{' 个'}
-      </span>
+      <DepsChip node={props.node} />
     </span>
   )
 }
@@ -295,9 +304,8 @@ function stateClass(node: NodeReading): string {
   return node.ready ? 'is-todo' : 'is-wait'
 }
 
-/** 一个记号说的是什么：标题、八字把手，以及图形说不出来的那一件事。
- *  与 `CardDeps` 说的是同一件事——两边都先认读数自己的 `ready`、再看有没有人握着，所以那一格
- *  不会一处说可开工、一处说在别人手里。 */
+/** 一个记号说的是什么：标题、八字把手，以及图形说不出来的那一件事——依赖上那句与卡片上
+ *  那一行同一句话，都从读数那份措辞来。 */
 function hoverOf(node: NodeReading): string {
   const short = shortOf(node)
   const parts = [node.title === undefined ? short : node.title]
@@ -305,8 +313,10 @@ function hoverOf(node: NodeReading): string {
   if (node.state === 'completed') parts.push('已交付')
   else if (node.state === 'shelved') parts.push('等待处理')
   else if (node.running) parts.push('进行中')
-  else if (node.ready) parts.push('可开工')
-  else parts.push(`前置节点 ${String(node.openDependencies.length)} 个`)
+  else {
+    const said = depsWord(node)
+    if (said !== null) parts.push(said.word)
+  }
   return parts.join(' · ')
 }
 

@@ -4,7 +4,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readProject } from '../src/model/index.ts'
+import { groupInstructions, readProject } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
@@ -122,4 +122,65 @@ test('记录里没写的字段就空着，不补一个默认值', () => {
   assert.equal(Object.hasOwn(out[0], 'scope'), false)
   assert.equal(Object.hasOwn(out[0], 'recordState'), false)
   assert.equal(Object.hasOwn(out[0], 'text'), false)
+})
+
+test('记录里的备注跟着读数走：没写就没有', () => {
+  const out = read([
+    instruction({ id: 'with', note: '当时为什么说这句' }),
+    instruction({ id: 'without' }),
+    instruction({ id: 'empty', note: null }),
+  ])
+
+  assert.equal(out[0].note, '当时为什么说这句')
+  assert.equal(Object.hasOwn(out[1], 'note'), false)
+  assert.equal(Object.hasOwn(out[2], 'note'), false)
+})
+
+test('组归属由读数给出：全局在前，各线按记录次序，认不得的那条线一组，最后一格', () => {
+  const project = readProject({
+    nodes: { n1: { mode: 'auto', status: 'todo', dependencies: [] } },
+    cycles: [
+      { id: 'c2', status: 'active', holding: [], path: [] },
+      { id: 'c1', status: 'active', holding: [], path: [] },
+    ],
+    instructions: [
+      instruction({ id: 'node-1', scope: 'node', node: 'n1' }),
+      instruction({ id: 'line-c1', scope: 'cycle', cycle: 'c1' }),
+      instruction({ id: 'line-gone', scope: 'cycle', cycle: 'c9' }),
+      instruction({ id: 'line-none', scope: 'cycle' }),
+      instruction({ id: 'world', scope: 'global' }),
+      instruction({ id: 'strange', scope: '别处' }),
+      instruction({ id: 'no-scope', scope: undefined }),
+    ],
+    issues: {},
+    at: AT,
+  })
+  const groups = groupInstructions(project, project.instructions)
+
+  assert.deepEqual(groups.map((group) => group.key), ['global', 'cycle:c1', 'cycle:c9', 'cycle:', 'node'], '没有条目落进去的那条线不成组')
+  assert.deepEqual(groups.map((group) => group.label), ['全局', 'c1', 'cycle:c9', '未分组', '这一格'])
+  assert.deepEqual(groups[3].entries.map((entry) => entry.id), ['line-none'], '绑的那条线没写出来：未分组那一堆')
+  assert.deepEqual(
+    groups[4].entries.map((entry) => entry.id),
+    ['node-1', 'strange', 'no-scope'],
+    '认不得的范围按管得着读，组里落在这一格',
+  )
+})
+
+test('组内排序：还算数的在前，新说的在前；空组不收', () => {
+  const project = readProject({
+    nodes: {},
+    cycles: [{ id: 'c1', status: 'active', holding: [], path: [] }],
+    instructions: [
+      instruction({ id: 'old-live', at: '2026-03-10T08:00:00.000Z' }),
+      instruction({ id: 'new-dead', state: 'withdrawn', resolved_at: '2026-03-10T11:00:00.000Z' }),
+      instruction({ id: 'new-live', at: '2026-03-10T10:00:00.000Z' }),
+    ],
+    issues: {},
+    at: AT,
+  })
+  const groups = groupInstructions(project, project.instructions)
+
+  assert.deepEqual(groups.map((group) => group.key), ['global'], '没有条目落进的那条线不成组')
+  assert.deepEqual(groups[0].entries.map((entry) => entry.id), ['new-live', 'old-live', 'new-dead'])
 })

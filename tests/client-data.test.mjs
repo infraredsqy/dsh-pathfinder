@@ -128,12 +128,12 @@ test('远程那一层取数失败：读数照抛，不编一份空的', async ()
   await assert.rejects(() => port.read('s1', ''), /读不动/u)
 })
 
-test('会话笔记那一条：端点叫 readSessions(sessionId, 工作区根)，解出来的表原样带回来', async () => {
-  const { calls, namespace } = fakeNamespace({ ok: true, value: { project: 'C:\\ws', recordPath: '.pf/meta/sessions', state: 'read', sessions: { 'n-1': 'session-7' } } })
+test('会话笔记那一条：端点叫 readSessions(sessionId, 工作区根)，搬回来的原样带回来', async () => {
+  const { calls, namespace } = fakeNamespace({ ok: true, value: { project: 'C:\\ws', recordPath: '.pf/meta/sessions', state: 'read', notes: { 'n-1.json': '{"run":[]}' } } })
   const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? namespace : undefined) })
 
   const reading = await port.readSessions('s1', 'C:\\picked')
-  assert.deepEqual(reading.sessions, { 'n-1': 'session-7' })
+  assert.deepEqual(reading.notes, { 'n-1.json': '{"run":[]}' })
   assert.deepEqual(calls, [{ method: 'readSessions', values: ['s1', 'C:\\picked'] }])
 })
 

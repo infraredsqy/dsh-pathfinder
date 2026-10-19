@@ -105,6 +105,21 @@ export interface NodeReading {
   readonly gate: GateReading | null
 }
 
+/**
+ * 依赖场上给读者的一句话：可开工，或者还欠几件前置。
+ *
+ * 哪一句归这一格由读数自己的 `ready` 说，界面不重判那三条判据；落定的、进行中的、放下的
+ * 不欠这个问题——依赖只写给还没开动的活。
+ */
+export interface DepsWord {
+  /** 那一句话，逐字：`可开工` / `前置节点 N 个`。 */
+  readonly word: string
+  /** 是可开工那一句：记号跟它换装。 */
+  readonly ready: boolean
+  /** 「前置节点 N 个」里的 N；可开工那一句没有数。 */
+  readonly count: number | null
+}
+
 /** 线路上一个持有关系在那一刻的样子。 */
 export interface HoldingReading {
   readonly nodeId: string
@@ -129,10 +144,27 @@ export interface CycleReading {
   readonly parked: readonly string[]
 }
 
+/**
+ * 指令登记簿上的一组：按范围分堆的那一段。组头一个词，底下一摞条目。
+ *
+ * 范围那个词只在出读数这一处读：全局在前，然后每条线按记录里的次序，再是认不得的那条线，
+ * 最后一格；空组不收。
+ */
+export interface InstructionGroupReading {
+  /** 这一组的身份：`global` / 绑的那条线（`cycle:<线身份>`）/ `node`。 */
+  readonly key: string
+  /** 读作哪一个词：全局 / 线自己的名字 / 未分组 / 这一格。 */
+  readonly label: string
+  /** 这一组里那几条：还算数的在前，新说的在前。 */
+  readonly entries: readonly InstructionReading[]
+}
+
 /** 一条指令在那一刻的读数。 */
 export interface InstructionReading {
   readonly id: string
   readonly text?: string
+  /** 记录里自己写的备注，原样；没写就没有。 */
+  readonly note?: string
   /** 范围，原样：全局 / 绑某条线 / 绑某一格，以及记录里别的写法；没写就没有。 */
   readonly scope?: string
   /** 绑到哪条线路；没绑就是 `null`。 */

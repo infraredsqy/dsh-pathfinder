@@ -5,7 +5,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readProject } from '../src/model/index.ts'
+import { depsWord, readProject } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
@@ -95,4 +95,25 @@ test('读一遍依赖场不改递给它的那份记录', () => {
   readProject(input)
 
   assert.deepEqual(input, snapshot)
+})
+test('依赖那一句话：可开工只认读数自己那一个值，别的不欠这个问题', () => {
+  const reading = readProject(record({
+    nodes: {
+      plain: node(),
+      second: node(),
+      owed: node({ dependencies: ['plain', 'second'] }),
+      held: node(),
+      shelved: node({ status: 'shelved', updated_at: '2026-03-10T09:00:00.000Z' }),
+      done: node({ status: 'completed', completed_at: '2026-03-10T09:00:00.000Z' }),
+    },
+    cycles: [
+      { id: 'w', status: 'active', holding: [{ id: 'held', since: '2026-03-10T08:00:00.000Z' }], path: [] },
+    ],
+  }))
+
+  assert.deepEqual(depsWord(reading.nodeById.plain), { word: '可开工', ready: true, count: null })
+  assert.deepEqual(depsWord(reading.nodeById.owed), { word: '前置节点 2 个', ready: false, count: 2 })
+  assert.equal(depsWord(reading.nodeById.held), null, '别人手里正做的：欠的前置一件不剩也不算可开工')
+  assert.equal(depsWord(reading.nodeById.shelved), null, '出局等人的不欠这个问题')
+  assert.equal(depsWord(reading.nodeById.done), null, '落定的不欠谁的前置')
 })

@@ -5,10 +5,10 @@
  * 只把读数画出来。面板自己那几个显示偏好住在 Host 的设置文档里，经 `prefs.ts` 那条口子读写。
  */
 import * as React from 'react'
-import type { PathfinderInstruction, PathfinderReading, PathfinderSourceState } from '../host/contract.ts'
+import type { PathfinderReading, PathfinderSourceState } from '../host/contract.ts'
 import type { CyclePolicyKey, InstructionScope } from '../host/gateway.ts'
 import type { CycleReading, InstructionReading, NodeReading, ProjectReading } from '../model/index.ts'
-import { clock, dayLabel, duration, elapsedSince, readProject } from '../model/index.ts'
+import { clock, dayLabel, duration, elapsedSince, groupInstructions, readProject, readSessions } from '../model/index.ts'
 import type { InfoLevel, PrefField, PrefsSource, ViewId } from './prefs.ts'
 import {
   clampSide,
@@ -24,7 +24,7 @@ import {
 import type { PanelPort, WriteVerb } from './data.ts'
 import { bucketOf, NO_WORKSPACES, type WorkspaceSource } from './workspaces.ts'
 import { ConfigPane } from './config.tsx'
-import { DependencyField } from './field.tsx'
+import { DependencyField, DepsChip } from './field.tsx'
 import { IssuePool } from './pool.tsx'
 
 /** 六个看法：身份、标签上的字、以及这一格要不要吃掉整块地界。 */
@@ -221,8 +221,8 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     return () => { live = false }
   }, [port, sessionId, workspaceRoot, tick, pickedNone])
 
-  /* 会话笔记：这一格最近开过的那条会话住在记录库那一层按节点分的小份笔记上，由宿主半身那条端点
-   * 交回来。只有当前那一格（看板）有卡片要点，所以只在这一格露面那一趟去读；读不回来就按空画。
+  /* 会话笔记：宿主半身把那一层目录原样搬回来，「每一格该去哪条会话」由模型层对着它读出来。
+   * 只有当前那一格（看板）有卡片要点，所以只在这一格露面那一趟去读；读不回来就按空画。
    * 写面那几条动不到笔记，`tick` 不跟。 */
   React.useEffect(() => {
     if (pickedNone || tab !== 'now' || sessionId === undefined || sessionId.length === 0) {
@@ -231,7 +231,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     }
     let live = true
     port.readSessions(sessionId, workspaceRoot).then(
-      (reading) => { if (live) setNotes(reading.sessions) },
+      (reading) => { if (live) setNotes(readSessions(reading.notes)) },
       () => { if (live) setNotes(NO_NOTES) },
     )
     return () => { live = false }
@@ -513,7 +513,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
                   {project === null ? null : (
                     <InstructionBook
                       project={project}
-                      raw={reading?.instructions ?? []}
                       showArchived={stored.archived}
                       onArchive={(id) => { void onWrite(() => port.write('archive', sessionId ?? '', workspaceRoot, id)) }}
                       onRevive={(id) => { void onWrite(() => port.write('revive', sessionId ?? '', workspaceRoot, id)) }}
@@ -748,18 +747,6 @@ function durationOf(moment: Date | null): string {
   return moment === null ? '--' : elapsedSince(moment, new Date())
 }
 
-/** 依赖那两句话，逐字是记录里的词：可开工 / 前置节点 N 个。落定的格不欠谁的前置。 */
-function DepsChip(props: { readonly node: NodeReading }): React.ReactElement | null {
-  const { node } = props
-  if (node.state === 'completed') return null
-  const open = node.openDependencies.length
-  return (
-    <span className={`pf-deps${open === 0 ? ' is-ready' : ''}`}>
-      {open === 0 ? '可开工' : <React.Fragment>{'前置节点 '}<b className="pf-num">{open}</b>{' 个'}</React.Fragment>}
-    </span>
-  )
-}
-
 /** 状态标：有闸的格一律是那枚暂停，其余按它在哪一列画。 */
 function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind | Group['key'] }): React.ReactElement {
   const { node } = props
@@ -992,20 +979,14 @@ function InstructionAdd(props: {
 /** 指令那一格：按范围分组的登记簿。 */
 function InstructionBook(props: {
   readonly project: ProjectReading
-  readonly raw: readonly PathfinderInstruction[]
   readonly showArchived: boolean
   readonly onArchive: (id: string) => void
   readonly onRevive: (id: string) => void
   readonly onDelete: (instruction: InstructionReading) => void
 }): React.ReactElement {
-  const { project, raw } = props
+  const { project } = props
   const [folded, setFolded] = React.useState<Readonly<Record<string, boolean>>>({})
   const [open, setOpen] = React.useState<Readonly<Record<string, boolean>>>({})
-  const extras = React.useMemo(() => {
-    const table: Record<string, PathfinderInstruction> = {}
-    for (const entry of raw) if (typeof entry.id === 'string') table[entry.id] = entry
-    return table
-  }, [raw])
 
   /* 已归档的条目默认收起来：一屏里先看见现在还算数的。设置里那一行打开之后，它们回到各自的段
    * 里，行右边那枚动作照旧可用。 */
@@ -1045,7 +1026,6 @@ function InstructionBook(props: {
                 <InstructionRow
                   key={entry.id}
                   entry={entry}
-                  extra={extras[entry.id]}
                   onArchive={props.onArchive}
                   onRevive={props.onRevive}
                   onDelete={props.onDelete}
@@ -1072,68 +1052,13 @@ function InstructionBook(props: {
   )
 }
 
-interface InstructionGroup {
-  readonly key: string
-  readonly label: string
-  readonly entries: readonly InstructionReading[]
-}
-
-/**
- * 按范围分组：全局在前，然后每条线（在跑的在前），再是不认得的那条线，最后一格。
- *
- * 组内还算数的排在前头、新说的在前——读者先遇到此刻正管着他的那几句。
- * @param project - 那一刻的项目读数，分组用的几条线从它来。
- * @param entries - 这一刻真的要摆上页面的那几条；已归档的露不露面由调用方先筛过。
- */
-function groupInstructions(
-  project: ProjectReading,
-  entries: readonly InstructionReading[],
-): readonly InstructionGroup[] {
-  const groups = new Map<string, { label: string; entries: InstructionReading[] }>()
-  const group = (key: string, label: string): { label: string; entries: InstructionReading[] } => {
-    const held = groups.get(key)
-    if (held !== undefined) return held
-    const fresh = { label, entries: [] as InstructionReading[] }
-    groups.set(key, fresh)
-    return fresh
-  }
-  group('global', '全局')
-  for (const cycle of project.cycles) group(`cycle:${cycle.id}`, cycle.id)
-  group('cycle:', '未分组')
-  group('node', '这一格')
-
-  for (const entry of entries) {
-    const key = entry.scope === 'global'
-      ? 'global'
-      : entry.scope === 'cycle'
-        ? (entry.cycleId === null ? 'cycle:' : `cycle:${entry.cycleId}`)
-        : 'node'
-    group(key, key === 'node' ? '这一格' : key === 'cycle:' ? '未分组' : key).entries.push(entry)
-  }
-
-  const order = ['global', ...[...groups.keys()].filter((key) => key.startsWith('cycle:') && key !== 'cycle:'), 'cycle:', 'node']
-  const out: InstructionGroup[] = []
-  for (const key of order) {
-    const held = groups.get(key)
-    if (held === undefined || held.entries.length === 0) continue
-    held.entries.sort((left, right) => {
-      const byForce = (left.inForce ? 0 : 1) - (right.inForce ? 0 : 1)
-      if (byForce !== 0) return byForce
-      return (right.saidAt?.getTime() ?? 0) - (left.saidAt?.getTime() ?? 0)
-    })
-    out.push({ key, label: held.label, entries: held.entries })
-  }
-  return out
-}
-
 function InstructionRow(props: {
   readonly entry: InstructionReading
-  readonly extra: PathfinderInstruction | undefined
   readonly onArchive: (id: string) => void
   readonly onRevive: (id: string) => void
   readonly onDelete: (instruction: InstructionReading) => void
 }): React.ReactElement {
-  const { entry, extra } = props
+  const { entry } = props
   const moment = entry.inForce ? entry.saidAt : (entry.closedAt ?? entry.saidAt)
   const mark = entry.inForce ? '' : entry.standing ? '范围外' : '已归档'
   return (
@@ -1156,8 +1081,8 @@ function InstructionRow(props: {
           删除
         </button>
       </span>
-      {extra?.note === undefined || extra.note === null ? null : (
-        <div className="pf-ins-foot"><span className="pf-ins-note">{String(extra.note)}</span></div>
+      {entry.note === undefined ? null : (
+        <div className="pf-ins-foot"><span className="pf-ins-note">{entry.note}</span></div>
       )}
     </article>
   )

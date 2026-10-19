@@ -167,7 +167,7 @@ test('取数那一条：点名的那个根说了算，与这条会话自己落�
   }
 })
 
-test('会话笔记那一条：网关把那一层按节点分的小份笔记读成每一格的会话', { skip: !wired }, async () => {
+test('会话笔记那一条：网关把那一层按节点分的小份笔记原样搬回来', { skip: !wired }, async () => {
   const root = syntheticWorkspace()
   const { ctx, call } = await liveGateway(root)
   try {
@@ -175,20 +175,26 @@ test('会话笔记那一条：网关把那一层按节点分的小份笔记读�
     assert.equal(answer.ok, true, String(answer.message))
     assert.equal(answer.value.project, root)
     assert.equal(answer.value.state, 'read')
-    assert.deepEqual(answer.value.sessions, { 'n-1': 'session-run' })
+    assert.deepEqual(Object.keys(answer.value.notes), ['n-1.json'])
+    assert.deepEqual(JSON.parse(answer.value.notes['n-1.json']), {
+      node: 'n-1',
+      v: 1,
+      discussion: [{ session: 'session-talk', at: '2026-10-01T00:00:00Z' }],
+      run: [{ session: 'session-run', at: '2026-10-02T00:00:00Z' }],
+    })
   } finally {
     await ctx.stop?.()
   }
 })
 
-test('会话笔记那一条：这一层目录不在时交回一份空清单，不抛', { skip: !wired }, async () => {
+test('会话笔记那一条：这一层目录不在时交回空的一份，不抛', { skip: !wired }, async () => {
   const root = syntheticWorkspace({ note: false })
   const { ctx, call } = await liveGateway(root)
   try {
     const answer = await call('readSessions', { sessionId: 's1', workspaceRoot: '' })
     assert.equal(answer.ok, true, String(answer.message))
     assert.equal(answer.value.state, 'missing')
-    assert.deepEqual(answer.value.sessions, {})
+    assert.deepEqual(answer.value.notes, {})
   } finally {
     await ctx.stop?.()
   }
