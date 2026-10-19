@@ -47,6 +47,16 @@ test('包面：宿主入口与浏览器半身都指在 lib/ 下，且两份都�
   }
 })
 
+test('包面：类型那一层只发 .d.ts——files 里没有哪条能把 lib/types 的 .js 一起装进包', () => {
+  const files = manifest.files ?? []
+  for (const pattern of files) {
+    assert.ok(
+      !covered(pattern, 'lib/types/host/index.js'),
+      `${pattern} 会把 lib/types 下那份 .js 一起装进包——那是打包的输入，包里没有任何东西加载它：files=${JSON.stringify(files)}`,
+    )
+  }
+})
+
 test('包面：profile 里的挂载点与浏览器那一侧的 platform 都还在，patch 文件在盘上', () => {
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(manifest.dsh.client.platform, 'web')

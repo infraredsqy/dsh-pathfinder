@@ -16,7 +16,8 @@ npm run bundle:client  # lib/client.js（浏览器半身）
 
 这三条绑在 `prepack` 上，`npm pack` 与 `npm publish` 会自己跑一遍。
 
-`package.json` 的 `files` 只收 `lib/**/*.js`、`lib/types/**/*.d.ts` 与 `cordis.patch.yml`，于是
+`package.json` 的 `files` 只收两个运行时入口（`lib/host/index.js`、`lib/client.js`）、`lib/types/**/*.d.ts`
+与 `cordis.patch.yml`，于是
 `npm pack` 出的那一个 `.tgz` 就是分发件本身（`lib/client-body.js` 是浏览器那一步的中间件，构建脚本
 用完当场删掉，不进包）。包里两个口子：
 
