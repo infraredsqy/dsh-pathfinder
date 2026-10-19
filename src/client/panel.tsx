@@ -1,42 +1,30 @@
 /**
- * 主面板：六格标签行、看法之间的切换、以及当前 / 明细 / 指令三格各自的版面。
+ * 主面板的外壳：六格标签行、看法之间的切换、读数与偏好的取数线，以及各格的装配。
+ *
+ * 各格自己的版面各成一篇：看板 `board.tsx`、明细 `detail.tsx`、指令簿 `notes.tsx`、项目设置
+ * `config.tsx`，依赖与问题池两格在 `field.tsx` / `pool.tsx`；两枚模态看 `line-settings.tsx`
+ * 与 `delete-confirm.tsx`，看板、明细、指令簿三格共用的读法小构件看 `marks.tsx`。
  *
  * 读数一个都不在这里算：四份记录从口子上进来，由 `src/model` 那套纯函数读成那一刻的读数，这一层
  * 只把读数画出来。面板自己那几个显示偏好住在 Host 的设置文档里，经 `prefs.ts` 那条口子读写。
  */
 import * as React from 'react'
 import type { PathfinderReading } from '../host/contract.ts'
-import type { CyclePolicyKey, InstructionScope } from '../host/gateway.ts'
-import type { CycleReading, DetailGroupKey, InstructionReading, NodeReading, ProjectReading } from '../model/index.ts'
-import {
-  clock,
-  dayLabel,
-  duration,
-  elapsedSince,
-  everySourceIs,
-  groupInstructions,
-  nodesOf,
-  readProject,
-  readSessions,
-} from '../model/index.ts'
+import type { InstructionReading, ProjectReading } from '../model/index.ts'
+import { everySourceIs, readProject, readSessions } from '../model/index.ts'
 import type { InfoLevel, PrefField, PrefsSource, ViewId } from './prefs.ts'
-import {
-  clampSide,
-  DEFAULT_SOURCE,
-  INFO_LABELS,
-  PANEL_PREF_FIELDS,
-  SIDE_DEFAULT,
-  SIDE_MAX,
-  SIDE_MIN,
-  VIEW_LABELS,
-} from './prefs.ts'
+import { clampSide, DEFAULT_SOURCE, PANEL_PREF_FIELDS, VIEW_LABELS } from './prefs.ts'
 import { NOT_ENABLED } from './constants.ts'
 import type { PanelPort } from './data.ts'
-import { nodeName, nodeHover } from './nodes.ts'
 import { bucketOf, NO_WORKSPACES, type WorkspaceSource } from './workspaces.ts'
-import { CommitNumberInput, Grip, ModalShell, Pill } from './widgets.tsx'
+import { Pill } from './widgets.tsx'
+import { BoardPane, type CardGo } from './board.tsx'
 import { ConfigPane } from './config.tsx'
-import { DependencyField, DepsChip } from './field.tsx'
+import { DeleteConfirm } from './delete-confirm.tsx'
+import { DetailPane } from './detail.tsx'
+import { DependencyField } from './field.tsx'
+import { LineSettings } from './line-settings.tsx'
+import { NotesPane } from './notes.tsx'
 import { IssuePool } from './pool.tsx'
 
 /** 六个看法：身份、标签上的字、以及这一格要不要吃掉整块地界。 */
@@ -61,30 +49,6 @@ const INFO_CAPS: Readonly<Record<Exclude<InfoLevel, 'full'>, number>> = { lean: 
 const FULL_MAX = 8
 const FULL_FALLBACK = 3
 
-/** 明细那五组，顺序就是读者遇到它们的顺序。 */
-interface Group {
-  readonly key: DetailGroupKey
-  readonly label: string
-  readonly cls: string
-  readonly deps: boolean
-}
-
-/* 五组一律摊开：这一格叫明细，读者点进来要看的就是那几行。折起来那一手还留着，
- * 由读者按下去。 */
-const GROUPS: readonly Group[] = [
-  { key: 'shelved', label: '等待处理', cls: 'is-shelved', deps: false },
-  { key: 'run', label: '进行中', cls: 'is-running', deps: false },
-  { key: 'ready', label: '可开工', cls: 'is-todo', deps: false },
-  { key: 'wait', label: '未开始', cls: 'is-todo', deps: true },
-  { key: 'done', label: '已交付', cls: 'is-done', deps: false },
-]
-
-/** 收起归档时，一组里最多露几行不算数的。 */
-const NOTES_ROWS = 5
-
-/** 键盘挪明细那道缝时一步走多远；按住 shift 走两步。 */
-const SPLIT_STEP = 16
-
 /** 设置服务没到场时面板上那句话：这一下只活在这一屏上。 */
 const PREFS_NOT_KEPT = '显示偏好未能保存：设置服务未连接，本次改动只在当前页面生效。'
 
@@ -96,25 +60,6 @@ const UNGROUPED_EMPTY = '未分组名下没有记录；这条会话属于清单�
 
 /** 记录在、四份来源一份都解不出来时摆的另一句：与没记录是两件事。 */
 const UNREADABLE_RECORD = '无法读取当前工作区的记录。'
-
-/** 一条线自己那三个数，一个数一行；名字与那句话都照蓝本。 */
-const POLICY_ROWS: readonly { key: CyclePolicyKey; name: string; note: string }[] = [
-  {
-    key: 'parallel',
-    name: '可并行的会话数上限',
-    note: '单条管线可以并行启动的会话数量，默认值为 1。',
-  },
-  {
-    key: 'test_seconds_limit',
-    name: '测试套件的运行时间上限（秒）',
-    note: '全量验证的实际时长上限阈值；超过该上限会自动加入精简或加速测试的节点。',
-  },
-  {
-    key: 'issue_pool_weight_limit',
-    name: '问题池加权和的上限',
-    note: '问题池里不同等级的问题，按记录里写明的重量表折算出的总和上限阈值；超过该阈值会自动加入解决问题的节点。',
-  },
-]
 
 export interface PanelProps {
   readonly port: PanelPort
@@ -412,131 +357,43 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
         {/* 只剩一句话的那一屏也撑满：舞台把不撑满的模块上下居中，那句话就漂在当中、还比页头
             那条左缘右一步；撑满之后它跟另外五格同处——这一格自己的左上角。 */}
         <div className={`pf-frame${active.fill || noNodes ? ' is-fill' : ''}`} id="frame">
-          <section
-            className="pf-pane pf-board"
-            id="pane-now"
-            role="tabpanel"
-            aria-labelledby="tab-now"
-            hidden={tab !== 'now'}
-          >
-            {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
-              <React.Fragment>
-                <div className="pf-boardbar">
-                  <h3 className="pf-colhead">进行中</h3>
-                  <h3 className="pf-colhead">刚完成</h3>
-                  <div className="pf-boardtail">
-                    <h3 className="pf-colhead">即将进线</h3>
-                    <div className="pf-seg pf-modes" role="group" aria-label="每列几张卡">
-                      {(['lean', 'three', 'full'] as const).map((level) => (
-                        <button
-                          key={level}
-                          type="button"
-                          className="pf-segbtn"
-                          aria-pressed={level === info}
-                          onClick={() => pickInfo(level)}
-                        >
-                          {INFO_LABELS[level]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className="pf-cols" id="cols" ref={colsRef}>
-                  {project === null ? null : <BoardColumns project={project} cap={capOf(info, fullCap)} go={cardGo} />}
-                </div>
-              </React.Fragment>
-            )}
-          </section>
+          <BoardPane
+            active={tab === 'now'}
+            noNodes={noNodes}
+            project={project}
+            info={info}
+            cap={capOf(info, fullCap)}
+            go={cardGo}
+            colsRef={colsRef}
+            onPickInfo={pickInfo}
+          />
 
-          <div
-            className="pf-pane"
-            id="pane-detail"
-            role="tabpanel"
-            aria-labelledby="tab-detail"
-            data-fill=""
-            hidden={tab !== 'detail'}
-          >
-            {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
-            <div className="pf-detail" style={{ ['--pf-side-w' as string]: `${sideWidth}px` }}>
-              <div className="pf-lineside" role="group" aria-label="线路">
-                {cycles.map((cycle) => (
-                  <div className="pf-lineitem" key={cycle.id}>
-                    <button
-                      type="button"
-                      className="pf-linepick"
-                      aria-current={cycle.id === picked?.id}
-                      aria-label={`${cycle.id} · ${stateWord(cycle)}`}
-                      onClick={() => setLineId(cycle.id)}
-                    >
-                      <LineMark cycle={cycle} />
-                      <span className="pf-cycle">{cycle.id}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="pf-mini"
-                      aria-label={`${cycle.id} 的设置`}
-                      onClick={() => setSettingsFor(cycle.id)}
-                    >
-                      设置
-                    </button>
-                  </div>
-                ))}
-              </div>
-              {/* 侧栏与正文之间那道缝：单边挪 Δ，量的是这一列的宽度。 */}
-              <Grip
-                id="detail-split"
-                label="调整线路侧栏的宽度"
-                value={sideWidth}
-                min={SIDE_MIN}
-                max={SIDE_MAX}
-                clamp={clampSide}
-                step={SPLIT_STEP}
-                onChange={setSideWidth}
-                onCommit={(px) => keep(PANEL_PREF_FIELDS.sideWidth, clampSide(px))}
-                resetTo={SIDE_DEFAULT}
-              />
-              <div className="pf-linemain">
-                <div className="pf-scroll" role="region" aria-label="明细" tabIndex={0}>
-                  {picked === null ? null : <DetailList cycle={picked} project={project as ProjectReading} />}
-                </div>
-              </div>
-            </div>
-            )}
-          </div>
+          <DetailPane
+            active={tab === 'detail'}
+            noNodes={noNodes}
+            cycles={cycles}
+            picked={picked}
+            project={project}
+            sideWidth={sideWidth}
+            onSideWidth={setSideWidth}
+            onSideCommit={(px) => keep(PANEL_PREF_FIELDS.sideWidth, clampSide(px))}
+            onPickLine={setLineId}
+            onOpenSettings={setSettingsFor}
+          />
 
-          <div
-            className="pf-pane"
-            id="pane-notes"
-            role="tabpanel"
-            aria-labelledby="tab-notes"
-            data-fill=""
-            hidden={tab !== 'notes'}
-          >
-            {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
-              <React.Fragment>
-                {project === null ? null : (
-                  <InstructionAdd
-                    cycles={cycles}
-                    inHand={project.columns.running[0] ?? null}
-                    onAdd={(text, scope, cycle, node) => (
-                      onWrite(() => port.say(sessionId ?? '', workspaceRoot, text, scope, cycle, node))
-                    )}
-                  />
-                )}
-                <div className="pf-scroll" id="notes-scroll" role="region" aria-label="用户指令" tabIndex={0}>
-                  {project === null ? null : (
-                    <InstructionBook
-                      project={project}
-                      showArchived={stored.archived}
-                      onArchive={(id) => { void onWrite(() => port.write('archive', sessionId ?? '', workspaceRoot, id)) }}
-                      onRevive={(id) => { void onWrite(() => port.write('revive', sessionId ?? '', workspaceRoot, id)) }}
-                      onDelete={(instruction) => setDeleting(instruction)}
-                    />
-                  )}
-                </div>
-              </React.Fragment>
+          <NotesPane
+            active={tab === 'notes'}
+            noNodes={noNodes}
+            project={project}
+            cycles={cycles}
+            showArchived={stored.archived}
+            onAdd={(text, scope, cycle, node) => (
+              onWrite(() => port.say(sessionId ?? '', workspaceRoot, text, scope, cycle, node))
             )}
-          </div>
+            onArchive={(id) => { void onWrite(() => port.write('archive', sessionId ?? '', workspaceRoot, id)) }}
+            onRevive={(id) => { void onWrite(() => port.write('revive', sessionId ?? '', workspaceRoot, id)) }}
+            onDelete={(instruction) => setDeleting(instruction)}
+          />
 
           {/* 依赖与问题这两格各是蓝本里的一份独立文档，在面板里由这一格当它的页根：
               `is-embed` 那枚让位记号与页记号（`pf-wires` / `pf-issue`）一道挂在它上面，
@@ -623,488 +480,5 @@ function Census(props: { readonly project: ProjectReading }): React.ReactElement
       <Pill cls="is-running" n={columns.running.length} label="进行中" />
       <Pill cls="is-todo" n={columns.todo.length} label="未开始" />
     </React.Fragment>
-  )
-}
-
-/**
- * 三列看板：进行中（等待处理的排在上头）、刚完成、即将进线。
- * @param props - 那一刻的读数、每列几张卡，以及卡上那一下的去处。
- */
-function BoardColumns(props: { readonly project: ProjectReading; readonly cap: number; readonly go: CardGo | null }): React.ReactElement {
-  const { columns } = props.project
-  const at = props.project.at
-  const first = gatesFirst(columns.shelved, 'shelved', props.go).concat(gatesFirst(columns.running, 'run', props.go))
-  return (
-    <React.Fragment>
-      <Column items={first} cap={props.cap} go={props.go} at={at} />
-      <Column items={gatesFirst(columns.completed, 'done', props.go)} cap={props.cap} go={props.go} at={at} />
-      <Column items={gatesFirst(columns.ready, 'next', props.go)} cap={props.cap} go={props.go} at={at} />
-    </React.Fragment>
-  )
-}
-
-/** 等人优先：有闸的格排到前面，其余的保持记录给的那个次序。顺手把每张卡的去处定下来。 */
-function gatesFirst(list: readonly NodeReading[], kind: CardKind, go: CardGo | null): readonly Paired[] {
-  return list
-    .map((node) => ({ node, kind, target: go === null ? null : go.targetOf(node) }))
-    .slice()
-    .sort((left, right) => (left.node.gate === null ? 1 : 0) - (right.node.gate === null ? 1 : 0))
-}
-
-/** 一张卡连同它此刻的读法：`target` 是点下去要去的那条会话，没有去处就是 `null`。 */
-interface Paired {
-  readonly node: NodeReading
-  readonly kind: CardKind
-  readonly target: string | null
-}
-
-interface CardGo {
-  targetOf(node: NodeReading): string | null
-  open(target: string): void
-}
-
-type CardKind = 'shelved' | 'run' | 'next' | 'done'
-
-/** 一列卡片：一张卡都没有的列，底下什么也不印。 */
-function Column(props: { readonly items: readonly Paired[]; readonly cap: number; readonly go: CardGo | null; readonly at: Date }): React.ReactElement {
-  return (
-    <section className="pf-col">
-      {props.items.slice(0, props.cap).map((item) => <Card key={`${item.kind}:${item.node.id}`} {...item} go={props.go} at={props.at} />)}
-    </section>
-  )
-}
-
-/**
- * 一张卡。
- *
- * 记录里记着这一格的会话、而那条会话此刻就在这台机器上时，点它切到那一格去：卡片上挂得住那两下
- * （指针是手、悬停与按住提一档描边），键盘上回车与空格按下去等于点一下。
- *
- * 记录里没写会话、或那条会话不在这台机器上时，这一格在这台机器上没有去处：卡片照旧摆着，只是没
- * 有可点的样子。屏上不给一句解释——去处没了这件事，卡片自己说得出。
- * @param props - 这一格、它的读法、它的去处，以及叫哪一手。
- */
-function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date }): React.ReactElement {
-  const { node, kind, target, go, at } = props
-  const cls = kind === 'shelved' ? 'shelved' : kind === 'run' ? 'run' : kind === 'next' ? 'next' : 'done'
-  const loud = node.gate !== null && node.state !== 'todo'
-  /* 去处分两截备好：没有去处时那个 `null` 让下面整批属性一个都不落。 */
-  const jump = target === null || go === null ? null : { target, open: go.open }
-  return (
-    <article
-      className={`pf-card is-${cls}${loud ? ' is-gate' : ''}${jump === null ? ' is-inert' : ''}`}
-      data-id={node.id}
-      {...(jump === null ? {} : {
-        role: 'button',
-        tabIndex: 0,
-        /* 名字带上这一格的身份：一屏十几张卡，同一句名字读屏用户分不出是哪一张；身份就是
-         * 悬停里那段八字的把手，这句话与卡片上那一行同源。 */
-        'aria-label': `${nodeHover(node)} 的会话`,
-        onClick: () => jump.open(jump.target),
-        onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return
-          event.preventDefault()
-          jump.open(jump.target)
-        },
-      })}
-    >
-      <div className="pf-card-meta">
-        <span className="pf-card-cycle">{node.cycleIds[0] ?? ''}</span>
-      </div>
-      <h2 className="pf-card-title" title={nodeHover(node)}>{nodeName(node)}</h2>
-      <div className="pf-card-run">
-        <StateMark node={node} kind={kind} at={at} />
-        {node.gate === null ? null : (
-          <span className={`pf-gate${loud ? '' : ' is-quiet'}`}>{node.gate.word}</span>
-        )}
-        {kind === 'shelved'
-          ? <span className={`pf-elapsed${node.parkedSince === null ? ' is-unknown' : ''}`}><span className="pf-num">{durationOf(node.parkedSince, at)}</span></span>
-          : kind === 'run'
-            ? <span className={`pf-elapsed${node.elapsedSeconds === null ? ' is-unknown' : ''}`}><span className="pf-num">{duration(node.elapsedSeconds)}</span></span>
-            : kind === 'next'
-              ? <DepsChip node={node} />
-              : <span className="pf-card-time pf-num">{timeOf(node.completedAt, at)}</span>}
-      </div>
-    </article>
-  )
-}
-
-/** 读数里那一刻到 moment 的样子；没有那一刻就是 `--`。 */
-function timeOf(moment: Date | null, at: Date): string {
-  return moment === null ? '--' : `${dayLabel(moment, at)} ${clock(moment)}`
-}
-
-function durationOf(moment: Date | null, at: Date): string {
-  return moment === null ? '--' : elapsedSince(moment, at)
-}
-
-/** 状态标：有闸的格一律是那枚暂停，其余按它在哪一列画。 */
-function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind | Group['key']; readonly at: Date }): React.ReactElement {
-  const { node } = props
-  const loud = node.gate !== null && node.state !== 'todo'
-  if (loud) {
-    return (
-      <span className="pf-state is-gate" title={gateTitle(node, props.at)}>
-        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-          <path d="M4.6 2.6v6.8M7.4 2.6v6.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-        </svg>
-      </span>
-    )
-  }
-  if (props.kind === 'run') {
-    return <span className="pf-state is-run" title={node.elapsedSeconds === null ? '进行中' : `进行中 · ${duration(node.elapsedSeconds)}`} />
-  }
-  if (props.kind === 'next' || props.kind === 'wait' || props.kind === 'ready') {
-    return <span className="pf-state is-next" title="即将进线" />
-  }
-  return (
-    <span className="pf-state is-done" title="已交付">
-      <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-        <path d="M2.5 6.5l2.4 2.4 4.6-5.4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </span>
-  )
-}
-
-/** 那一格的闸：哪一个词、哪一刻。 */
-function gateTitle(node: NodeReading, at: Date): string {
-  if (node.gate === null) return ''
-  return node.gate.since === null ? node.gate.word : `${node.gate.word} · ${timeOf(node.gate.since, at)}`
-}
-
-/** 一条线的记号：停着空着，跑着转圈，名下有人等着的画成阻塞。 */
-function LineMark(props: { readonly cycle: CycleReading }): React.ReactElement {
-  const { cycle } = props
-  const cls = cycle.parked.length > 0 ? 'is-blocked' : cycle.inService ? 'is-run' : ''
-  return <span className={`pf-linemark ${cls}`.trim()} title={stateWord(cycle)} />
-}
-
-function stateWord(cycle: CycleReading): string {
-  if (cycle.parked.length > 0) return '阻塞'
-  return cycle.inService ? '运行中' : '停止'
-}
-
-/** 明细：选中那条线的节点清单，按五组分。 */
-function DetailList(props: { readonly cycle: CycleReading; readonly project: ProjectReading }): React.ReactElement {
-  const { cycle, project } = props
-  const at = project.at
-  return (
-    <React.Fragment>
-      {GROUPS.map((group) => {
-        const list = nodesOf(group.key, cycle, project)
-        if (list.length === 0) return null
-        return <DetailGroup key={group.key} group={group} nodes={list} at={at} />
-      })}
-    </React.Fragment>
-  )
-}
-
-/** 一组的组头与它下面的行。 */
-function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[]; readonly at: Date }): React.ReactElement {
-  const { group } = props
-  const [folded, setFolded] = React.useState(false)
-  return (
-    <section className={`pf-sec${folded ? ' is-folded' : ''}`}>
-      <button
-        type="button"
-        className="pf-rowhead"
-        aria-expanded={!folded}
-        onClick={() => setFolded((value) => !value)}
-      >
-        <span className="pf-rowhead-key">{group.label}</span>
-        {folded
-          ? <span className="pf-rowhead-figs pf-rowcount"><b className="pf-num">{props.nodes.length}</b>{' 格'}</span>
-          : null}
-      </button>
-      {props.nodes.map((node) => (
-        <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(node, props.at)}>
-          <StateMark node={node} kind={group.key} at={props.at} />
-          <span className="pf-rowtitle" title={nodeHover(node)}>{nodeName(node)}</span>
-          <span className="pf-rowfigs">{group.deps ? <DepsChip node={node} /> : null}</span>
-          {node.gate !== null && node.gate.word !== group.label
-            ? <span className={`pf-gate pf-rowgate${node.state === 'todo' ? ' is-quiet' : ''}`}>{node.gate.word}</span>
-            : null}
-        </div>
-      ))}
-    </section>
-  )
-}
-
-/** 范围那一枚挑出来的三样：范围词、绑哪条线、绑哪一格。 */
-interface ScopeChoice {
-  readonly value: string
-  readonly label: string
-  readonly scope: InstructionScope
-  readonly cycle: string
-  readonly node: string
-}
-
-/** 全局那一项：范围表上的头一项，挑过的那条线不在了就退到它。 */
-const GLOBAL_CHOICE: ScopeChoice = { value: 'global', label: '全局', scope: 'global', cycle: '', node: '' }
-
-/**
- * 范围那一列摆哪几项：全局、记录里那几条线、此刻在手里的那一格。
- *
- * 蓝本那一行也只摆这三样，只是它每回只点得到最上面那个在跑着的格；真面板里在手里的是哪
- * 一格由记录自己说，没有就是没有这一项。
- * @param cycles - 那一刻记录里那几条线。
- * @param inHand - 此刻在手里的那一格；没有就只留前两样。
- */
-function scopeChoices(cycles: readonly CycleReading[], inHand: NodeReading | null): readonly ScopeChoice[] {
-  const out: ScopeChoice[] = [GLOBAL_CHOICE]
-  for (const cycle of cycles) {
-    out.push({ value: `cycle:${cycle.id}`, label: cycle.id, scope: 'cycle', cycle: cycle.id, node: '' })
-  }
-  if (inHand !== null) {
-    const name = inHand.title ?? inHand.id
-    const short = name.length > 12 ? `${name.slice(0, 12)}…` : name
-    out.push({ value: `node:${inHand.id}`, label: `这一格 · ${short}`, scope: 'node', cycle: '', node: inHand.id })
-  }
-  return out
-}
-
-/**
- * 「记下一条」那一行：范围点名 + 原话照抄，站在这一格的最上头。
- *
- * 写成了才把那句话从框里收走：工具拒了的话，用户自己那句原话还留在原处等着改。
- */
-function InstructionAdd(props: {
-  readonly cycles: readonly CycleReading[]
-  readonly inHand: NodeReading | null
-  readonly onAdd: (text: string, scope: InstructionScope, cycle: string, node: string) => Promise<boolean>
-}): React.ReactElement {
-  const [text, setText] = React.useState('')
-  const [picked, setPicked] = React.useState(GLOBAL_CHOICE.value)
-  const box = React.useRef<HTMLInputElement | null>(null)
-  const choices = scopeChoices(props.cycles, props.inHand)
-  const chosen = choices.find((one) => one.value === picked) ?? GLOBAL_CHOICE
-
-  const submit = (event: React.FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    const said = text.trim()
-    if (said.length === 0) {
-      box.current?.focus()
-      return
-    }
-    void props.onAdd(said, chosen.scope, chosen.cycle, chosen.node).then((accepted) => {
-      if (accepted) setText('')
-    })
-  }
-
-  return (
-    <form className="pf-add" id="add" onSubmit={submit}>
-      <span className="pf-pick">
-        <select
-          aria-label="这句话管到哪儿"
-          value={chosen.value}
-          onChange={(event) => setPicked(event.target.value)}
-        >
-          {choices.map((one) => <option key={one.value} value={one.value}>{one.label}</option>)}
-        </select>
-      </span>
-      <input
-        ref={box}
-        type="text"
-        placeholder="原话照抄"
-        aria-label="原话照抄"
-        autoComplete="off"
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-      />
-      <button type="submit" className="pf-btn">添加</button>
-    </form>
-  )
-}
-
-/** 指令那一格：按范围分组的登记簿。 */
-function InstructionBook(props: {
-  readonly project: ProjectReading
-  readonly showArchived: boolean
-  readonly onArchive: (id: string) => void
-  readonly onRevive: (id: string) => void
-  readonly onDelete: (instruction: InstructionReading) => void
-}): React.ReactElement {
-  const { project } = props
-  const [folded, setFolded] = React.useState<Readonly<Record<string, boolean>>>({})
-  const [open, setOpen] = React.useState<Readonly<Record<string, boolean>>>({})
-
-  /* 已归档的条目默认收起来：一屏里先看见现在还算数的。设置里那一行打开之后，它们回到各自的段
-   * 里，行右边那枚动作照旧可用。 */
-  const visible = props.showArchived
-    ? project.instructions
-    : project.instructions.filter((entry) => entry.standing)
-  const groups = groupInstructions(project, visible)
-  if (project.instructions.length === 0) {
-    return <p className="pf-innone">这份记录里还没有指令。</p>
-  }
-  return (
-    <React.Fragment>
-      {groups.length === 0
-        ? <p className="pf-innone">现在没有生效的指令。</p>
-        : groups.map((group) => {
-          const live = group.entries.filter((entry) => entry.inForce).length
-          const isFolded = folded[group.key] === true
-          const isOpen = open[group.key] === true
-          const hidden = Math.max(0, group.entries.length - live - NOTES_ROWS)
-          const shown = isOpen ? group.entries : group.entries.slice(0, live + NOTES_ROWS)
-          return (
-            <section className={`pf-sec${isFolded ? ' is-folded' : ''}`} key={group.key}>
-              <button
-                type="button"
-                className="pf-rowhead"
-                aria-expanded={!isFolded}
-                onClick={() => setFolded((table) => ({ ...table, [group.key]: !isFolded }))}
-              >
-                <span className="pf-rowhead-key">{group.label}</span>
-                <span className="pf-rowhead-figs">
-                  <b className="pf-num">{live}</b>
-                  {' 生效'}
-                  <React.Fragment>{' · '}<b className="pf-num">{group.entries.length}</b>{' 条'}</React.Fragment>
-                </span>
-              </button>
-              {shown.map((entry) => (
-                <InstructionRow
-                  key={entry.id}
-                  entry={entry}
-                  at={project.at}
-                  onArchive={props.onArchive}
-                  onRevive={props.onRevive}
-                  onDelete={props.onDelete}
-                />
-              ))}
-              {hidden > 0 && !isOpen
-                ? (
-                  <button type="button" className="pf-trim" onClick={() => setOpen((table) => ({ ...table, [group.key]: true }))}>
-                    {`展开其余 ${String(hidden)} 条`}
-                  </button>
-                )
-                : null}
-              {hidden > 0 && isOpen
-                ? (
-                  <button type="button" className="pf-trim" onClick={() => setOpen((table) => ({ ...table, [group.key]: false }))}>
-                    收起
-                  </button>
-                )
-                : null}
-            </section>
-          )
-        })}
-    </React.Fragment>
-  )
-}
-
-function InstructionRow(props: {
-  readonly entry: InstructionReading
-  readonly at: Date
-  readonly onArchive: (id: string) => void
-  readonly onRevive: (id: string) => void
-  readonly onDelete: (instruction: InstructionReading) => void
-}): React.ReactElement {
-  const { entry, at } = props
-  const moment = entry.inForce ? entry.saidAt : (entry.closedAt ?? entry.saidAt)
-  const mark = entry.inForce ? '' : entry.standing ? '范围外' : '已归档'
-  return (
-    <article className={`pf-ins${entry.inForce ? '' : ' is-out'}`} title={entry.nodeId ?? ''}>
-      <div className="pf-ins-text">{entry.text ?? ''}</div>
-      <div className="pf-ins-read" title={`${entry.inForce ? '说于' : `${mark}于`} ${timeOf(moment, at)}`}>
-        {mark.length === 0 ? null : <span className="pf-ins-mark">{mark}</span>}
-        <span className="pf-num">{dayLabel(moment, at)}</span>
-      </div>
-      <span className="pf-ins-acts">
-        {entry.standing
-          ? <button type="button" className="pf-mini" title="收进归档：这一条不再生效，条目留在原处" onClick={() => props.onArchive(entry.id)}>归档</button>
-          : <button type="button" className="pf-mini" title="让它重新生效" onClick={() => props.onRevive(entry.id)}>复原</button>}
-        <button
-          type="button"
-          className="pf-mini"
-          title="删掉：这一条连同正文一起从记录里拿走，放不回来"
-          onClick={() => props.onDelete(entry)}
-        >
-          删除
-        </button>
-      </span>
-      {entry.note === undefined ? null : (
-        <div className="pf-ins-foot"><span className="pf-ins-note">{entry.note}</span></div>
-      )}
-    </article>
-  )
-}
-
-/** 这条线自己的三个数：一枚模态，从侧栏那一行行尾的「设置」打开。 */
-function LineSettings(props: {
-  readonly cycle: CycleReading | null
-  readonly raw: { readonly policies?: Readonly<Record<string, unknown>> } | undefined
-  readonly onClose: () => void
-  readonly onWrite: (key: CyclePolicyKey, value: string) => void
-}): React.ReactElement | null {
-  const { cycle, raw } = props
-  if (cycle === null) return null
-  const policies = raw?.policies ?? {}
-  return (
-    <ModalShell labelId="line-modal-name" name={cycle.id} nameTitle={cycle.id} onClose={props.onClose}>
-      <div className="pf-fold">
-        <div className="pf-set">
-          {POLICY_ROWS.map((row) => (
-            <PolicyRow
-              key={row.key}
-              row={row}
-              value={policies[row.key]}
-              onWrite={(value) => props.onWrite(row.key, value)}
-            />
-          ))}
-        </div>
-      </div>
-    </ModalShell>
-  )
-}
-
-function PolicyRow(props: {
-  readonly row: { readonly key: CyclePolicyKey; readonly name: string; readonly note: string }
-  readonly value: unknown
-  readonly onWrite: (value: string) => void
-}): React.ReactElement {
-  const { row } = props
-  const current = typeof props.value === 'number' ? props.value : null
-  const noteId = `note-${row.key}`
-  return (
-    <div className="pf-setrow">
-      <div className="pf-settext">
-        <div className="pf-setlabel">{row.name}</div>
-        <div className="pf-setcaption" id={noteId}>{row.note}</div>
-      </div>
-      <CommitNumberInput
-        held={current === null ? '' : String(current)}
-        unset={current === null}
-        label={row.name}
-        describedBy={noteId}
-        title={`${row.key} = ${current === null ? 'off' : String(current)} · pf cycle policy ${row.key}`}
-        onCommit={(typed) => {
-          /* 落笔那一手：框里的字变成一个值，空的就是「这条线没立这一条」。失焦与回车上都算
-           * 改完了——只认失焦的话，敲完字直接换一格看的人会以为已经写进去了。 */
-          props.onWrite(typed.length === 0 ? 'off' : typed)
-        }}
-      />
-    </div>
-  )
-}
-
-/** 删一条：原话照抄，点第二下才动手。 */
-function DeleteConfirm(props: {
-  readonly instruction: InstructionReading
-  readonly said: string
-  readonly onCancel: () => void
-  readonly onConfirm: () => void
-}): React.ReactElement {
-  return (
-    <ModalShell labelId="ins-del-name" name="删除这一条" onClose={props.onCancel}>
-      <blockquote className="pf-del-said">{props.said}</blockquote>
-      <div className="pf-del-warn">
-        <p>{'此次删除将移除该指令的存在痕迹。'}</p>
-      </div>
-      <div className="pf-modal-acts">
-        <button type="button" className="pf-btn" onClick={props.onCancel}>取消</button>
-        <button type="button" className="pf-btn" onClick={props.onConfirm}>删除</button>
-      </div>
-    </ModalShell>
   )
 }
