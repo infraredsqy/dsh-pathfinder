@@ -64,13 +64,17 @@ export function sceneOf(input: {
   readonly focusId: string | null
   readonly cut: boolean
 }): Scene {
-  const knows = new Set(input.nodes.map((node) => node.id))
+  /* 邻接从读数自己带着的那份边上来，不从 dependencies 重推：不在册的前置挡不住人，这条
+     跳过规则只在模型层一处。 */
   const deps = new Map<string, string[]>()
   const dependents = new Map<string, string[]>()
-  for (const node of input.nodes) deps.set(node.id, node.dependencies.filter((id) => knows.has(id)))
-  for (const node of input.nodes) dependents.set(node.id, [])
   for (const node of input.nodes) {
-    for (const from of deps.get(node.id) ?? []) dependents.get(from)?.push(node.id)
+    deps.set(node.id, [])
+    dependents.set(node.id, [])
+  }
+  for (const edge of input.graph.edges) {
+    deps.get(edge.to)?.push(edge.from)
+    dependents.get(edge.from)?.push(edge.to)
   }
 
   const focused = input.focusId === null ? null : input.nodes.find((node) => node.id === input.focusId) ?? null

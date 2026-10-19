@@ -272,11 +272,12 @@ function readNode(
   const session = text(node.dsh_session)
   const line = facts.walkedBy[0]
   const lineLast = line === undefined ? undefined : cut.find((item) => item.id === line)?.lastStep ?? null
+  const parkedSince = state === 'shelved' && lastVerdict !== undefined ? lastVerdict.endedAt : null
   const gate = gateOf({
     id,
     state,
     mode,
-    parkedSince: state === 'shelved' && lastVerdict !== undefined ? lastVerdict.endedAt : null,
+    parkedSince,
     startedAt,
     lineLast,
   })
@@ -296,7 +297,7 @@ function readNode(
     endedAt,
     seconds: firstStep?.seconds ?? null,
     elapsedSeconds: running && startedAt !== null ? secondsBetween(startedAt, at) : null,
-    parkedSince: state === 'shelved' && lastVerdict !== undefined ? lastVerdict.endedAt : null,
+    parkedSince,
     steps,
     cycleIds: [...facts.walkedBy],
     gate,

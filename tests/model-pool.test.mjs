@@ -5,7 +5,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readLine, readPool, readProject, readWeights } from '../src/model/index.ts'
+import { ISSUE_STATE_WORDS, readLine, readPool, readProject, readWeights } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
@@ -53,6 +53,8 @@ test('池子的重量：按重量表把还欠着的那几条加起来，判成 e
   assert.deepEqual(reading.weights, { P3: 1, P2: 2, P1: 4, P0: 8 })
   /* `a` 没判（按 unknown 算）、`d` 判 autofix：两条都照进和；`b` 判 external、`c` 放下了：都不进。 */
   assert.equal(reading.weight, 10, '8 + 1 + 1：判成 external 的与放下的那两条不进这个和')
+  assert.equal(reading.rows.find((row) => row.id === 'b')?.payable, false, '判成 external 的那一条：读数自己就说不压线')
+  assert.equal(reading.rows.find((row) => row.id === 'a')?.payable, true, '没判的那一条照旧压线')
   assert.equal(
     reading.groups.find((group) => group.key === 'acknowledged')?.weight,
     0,
@@ -95,6 +97,39 @@ test('记录自己那个词属于写它的那一刻：那一刻还没到就按�
   assert.equal(reading.rows.find((row) => row.id === 'strange').status, 'open', '不认得的词按没人结掉读')
 })
 
+test('四个状态的词面只在模型层一份：空堆不进组，词照旧问得到', () => {
+  assert.deepEqual(ISSUE_STATE_WORDS, { open: '未解决', acknowledged: '已承认', rejected: '已驳回', resolved: '已解决' })
+
+  /* 池子里只有一条还欠着的：放下那几堆是空堆，不进组，可它们的词还是这一份表上的词。 */
+  const reading = readPool({}, [], { a: issue() }, AT)
+
+  assert.deepEqual(reading.groups.map((group) => group.key), ['open'])
+  assert.equal(reading.groups[0]?.label, ISSUE_STATE_WORDS.open)
+})
+
+test('读数上的可选字段：记录里写了才出场，没写的不拿空串顶位', () => {
+  const reading = readPool({}, [], {
+    full: issue({
+      id: 'full',
+      module: 'src/model',
+      source: 'scan',
+      decision: 'autofix',
+      description: '现象',
+      suggestion: '修法',
+      reason: '理由',
+      plan_path: '.tmp/plan.md',
+    }),
+    bare: issue({ id: 'bare', title: '', severity: null, module: null, status: null }),
+  }, AT)
+  const optional = ['title', 'severity', 'recordStatus', 'module', 'source', 'decision', 'description', 'suggestion', 'reason', 'planPath']
+
+  const full = reading.rows.find((row) => row.id === 'full')
+  for (const key of optional) assert.equal(key in full, true, `${key} 写了就该出场`)
+
+  const bare = reading.rows.find((row) => row.id === 'bare')
+  for (const key of optional) assert.equal(key in bare, false, `${key} 没写就不出场`)
+})
+
 test('四堆：空的不收，还欠着的重的在前、搁得久的在前，放下的新的在前', () => {
   const reading = readPool({ n1: CARRIER }, [], {
     light: issue({ id: 'light', severity: 'P3', discovered: '2026-03-01T00:00:00.000Z' }),
@@ -106,6 +141,7 @@ test('四堆：空的不收，还欠着的重的在前、搁得久的在前，�
   }, AT)
 
   assert.deepEqual(reading.groups.map((group) => group.key), ['open', 'acknowledged', 'resolved'], '已驳回那一堆一条都没有，不收')
+  assert.deepEqual(reading.groups.map((group) => group.label), ['未解决', '已承认', '已解决'], '组头的词就是模型那一份词表上的')
   assert.deepEqual(reading.groups[0].entries.map((row) => row.id), ['heavyOld', 'heavyNew', 'light'])
   assert.deepEqual(reading.groups[1].entries.map((row) => row.id), ['carried'])
   assert.deepEqual(reading.groups[2].entries.map((row) => row.id), ['closedNew', 'closedOld'])

@@ -2,10 +2,11 @@
  * 问题那一格：一份登记簿怎么读——左边是清单、右边是一案，中间那道缝读者可以挪。
  *
  * 一页只回答一个问题：还欠着什么。所以它开在「未解决」上，「完整」把另外三个状态放回来。重量条
- * 是这份重量画出来的样子，判成 `external` 的那几条不占格——它们不压这条线，与读数层的加权和同一
- * 个口径。记录里没有重量表或者没有那条策略线，这一条就不画，不拿 0 顶上。
+ * 是这份重量画出来的样子，不压线的那几条不占格——压不压由读数自己说，与加权和同一个口径。记录里
+ * 没有重量表或者没有那条策略线，这一条就不画，不拿 0 顶上。
  */
 import * as React from 'react'
+import { ISSUE_STATE_WORDS } from '../model/index.ts'
 import type { IssueGroupReading, IssueReading, PoolReading, ProjectReading } from '../model/index.ts'
 
 /** 一个重量单位占几像素，以及两个单位之间那道缝。 */
@@ -21,13 +22,6 @@ const BAR_STEP = 16
 /** 这个工作区里还没有问题那一份记录时，这一格摆的那一句——那五个跟节点走的格子说的是同一句。 */
 const NOT_ENABLED = '当前工作区尚未启用 Pathfinder。'
 
-const STATE_WORD: Readonly<Record<string, string>> = {
-  open: '未解决',
-  acknowledged: '已承认',
-  rejected: '已驳回',
-  resolved: '已解决',
-}
-
 function sevClass(severity: string | undefined): string {
   return `is-${severity ?? 'P3'}`
 }
@@ -35,7 +29,7 @@ function sevClass(severity: string | undefined): string {
 /** 记录里那三个不欠着的状态，一条一句：「完整」那枚钮与那枚合计章说的是同一件事。 */
 function otherStatesWord(pool: PoolReading): string {
   return (['acknowledged', 'rejected', 'resolved'] as const)
-    .map((key) => `${STATE_WORD[key] ?? key} ${String(pool.census[key])}`)
+    .map((key) => `${ISSUE_STATE_WORDS[key]} ${String(pool.census[key])}`)
     .join(' · ')
 }
 
@@ -146,7 +140,7 @@ export function IssuePool(props: {
             type="button"
             className="pf-segbtn"
             aria-pressed={!props.showOtherStates}
-            title={`${STATE_WORD.open ?? ''} ${String(pool.census.open)} 条`}
+            title={`${ISSUE_STATE_WORDS.open} ${String(pool.census.open)} 条`}
             onClick={() => props.onShowOtherStates(false)}
           >
             精简
@@ -164,14 +158,14 @@ export function IssuePool(props: {
         {pool.weights === null || pool.line === null ? null : <Gauge pool={pool} />}
         <div className="pf-count">
           {pool.census.open > 0
-            ? <Pill cls="is-open" n={pool.census.open} label={STATE_WORD.open ?? ''} />
+            ? <Pill cls="is-open" n={pool.census.open} label={ISSUE_STATE_WORDS.open} />
             : null}
           {props.showOtherStates
             ? (
               <React.Fragment>
-                {pool.census.acknowledged > 0 ? <Pill cls="is-acknowledged" n={pool.census.acknowledged} label={STATE_WORD.acknowledged ?? ''} /> : null}
-                {pool.census.rejected > 0 ? <Pill cls="is-rejected" n={pool.census.rejected} label={STATE_WORD.rejected ?? ''} /> : null}
-                {pool.census.resolved > 0 ? <Pill cls="is-resolved" n={pool.census.resolved} label={STATE_WORD.resolved ?? ''} /> : null}
+                {pool.census.acknowledged > 0 ? <Pill cls="is-acknowledged" n={pool.census.acknowledged} label={ISSUE_STATE_WORDS.acknowledged} /> : null}
+                {pool.census.rejected > 0 ? <Pill cls="is-rejected" n={pool.census.rejected} label={ISSUE_STATE_WORDS.rejected} /> : null}
+                {pool.census.resolved > 0 ? <Pill cls="is-resolved" n={pool.census.resolved} label={ISSUE_STATE_WORDS.resolved} /> : null}
               </React.Fragment>
             )
             : (pool.census.acknowledged + pool.census.rejected + pool.census.resolved > 0
@@ -290,9 +284,9 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
   const units = Math.max(line, pool.weight ?? 0)
   const blocks: { readonly severity: string | undefined; readonly carried: boolean; readonly title: string }[] = []
   for (const issue of pool.standing) {
-    /* 判成 `external` 的那几条不占这根条上的一格：与读数层的加权和同一个口径，它们还在
-       登记簿上，只是不压这条线。 */
-    if (issue.decision === 'external') continue
+    /* 不压线的那几条不占这根条上的一格：压不压由读数自己说，与加权和同一个口径——
+       它们还在登记簿上，只是不压这条线。 */
+    if (!issue.payable) continue
     for (let at = 0; at < issue.weight && blocks.length < units; at += 1) {
       blocks.push({
         severity: issue.severity,

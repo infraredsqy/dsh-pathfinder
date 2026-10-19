@@ -106,7 +106,7 @@ const POLICY_ROWS: readonly { key: CyclePolicyKey; name: string; note: string }[
   {
     key: 'issue_pool_weight_limit',
     name: '问题池加权和的上限',
-    note: '问题池里不同等级的问题，按加权权重（P3/P2/P1/P0 = 1/2/4/8）算出的总和上限阈值；超过该阈值会自动加入解决问题的节点。',
+    note: '问题池里不同等级的问题，按记录里写明的重量表折算出的总和上限阈值；超过该阈值会自动加入解决问题的节点。',
   },
 ]
 
@@ -188,6 +188,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const [otherStates, setOtherStates] = usePreference<boolean>(stored.otherStates)
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
   const [notes, setNotes] = React.useState<Readonly<Record<string, string>>>(NO_NOTES)
+  /* 读到哪一刻：取数那一拍定下。展示一律按它——读数里现成带着这一刻，不另取当下。 */
   const [at, setAt] = React.useState<Date>(() => new Date())
   const [tick, setTick] = React.useState(0)
   const [note, setNote] = React.useState<string | null>(null)
@@ -268,11 +269,10 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const cycles = project?.cycles ?? []
   const picked = cycles.find((cycle) => cycle.id === lineId) ?? cycles[0] ?? null
 
-  /* 这个工作区里有没有节点：四个读数栏互斥，加起来一张卡都没有就是没有。没有的时候，五个跟
-   * 节点走的格子各自收成一句话，页头那排计数也一起收走——空列头与三个 0 是替记录说它没说的话。 */
-  const noNodes = project !== null
-    && project.columns.completed.length + project.columns.running.length
-      + project.columns.shelved.length + project.columns.todo.length === 0
+  /* 这个工作区里有没有节点：读数里一格都没有就是没有。没有的时候，五个跟节点走的格子各自
+   * 收成一句话，页头那排计数也一起收走——空列头与三个 0 是替记录说它没说的话。「四栏互斥、
+   * 并起来是全部」这个不变量在模型层一处成立，这里不拿栏长求和重推一遍。 */
+  const noNodes = project !== null && project.nodes.length === 0
 
   /* 铺满要现算：量不到地界就退回上一趟的数，再没有就退回固定档。 */
   React.useLayoutEffect(() => {
@@ -627,12 +627,13 @@ function Pill(props: { readonly cls: string; readonly n: number; readonly label:
  */
 function BoardColumns(props: { readonly project: ProjectReading; readonly cap: number; readonly go: CardGo | null }): React.ReactElement {
   const { columns } = props.project
+  const at = props.project.at
   const first = gatesFirst(columns.shelved, 'shelved', props.go).concat(gatesFirst(columns.running, 'run', props.go))
   return (
     <React.Fragment>
-      <Column items={first} cap={props.cap} go={props.go} />
-      <Column items={gatesFirst(columns.completed, 'done', props.go)} cap={props.cap} go={props.go} />
-      <Column items={gatesFirst(columns.ready, 'next', props.go)} cap={props.cap} go={props.go} />
+      <Column items={first} cap={props.cap} go={props.go} at={at} />
+      <Column items={gatesFirst(columns.completed, 'done', props.go)} cap={props.cap} go={props.go} at={at} />
+      <Column items={gatesFirst(columns.ready, 'next', props.go)} cap={props.cap} go={props.go} at={at} />
     </React.Fragment>
   )
 }
@@ -660,10 +661,10 @@ interface CardGo {
 type CardKind = 'shelved' | 'run' | 'next' | 'done'
 
 /** 一列卡片：一张卡都没有的列，底下什么也不印。 */
-function Column(props: { readonly items: readonly Paired[]; readonly cap: number; readonly go: CardGo | null }): React.ReactElement {
+function Column(props: { readonly items: readonly Paired[]; readonly cap: number; readonly go: CardGo | null; readonly at: Date }): React.ReactElement {
   return (
     <section className="pf-col">
-      {props.items.slice(0, props.cap).map((item) => <Card key={`${item.kind}:${item.node.id}`} {...item} go={props.go} />)}
+      {props.items.slice(0, props.cap).map((item) => <Card key={`${item.kind}:${item.node.id}`} {...item} go={props.go} at={props.at} />)}
     </section>
   )
 }
@@ -678,8 +679,8 @@ function Column(props: { readonly items: readonly Paired[]; readonly cap: number
  * 有可点的样子。屏上不给一句解释——去处没了这件事，卡片自己说得出。
  * @param props - 这一格、它的读法、它的去处，以及叫哪一手。
  */
-function Card(props: Paired & { readonly go: CardGo | null }): React.ReactElement {
-  const { node, kind, target, go } = props
+function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date }): React.ReactElement {
+  const { node, kind, target, go, at } = props
   const cls = kind === 'shelved' ? 'shelved' : kind === 'run' ? 'run' : kind === 'next' ? 'next' : 'done'
   const loud = node.gate !== null && node.state !== 'todo'
   /* 去处分两截备好：没有去处时那个 `null` 让下面整批属性一个都不落。 */
@@ -707,17 +708,17 @@ function Card(props: Paired & { readonly go: CardGo | null }): React.ReactElemen
       </div>
       <h2 className="pf-card-title" title={nodeHover(node)}>{nodeName(node)}</h2>
       <div className="pf-card-run">
-        <StateMark node={node} kind={kind} />
+        <StateMark node={node} kind={kind} at={at} />
         {node.gate === null ? null : (
           <span className={`pf-gate${loud ? '' : ' is-quiet'}`}>{node.gate.word}</span>
         )}
         {kind === 'shelved'
-          ? <span className={`pf-elapsed${node.parkedSince === null ? ' is-unknown' : ''}`}><span className="pf-num">{durationOf(node.parkedSince)}</span></span>
+          ? <span className={`pf-elapsed${node.parkedSince === null ? ' is-unknown' : ''}`}><span className="pf-num">{durationOf(node.parkedSince, at)}</span></span>
           : kind === 'run'
             ? <span className={`pf-elapsed${node.elapsedSeconds === null ? ' is-unknown' : ''}`}><span className="pf-num">{duration(node.elapsedSeconds)}</span></span>
             : kind === 'next'
               ? <DepsChip node={node} />
-              : <span className="pf-card-time pf-num">{timeOf(node.completedAt)}</span>}
+              : <span className="pf-card-time pf-num">{timeOf(node.completedAt, at)}</span>}
       </div>
     </article>
   )
@@ -738,22 +739,22 @@ function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
 }
 
-/** 那一刻到今天／没有那一刻的样子。 */
-function timeOf(moment: Date | null): string {
-  return moment === null ? '--' : `${dayLabel(moment, new Date())} ${clock(moment)}`
+/** 读数里那一刻到 moment 的样子；没有那一刻就是 `--`。 */
+function timeOf(moment: Date | null, at: Date): string {
+  return moment === null ? '--' : `${dayLabel(moment, at)} ${clock(moment)}`
 }
 
-function durationOf(moment: Date | null): string {
-  return moment === null ? '--' : elapsedSince(moment, new Date())
+function durationOf(moment: Date | null, at: Date): string {
+  return moment === null ? '--' : elapsedSince(moment, at)
 }
 
 /** 状态标：有闸的格一律是那枚暂停，其余按它在哪一列画。 */
-function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind | Group['key'] }): React.ReactElement {
+function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind | Group['key']; readonly at: Date }): React.ReactElement {
   const { node } = props
   const loud = node.gate !== null && node.state !== 'todo'
   if (loud) {
     return (
-      <span className="pf-state is-gate" title={gateTitle(node)}>
+      <span className="pf-state is-gate" title={gateTitle(node, props.at)}>
         <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
           <path d="M4.6 2.6v6.8M7.4 2.6v6.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
         </svg>
@@ -776,9 +777,9 @@ function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind 
 }
 
 /** 那一格的闸：哪一个词、哪一刻。 */
-function gateTitle(node: NodeReading): string {
+function gateTitle(node: NodeReading, at: Date): string {
   if (node.gate === null) return ''
-  return node.gate.since === null ? node.gate.word : `${node.gate.word} · ${timeOf(node.gate.since)}`
+  return node.gate.since === null ? node.gate.word : `${node.gate.word} · ${timeOf(node.gate.since, at)}`
 }
 
 /** 一条线的记号：停着空着，跑着转圈，名下有人等着的画成阻塞。 */
@@ -835,12 +836,13 @@ function SplitHandle(props: {
 /** 明细：选中那条线的节点清单，按五组分。 */
 function DetailList(props: { readonly cycle: CycleReading; readonly project: ProjectReading }): React.ReactElement {
   const { cycle, project } = props
+  const at = project.at
   return (
     <React.Fragment>
       {GROUPS.map((group) => {
         const list = nodesOf(group.key, cycle, project)
         if (list.length === 0) return null
-        return <DetailGroup key={group.key} group={group} nodes={list} />
+        return <DetailGroup key={group.key} group={group} nodes={list} at={at} />
       })}
     </React.Fragment>
   )
@@ -860,7 +862,7 @@ function nodesOf(key: Group['key'], cycle: CycleReading, project: ProjectReading
 }
 
 /** 一组的组头与它下面的行。 */
-function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[] }): React.ReactElement {
+function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[]; readonly at: Date }): React.ReactElement {
   const { group } = props
   const [folded, setFolded] = React.useState(false)
   return (
@@ -877,8 +879,8 @@ function DetailGroup(props: { readonly group: Group; readonly nodes: readonly No
           : null}
       </button>
       {props.nodes.map((node) => (
-        <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(node)}>
-          <StateMark node={node} kind={group.key} />
+        <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(node, props.at)}>
+          <StateMark node={node} kind={group.key} at={props.at} />
           <span className="pf-rowtitle" title={nodeHover(node)}>{nodeName(node)}</span>
           <span className="pf-rowfigs">{group.deps ? <DepsChip node={node} /> : null}</span>
           {node.gate !== null && node.gate.word !== group.label
@@ -1026,6 +1028,7 @@ function InstructionBook(props: {
                 <InstructionRow
                   key={entry.id}
                   entry={entry}
+                  at={project.at}
                   onArchive={props.onArchive}
                   onRevive={props.onRevive}
                   onDelete={props.onDelete}
@@ -1054,19 +1057,20 @@ function InstructionBook(props: {
 
 function InstructionRow(props: {
   readonly entry: InstructionReading
+  readonly at: Date
   readonly onArchive: (id: string) => void
   readonly onRevive: (id: string) => void
   readonly onDelete: (instruction: InstructionReading) => void
 }): React.ReactElement {
-  const { entry } = props
+  const { entry, at } = props
   const moment = entry.inForce ? entry.saidAt : (entry.closedAt ?? entry.saidAt)
   const mark = entry.inForce ? '' : entry.standing ? '范围外' : '已归档'
   return (
     <article className={`pf-ins${entry.inForce ? '' : ' is-out'}`} title={entry.nodeId ?? ''}>
       <div className="pf-ins-text">{entry.text ?? ''}</div>
-      <div className="pf-ins-read" title={`${entry.inForce ? '说于' : `${mark}于`} ${timeOf(moment)}`}>
+      <div className="pf-ins-read" title={`${entry.inForce ? '说于' : `${mark}于`} ${timeOf(moment, at)}`}>
         {mark.length === 0 ? null : <span className="pf-ins-mark">{mark}</span>}
-        <span className="pf-num">{dayLabel(moment, new Date())}</span>
+        <span className="pf-num">{dayLabel(moment, at)}</span>
       </div>
       <span className="pf-ins-acts">
         {entry.standing

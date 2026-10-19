@@ -4,6 +4,7 @@
  * 同样的取值在哪儿都按同一种写法；没有那一刻的时候给「没有」的样子（`--` / 空 / 没有记录），
  * 不留一个 `0` 让人误读成「刚好是零」。一切以调用方给的那一刻为准，这里自己不取当前时间。
  */
+import { secondsBetween } from './fields.ts'
 
 export function two(n: number): string {
   return (n < 10 ? '0' : '') + String(n)
@@ -33,18 +34,25 @@ export function dayLabel(moment: Date | null, at: Date): string {
   return `${moment.getMonth() + 1}月${moment.getDate()}日`
 }
 
+/** 折秒的分段：不足一分钟的归秒档，折出分、不足一小时的归分档，再往上归时档；没有时长（或那一刻还没到）不分段。 */
+function splitSeconds(seconds: number | null): { readonly unit: 'seconds' | 'minutes' | 'hours'; readonly value: number; readonly rest: number } | null {
+  if (seconds === null || seconds < 0) return null
+  if (seconds < 60) return { unit: 'seconds', value: seconds, rest: 0 }
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return { unit: 'minutes', value: minutes, rest: 0 }
+  return { unit: 'hours', value: Math.floor(minutes / 60), rest: minutes % 60 }
+}
+
 /**
  * 时长的紧凑写法：`41s` / `24m` / `2h14` / `3h`。
  * @param seconds - 多少秒；没有就是 `--`，是负数（那一刻还没到）也给 `--`。
  */
 export function duration(seconds: number | null): string {
-  if (seconds === null || seconds < 0) return '--'
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const rest = minutes % 60
-  return rest ? `${hours}h${two(rest)}` : `${hours}h`
+  const parts = splitSeconds(seconds)
+  if (parts === null) return '--'
+  if (parts.unit === 'seconds') return `${parts.value}s`
+  if (parts.unit === 'minutes') return `${parts.value}m`
+  return parts.rest > 0 ? `${parts.value}h${two(parts.rest)}` : `${parts.value}h`
 }
 
 /**
@@ -52,14 +60,11 @@ export function duration(seconds: number | null): string {
  * @param seconds - 多少秒；没有就是「没有记录」，是负数也给「没有记录」。
  */
 export function durationLong(seconds: number | null): string {
-  if (seconds === null || seconds < 0) return '没有记录'
-  if (seconds < 60) return `${seconds} 秒`
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes} 分钟`
-  const hours = Math.floor(minutes / 60)
-  const rest = minutes % 60
-  if (!rest) return `${hours} 小时`
-  return `${hours} 小时 ${rest} 分`
+  const parts = splitSeconds(seconds)
+  if (parts === null) return '没有记录'
+  if (parts.unit === 'seconds') return `${parts.value} 秒`
+  if (parts.unit === 'minutes') return `${parts.value} 分钟`
+  return parts.rest > 0 ? `${parts.value} 小时 ${parts.rest} 分` : `${parts.value} 小时`
 }
 
 /**
@@ -68,7 +73,7 @@ export function durationLong(seconds: number | null): string {
  * @param at - 读到哪一刻。
  */
 export function elapsedSince(moment: Date | null, at: Date): string {
-  return moment === null ? '--' : duration(Math.round((at.getTime() - moment.getTime()) / 1000))
+  return moment === null ? '--' : duration(secondsBetween(moment, at))
 }
 
 /**

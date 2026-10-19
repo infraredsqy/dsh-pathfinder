@@ -4,7 +4,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, clock, dayLabel, duration, durationLong, elapsedSince, two } from '../src/model/index.ts'
+import { ago, clock, dayLabel, duration, durationLong, elapsedSince, two } from '../src/model/format.ts'
 
 test('没有那一刻的时候给「没有」的样子，不写 0', () => {
   const at = new Date('2026-03-10T12:00:00.000Z')
@@ -63,4 +63,14 @@ test('相对这一刻的说法', () => {
   assert.equal(ago(new Date('2026-03-10T11:30:00.000Z'), at), '30 分钟前')
   assert.equal(ago(new Date('2026-03-10T08:00:00.000Z'), at), '4 小时前')
   assert.equal(ago(new Date('2026-03-09T12:00:00.000Z'), at), '1 天前')
+})
+
+test('收窄出口：ago / durationLong / two 只有测试认得，不再从模型入口出', async () => {
+  const entry = await import('../src/model/index.ts')
+
+  assert.equal(entry.ago, undefined)
+  assert.equal(entry.durationLong, undefined)
+  assert.equal(entry.two, undefined)
+  assert.equal(typeof entry.duration, 'function', '面板真在用的那几个照旧从入口出')
+  assert.equal(typeof entry.elapsedSince, 'function')
 })

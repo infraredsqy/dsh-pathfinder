@@ -241,6 +241,8 @@ export interface IssueReading {
   readonly source?: string
   /** 判决。 */
   readonly decision?: string
+  /** 这一条压不压那条线：判决不给它压秤的就是 `false`——还在册、还算站着，只是不进加权和。 */
+  readonly payable: boolean
   /** 发现时刻，按那一刻切过：那一刻还没发现就没有。 */
   readonly discoveredAt: Date | null
   /** 最后改动时刻，按那一刻切过。 */
@@ -263,7 +265,7 @@ export interface IssueGroupReading {
   /** 这一堆里那几条，排序见 {@link PoolReading}。 */
   readonly entries: readonly IssueReading[]
   readonly count: number
-  /** 这一堆的加权和：判成 `external` 的那几条不进这个和。 */
+  /** 这一堆的加权和：不压线的那几条不进这个和。 */
   readonly weight: number
 }
 
@@ -284,7 +286,7 @@ export interface PoolReading {
    * 重量表没有的话这一份也没有。
    */
   readonly standing: readonly IssueReading[]
-  /** 站着那几条的加权和，判成 `external` 的不进这个和；重量表读不出来就是 `null`。 */
+  /** 站着那几条的加权和，不压线的那几条不进这个和；重量表读不出来就是 `null`。 */
   readonly weight: number | null
   /** 四个数，外加一个总数。 */
   readonly census: PoolCensus

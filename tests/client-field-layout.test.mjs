@@ -163,6 +163,19 @@ test('点阵那一档：列距摊到四列一屏，画布因此比地界宽，�
   assert.equal(dots.placed.mark, fit.placed.mark, '记号还是全景量出来的那一颗')
 })
 
+test('不在册的前置：邻接跟着读数自己那条边走，没有这条边也不点亮', () => {
+  const part = reading({
+    nodes: {
+      a: node(),
+      b: node({ dependencies: ['a', 'ghost'] }),
+    },
+  })
+  const s = layout(part, { zoom: 1, focusId: 'b' })
+  assert.deepEqual(s.edges.map((edge) => `${edge.from}->${edge.to}`), ['a->b'], 'ghost 不在册，边就没有这一条')
+  assert.deepEqual(markIds(s.marks), ['a', 'b'], '场景里只有两个节点，ghost 根本不在')
+  assert.ok(s.marks.every((mark) => mark.dim === ' is-lit'), '亮的是选中的与它在册的前置')
+})
+
 test('点阵那一档：隔一列的拉弧，隔得远的走阶梯，从记号之间的缝里绕', () => {
   const part = reading({
     nodes: {

@@ -28,12 +28,23 @@ const WEIGHT_LIMIT = 'issue_pool_weight_limit'
 /** 重量表里那四档的次序，最重的在前；表里没写的那一档排在最后。 */
 const SEVERITY_RANK: Readonly<Record<string, number>> = { P0: 0, P1: 1, P2: 2, P3: 3 }
 
-/** 四堆各自的词，读者按这个次序遇到它们。 */
-const GROUP_WORDS: readonly { readonly key: IssueState; readonly label: string; readonly standing: boolean }[] = [
-  { key: 'open', label: '未解决', standing: true },
-  { key: 'acknowledged', label: '已承认', standing: true },
-  { key: 'rejected', label: '已驳回', standing: false },
-  { key: 'resolved', label: '已解决', standing: false },
+/**
+ * 四个状态各自读作哪个词：这一份词面只在模型层写一处，登记簿的组头与面板上那一排数说的是
+ * 同一套。空堆不进读数的组，词面照旧问得到。
+ */
+export const ISSUE_STATE_WORDS: Readonly<Record<IssueState, string>> = {
+  open: '未解决',
+  acknowledged: '已承认',
+  rejected: '已驳回',
+  resolved: '已解决',
+}
+
+/** 四堆的次序，与各堆算不算池子还欠着的；词面在 {@link ISSUE_STATE_WORDS} 里。 */
+const GROUP_WORDS: readonly { readonly key: IssueState; readonly standing: boolean }[] = [
+  { key: 'open', standing: true },
+  { key: 'acknowledged', standing: true },
+  { key: 'rejected', standing: false },
+  { key: 'resolved', standing: false },
 ]
 
 /**
@@ -61,7 +72,12 @@ export function readPool(
     const updatedAt = cutAt(written, at)
     const recordStatus = text(entry.status)
     const severity = text(entry.severity)
+    const decision = text(entry.decision)
     const id = text(entry.id) ?? ''
+    /* 压不压那条线由判决自己说：判成 `external` 的掉出加权和——算进来是一块谁也挪不动的
+     * 底板，阈值永远回不到线下，池子的正本读数 `pf issue weight` 就这么排它。条数走另一条
+     * 口径（工具的 `status`）：它还在册、还算站着，只是不压这条线。 */
+    const payable = decision !== 'external'
     rows.push({
       id,
       weight: severity === undefined ? 0 : (weights?.[severity] ?? 0),
@@ -70,16 +86,17 @@ export function readPool(
       updatedAt,
       checkCount: typeof entry.check_count === 'number' ? entry.check_count : null,
       files: [...(entry.files ?? [])],
-      ...(text(entry.title) !== undefined ? { title: text(entry.title) as string } : {}),
-      ...(severity !== undefined ? { severity } : {}),
-      ...(recordStatus !== undefined ? { recordStatus } : {}),
-      ...(text(entry.module) !== undefined ? { module: text(entry.module) as string } : {}),
-      ...(text(entry.source) !== undefined ? { source: text(entry.source) as string } : {}),
-      ...(text(entry.decision) !== undefined ? { decision: text(entry.decision) as string } : {}),
-      ...(text(entry.description) !== undefined ? { description: text(entry.description) as string } : {}),
-      ...(text(entry.suggestion) !== undefined ? { suggestion: text(entry.suggestion) as string } : {}),
-      ...(text(entry.reason) !== undefined ? { reason: text(entry.reason) as string } : {}),
-      ...(text(entry.plan_path) !== undefined ? { planPath: text(entry.plan_path) as string } : {}),
+      payable,
+      ...field('title', text(entry.title)),
+      ...field('severity', severity),
+      ...field('recordStatus', recordStatus),
+      ...field('module', text(entry.module)),
+      ...field('source', text(entry.source)),
+      ...field('decision', decision),
+      ...field('description', text(entry.description)),
+      ...field('suggestion', text(entry.suggestion)),
+      ...field('reason', text(entry.reason)),
+      ...field('planPath', text(entry.plan_path)),
     })
   }
 
@@ -91,7 +108,7 @@ export function readPool(
     if (entries.length === 0) continue
     groups.push({
       key: word.key,
-      label: word.label,
+      label: ISSUE_STATE_WORDS[word.key],
       standing: word.standing,
       entries,
       count: entries.length,
@@ -182,18 +199,14 @@ function touchedAt(row: IssueReading): number {
   return (row.updatedAt ?? row.discoveredAt)?.getTime() ?? 0
 }
 
-/** 一堆的加权和：判成 `external` 的那几条不进这个和。 */
+/** 一堆的加权和：不压线的那几条不进这个和。 */
 function sumWeight(entries: readonly IssueReading[]): number {
-  return payable(entries).reduce((total, entry) => total + entry.weight, 0)
+  return entries.filter((entry) => entry.payable).reduce((total, entry) => total + entry.weight, 0)
 }
 
-/**
- * 加权和只算那几条：`decision` 判成 `external` 的掉出这个和。
- *
- * 池子的正本读数是 `pf issue weight`：它排 `external` 的理由是算进来是一块谁也挪不动的底板，
- * 阈值永远回不到线下。条数走的是另一条口径（工具的 `status`）：判成 `external` 的那一条还在册、
- * 还算站着，只是不压这条线。
- */
-function payable(entries: readonly IssueReading[]): readonly IssueReading[] {
-  return entries.filter((entry) => entry.decision !== 'external')
+/** 写下来的那一段字才出的字段：没写（或者不是一段字）就没有这个字段，不拿空串顶位。 */
+function field<K extends string>(key: K, value: string | undefined): Partial<Record<K, string>> {
+  const out: Partial<Record<K, string>> = {}
+  if (value !== undefined) out[key] = value
+  return out
 }
