@@ -821,18 +821,27 @@ await act(async () => {
 await settle()
 const poorSaid = ['now', 'detail', 'wires', 'notes', 'config']
   .map((id) => flat(poorHost.querySelector(`#pane-${id} .pf-innone`)))
-const poorIssues = poorHost.querySelectorAll('#pane-issue .pf-row[data-issue]').length
+/* 问题那一格画什么从池子读数现算，不假设登记簿里还有未解决的行：这份夹具是活数据，未解决
+   迟早清零——精简档（默认那档）画的就只是未解决那几条，清了就一条不画、登记簿照旧站着；
+   池子一条不剩时整格收成同一句话（pool.tsx 那条 `pool.rows.length === 0` 的早退）。行身份照
+   记录里未解决那堆的次序逐条比，落法同 4c 那趟折堆的一节。 */
+const poorOpenIds = project.pool.groups.find((group) => group.key === 'open')?.entries.map((entry) => entry.id) ?? []
+const poorRows = [...poorHost.querySelectorAll('#pane-issue .pf-row[data-issue]')]
+const poorIssueSaid = flat(poorHost.querySelector('#pane-issue .pf-innone'))
 check(
-  '只有问题池的工作区：五个跟节点走的格子各自收成同一句话，问题那一格照旧画池子',
+  '只有问题池的工作区：五个跟节点走的格子各自收成同一句话，问题那一格照池子读数走——有行画登记簿（精简档=未解决那几条），一条不剩收成同一句话',
   poorHost.querySelector('.pf-none') === null
     && poorSaid.every((said) => said === '当前工作区尚未启用 Pathfinder。')
     && poorHost.querySelectorAll('.pf-tabs').length === 1
     && poorHost.querySelectorAll('.pf-pane').length === 6
     && poorHost.querySelector('#pane-now .pf-boardbar') === null
     && poorHost.querySelector('#census') === null
-    && poorHost.querySelector('#pane-issue .pf-innone') === null
-    && poorIssues > 0,
-  `工作区=${poorWorkspace.replace(root, '.')}（只有问题池） ｜ 五格=${JSON.stringify(poorSaid)} ｜ 页头计数 ${String(poorHost.querySelectorAll('#census').length)} 处、六格 ${String(poorHost.querySelectorAll('.pf-pane').length)} 格 ｜ 问题那一格 ${String(poorIssues)} 条`,
+    && (project.pool.rows.length === 0
+      ? poorIssueSaid === '当前工作区尚未启用 Pathfinder。'
+      : poorIssueSaid === ''
+        && poorHost.querySelector('#pane-issue .pf-split') !== null
+        && JSON.stringify(poorRows.map((row) => row.getAttribute('data-issue'))) === JSON.stringify(poorOpenIds)),
+  `工作区=${poorWorkspace.replace(root, '.')}（只有问题池） ｜ 五格=${JSON.stringify(poorSaid)} ｜ 页头计数 ${String(poorHost.querySelectorAll('#census').length)} 处、六格 ${String(poorHost.querySelectorAll('.pf-pane').length)} 格 ｜ 池子读数 共 ${String(project.pool.rows.length)} 条、未解决 ${String(poorOpenIds.length)} 条 ｜ 问题那一格 ${String(poorRows.length)} 行`,
 )
 
 /* 只剩一句话的那几格：模块撑满地界。不撑满时舞台把模块上下居中，那句话就漂在当中、还比页头那
