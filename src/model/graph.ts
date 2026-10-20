@@ -1,13 +1,16 @@
 /**
- * 依赖那一份读数：谁挡着谁。
+ * The dependency reading: who blocks whom.
  *
- * 一格的层号取最长路：它站在它最深的前置右边一层。记录里点到一个已经不在册的依赖，这里跳过
- * 它，摆不出来的前置挡不住任何人；数据里绕成一个环，走回自己那一格时就停手。
+ * A node's layer number takes the longest path: it stands one layer to the
+ * right of its deepest prerequisite. A dependency pointing at something no
+ * longer on the books is skipped here — a prerequisite that cannot be placed
+ * blocks nobody; if the data loops back to the node itself, the walk stops
+ * there.
  */
 import type { DepsWord, GraphEdge, GraphReading, NodeReading } from './contract.ts'
 
 /**
- * 读那一刻的依赖场。
+ * Read the dependency field at that moment.
  */
 export function readGraph(nodes: readonly NodeReading[]): GraphReading {
   const depends = new Map<string, readonly string[]>()
@@ -51,11 +54,14 @@ export function readGraph(nodes: readonly NodeReading[]): GraphReading {
 }
 
 /**
- * 一格在依赖场上该说哪一句话：可开工，或者还欠几件前置。
+ * Which sentence a node should say on the dependency field: ready to start,
+ * or how many prerequisites are still owed.
  *
- * 可开工只认读数自己那一个值——进行中的一格状态也是 `todo`、欠的前置也可能一件不剩，照
- * 别的字段拼就会把别人手里正做的那一格印成可开工。落定的、进行中的、放下的不欠这个问题，
- * 什么都不说。
+ * Ready-to-start trusts only the reading's own value — a running node's state
+ * is also `todo` and its owed prerequisites may be down to none; assembling
+ * the sentence from other fields would print a node currently in someone's
+ * hands as ready to start. Completed, running, and shelved nodes owe no such
+ * answer and say nothing.
  */
 export function depsWord(node: NodeReading): DepsWord | null {
   if (node.ready) return { word: '可开工', ready: true, count: null }

@@ -1,8 +1,11 @@
-/* 一格的名字与把手：八字短写、无标题落短写、悬停「全名 · 短把手」且名字恰为把手时不重复。
+/* A cell's name and handles: eight-char short id, titleless nodes fall back to the short id,
+ * hover shows "full name · short handle" and does not repeat the name when it already equals
+ * the handle.
  *
- * 这三条字面住在 src/client/nodes.ts，纯函数、Node 直载可测；卡名/行名的对数由
- * check:panel 的渲染断言间接承担，这里锁判据本身——截断的长短两界、标题的空缺
- * 与空串、悬停前半段的两个落点。
+ * These three literals live in src/client/nodes.ts — pure functions, loadable in Node; the
+ * card-name/row-name pairing is covered indirectly by check:panel's render assertions, while
+ * this file locks the criteria themselves: the long/short bounds of truncation, missing vs
+ * empty-string titles, and both hover outcomes.
  *
  *   node --test tests/
  */

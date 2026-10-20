@@ -1,14 +1,16 @@
 /**
- * 线路设置模态：一条线自己的三个数，从明细侧栏那一行行尾的「设置」打开。
+ * Line settings modal: a line's own three numbers, opened from the "Settings" control at the end
+ * of the detail sidebar row.
  *
- * 写面在外壳：每个数落笔经 `onWrite` 递回去，这条模态自己不碰口子。
+ * Writing lives in the shell: each number is handed back through `onWrite`; this modal never
+ * touches the gateway itself.
  */
 import * as React from 'react'
 import type { CyclePolicyKey } from '../host/gateway.ts'
 import type { CycleReading } from '../model/index.ts'
 import { CommitNumberInput, ModalShell } from './widgets.tsx'
 
-/** 一条线自己那三个数，一个数一行；名字与那句话都照蓝本。 */
+/** A line's own three numbers, one per row; names and notes follow the blueprint. */
 const POLICY_ROWS: readonly { key: CyclePolicyKey; name: string; note: string }[] = [
   {
     key: 'parallel',
@@ -27,7 +29,7 @@ const POLICY_ROWS: readonly { key: CyclePolicyKey; name: string; note: string }[
   },
 ]
 
-/** 这条线自己的三个数：一枚模态，从侧栏那一行行尾的「设置」打开。 */
+/** The line's own three numbers: one modal, opened from "Settings" at the end of the sidebar row. */
 export function LineSettings(props: {
   readonly cycle: CycleReading | null
   readonly raw: { readonly policies?: Readonly<Record<string, unknown>> } | undefined
@@ -76,8 +78,9 @@ function PolicyRow(props: {
         describedBy={noteId}
         title={`${row.key} = ${current === null ? 'off' : String(current)} · pf cycle policy ${row.key}`}
         onCommit={(typed) => {
-          /* 落笔那一手：框里的字变成一个值，空的就是「这条线没立这一条」。失焦与回车上都算
-           * 改完了——只认失焦的话，敲完字直接换一格看的人会以为已经写进去了。 */
+          /* The commit action: the box's text becomes a value; empty means "this line has no such
+           * policy". Both blur and Enter count as a completed edit — if only blur counted, someone
+           * typing and then tabbing to the next box would assume it was already saved. */
           props.onWrite(typed.length === 0 ? 'off' : typed)
         }}
       />

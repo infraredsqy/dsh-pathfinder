@@ -1,8 +1,11 @@
 /**
- * 模型层对外的形状：进去的是四份记录加一个时刻，出来的是那一刻的读数。
+ * The model layer's outward shapes: what goes in is the four records plus a
+ * moment; what comes out is the reading at that moment.
  *
- * 输入就是记录自己的形状，四份原样递进来，字段一个都不改名、不补默认值。读数一律给成清单：
- * 某一个读数一个都没有的时候，它给出来的是一张空清单，不给出一个 `0` 让人拿去印。
+ * The input is the records' own shapes, all four passed in verbatim — no
+ * field renamed, no default filled in. Readings are always given as lists:
+ * when a reading has nothing at all, an empty list is produced, never a `0`
+ * for someone to print.
  */
 import type {
   PathfinderCycle,
@@ -11,195 +14,206 @@ import type {
   PathfinderNode,
 } from './records.ts'
 
-/** 模型要的东西：四份记录，外加「读到哪一刻」。 */
+/** What the model needs: the four records, plus "read up to which moment". */
 export interface RecordsAtMoment {
-  /** 键就是节点身份，条目是记录原样。 */
+  /** Keys are node ids; entries are the records verbatim. */
   readonly nodes: Readonly<Record<string, PathfinderNode>>
   readonly cycles: readonly PathfinderCycle[]
   readonly instructions: readonly PathfinderInstruction[]
-  /** 输入形状收全四份记录，但这一格不算问题池的读数，它的判据不在这里。 */
+  /** The input shape takes all four records, but this one is not part of the issue-pool reading; its criteria live elsewhere. */
   readonly issues: Readonly<Record<string, PathfinderIssue>>
   readonly at: Date
 }
 
 /**
- * 卡自己的状态，只有三个词。正被某条线做着的卡，状态仍然是 `todo`：谁在做它记在线路的
- * 持有关系里（见 {@link NodeReading.running}），两件事各占一个字段。
+ * A card's own state, only three words. A card currently worked on by some
+ * cycle is still `todo`: who is working it is recorded in the cycle's
+ * holdings (see {@link NodeReading.running}); the two facts each get their
+ * own field.
  */
 export type NodeState = 'todo' | 'shelved' | 'completed'
 
 /**
- * 人闸：这一格什么时候要一个人。一个词 + 那一刻，词只有三个，判据全在记录里，这里不新增数据。
+ * The human gate: when a node needs a person. One word plus a moment, only
+ * three words, all criteria in the records — no new data here.
  */
 export interface GateReading {
   readonly kind: 'shelved' | 'manual' | 'checkpoint'
-  /** 读作哪一个词：等待处理 / 手动节点 / 检查点。 */
+  /** The word a reader sees, spelled from `kind`. */
   readonly word: '等待处理' | '手动节点' | '检查点'
-  /** 那一刻；记录里没有那一刻就是 `null`，不补一个。 */
+  /** That moment; `null` when the records have no such moment — none is invented. */
   readonly since: Date | null
 }
 
-/** 节点在那一刻走过的一步。 */
+/** One step a node has taken, at that moment. */
 export interface StepReading {
-  /** 这一步是哪条线走的；这条线记录里没写身份的，这里是空身份。 */
+  /** Which cycle took this step; an empty id when the cycle's record has no id. */
   readonly cycleId: string
   readonly node?: string
-  /** 迈出的时刻，按那一刻切过：没到就没有。 */
+  /** When the step started, cut by the moment: not yet started means absent. */
   readonly startedAt: Date | null
-  /** 落停的时刻，按那一刻切过：还没落停就没有。 */
+  /** When the step ended, cut by the moment: not yet ended means absent. */
   readonly endedAt: Date | null
   readonly result?: string
-  /** 这一步用了多久；两端有一个没有就是 `null`。 */
+  /** How long the step took; `null` when either end is missing. */
   readonly seconds: number | null
 }
 
-/** 一个节点在那一刻的读数。 */
+/** One node's reading at that moment. */
 export interface NodeReading {
   readonly id: string
   readonly title?: string
   readonly state: NodeState
   /**
-   * 进行中：那一刻有条线握着它、且它还没交付；以线路记录里的持有关系为准。
+   * Running: at that moment some cycle holds it and it is not yet completed;
+   * the cycle records' holdings are the authority.
    */
   readonly running: boolean
   /**
-   * 可开工：自己是 `todo`、每个依赖都交付了、且没有任何线握着它。三条缺一不可。
+   * Ready to start: itself `todo`, every dependency completed, and no cycle
+   * holding it. All three conditions are required.
    */
   readonly ready: boolean
-  /** 记录自己写的那个词，原样；没写就没有。 */
+  /** The word the record itself wrote, verbatim; absent when not written. */
   readonly recordStatus?: string
-  /** 这一格跑的模式，原样。 */
+  /** The mode this node runs in, verbatim. */
   readonly mode?: string
-  /** 这一格开在哪条会话上：记录本体上写着这个字段就带出来，没写就没有。 */
+  /** Which session this node was opened on: carried out when the record itself has the field, absent otherwise. */
   readonly session?: string
-  /** 记录里写的依赖，原样，一个都不丢。 */
+  /** The dependencies written in the record, verbatim, not one dropped. */
   readonly dependencies: readonly string[]
-  /** 那一刻还没交付的那几个依赖：依赖里没有一条算交付了。 */
+  /** The dependencies not yet completed at that moment: not one of them counts as completed. */
   readonly openDependencies: readonly string[]
-  /** 那一刻握着它的线路身份，按记录顺序。 */
+  /** Ids of the cycles holding it at that moment, in record order. */
   readonly heldBy: readonly string[]
-  /** 持有关系自己那一刻：它最早被拿起来的时刻；没记或没到就是 `null`。 */
+  /** The holdings' own moment: when it was first picked up; `null` when unrecorded or not yet reached. */
   readonly heldSince: Date | null
-  /** 建立时刻，按那一刻切过。 */
+  /** Creation moment, cut by that moment. */
   readonly createdAt: Date | null
-  /** 交付时刻，按那一刻切过。 */
+  /** Completion moment, cut by that moment. */
   readonly completedAt: Date | null
-  /** 它自己那一步迈出的时刻。 */
+  /** When its own step started. */
   readonly startedAt: Date | null
-  /** 它自己那一步落停的时刻。 */
+  /** When its own step ended. */
   readonly endedAt: Date | null
-  /** 它自己那一步用了多久。 */
+  /** How long its own step took. */
   readonly seconds: number | null
-  /** 进行中开了多久（算到那一刻）；没在进行中、或没有那一刻就是 `null`。 */
+  /** How long it has been running (up to that moment); `null` when not running or the moment is absent. */
   readonly elapsedSeconds: number | null
-  /** 等待处理那一刻：判决那一步的落停时刻；没有那一刻就是 `null`（不是 0）。 */
+  /** The shelved moment: the verdict step's end moment; `null` when there is none (not 0). */
   readonly parkedSince: Date | null
-  /** 它走过的步。 */
+  /** The steps it has taken. */
   readonly steps: readonly StepReading[]
-  /** 走过它的线路。 */
+  /** The cycles that passed through it. */
   readonly cycleIds: readonly string[]
-  /** 人闸：这一格要一个人的话，是哪一个词、哪一刻；不要人就是 `null`。 */
+  /** The human gate: which word and which moment if this node needs a person; `null` when it does not. */
   readonly gate: GateReading | null
 }
 
 /**
- * 依赖场上给读者的一句话：可开工，或者还欠几件前置。
+ * One sentence for the reader on the dependency field: ready to start, or how
+ * many prerequisites are still owed.
  *
- * 哪一句归这一格由读数自己的 `ready` 说，界面不重判那三条判据；落定的、进行中的、放下的
- * 不欠这个问题——依赖只写给还没开动的活。
+ * Which sentence belongs to a node is stated by the reading's own `ready`;
+ * the UI does not re-judge the three conditions. Completed, running, and
+ * shelved nodes owe no such answer — dependencies are written only for work
+ * not yet started.
  */
 export interface DepsWord {
-  /** 那一句话，逐字：`可开工` / `前置节点 N 个`。 */
+  /** The sentence, verbatim. */
   readonly word: string
-  /** 是可开工那一句：记号跟它换装。 */
+  /** Whether it is the ready-to-start sentence: the badge changes with it. */
   readonly ready: boolean
-  /** 「前置节点 N 个」里的 N；可开工那一句没有数。 */
+  /** The owed-prerequisite count in the not-ready sentence; the ready sentence has no number. */
   readonly count: number | null
 }
 
-/** 线路上一个持有关系在那一刻的样子。 */
+/** A cycle holding at that moment. */
 export interface HoldingReading {
   readonly nodeId: string
-  /** 握住的时刻；没记或没到就是 `null`。 */
+  /** When the hold was taken; `null` when unrecorded or not yet reached. */
   readonly since: Date | null
 }
 
-/** 一条线路在那一刻的读数。 */
+/** One cycle's reading at that moment. */
 export interface CycleReading {
   readonly id: string
   readonly title?: string
-  /** 记录自己写的那个词，原样；没写就没有。 */
+  /** The word the record itself wrote, verbatim; absent when not written. */
   readonly recordStatus?: string
-  /** 那一刻在不在服务里。 */
+  /** Whether it is in service at that moment. */
   readonly inService: boolean
   readonly holding: readonly HoldingReading[]
-  /** 那一刻它走过的步（记录里没有落停的步还没走完，不算走过）。 */
+  /** The steps it has walked by that moment (a step not yet ended in the records does not count as walked). */
   readonly path: readonly StepReading[]
-  /** 那一刻它走过的最后一步；一步都没走过就是 `null`。 */
+  /** Its last walked step at that moment; `null` if it has walked none. */
   readonly lastStep: StepReading | null
-  /** 它名下出局等人的节点身份：停在哪几格上等人。 */
+  /** Ids of the nodes parked under it: which nodes it stopped at, waiting for a person. */
   readonly parked: readonly string[]
 }
 
 /**
- * 指令登记簿上的一组：按范围分堆的那一段。组头一个词，底下一摞条目。
+ * One group on the instruction ledger: the section piled by scope. A word as
+ * the group head, a stack of entries beneath.
  *
- * 范围那个词只在出读数这一处读：全局在前，然后每条线按记录里的次序，再是认不得的那条线，
- * 最后一格；空组不收。
+ * The scope word is read in exactly one place, where readings are produced:
+ * global first, then each cycle in record order, then the unrecognized cycle
+ * last; empty groups are not collected.
  */
 export interface InstructionGroupReading {
-  /** 这一组的身份：`global` / 绑的那条线（`cycle:<线身份>`）/ `node`。 */
+  /** This group's id: `global` / the bound cycle (`cycle:<cycle id>`) / `node`. */
   readonly key: string
-  /** 读作哪一个词：全局 / 线自己的名字 / 未分组 / 这一格。 */
+  /** The word a reader sees, spelled from the group's key. */
   readonly label: string
-  /** 这一组里那几条：还算数的在前，新说的在前。 */
+  /** The entries in this group: still-counting ones first, newly spoken ones first. */
   readonly entries: readonly InstructionReading[]
 }
 
-/** 一条指令在那一刻的读数。 */
+/** One instruction's reading at that moment. */
 export interface InstructionReading {
   readonly id: string
   readonly text?: string
-  /** 记录里自己写的备注，原样；没写就没有。 */
+  /** The note the record itself wrote, verbatim; absent when not written. */
   readonly note?: string
-  /** 范围，原样：全局 / 绑某条线 / 绑某一格，以及记录里别的写法；没写就没有。 */
+  /** The scope, verbatim: global / bound to a cycle / bound to a node, plus any other spellings in the records; absent when not written. */
   readonly scope?: string
-  /** 绑到哪条线路；没绑就是 `null`。 */
+  /** Which cycle it is bound to; `null` when unbound. */
   readonly cycleId: string | null
-  /** 绑到哪个节点；没绑就是 `null`。 */
+  /** Which node it is bound to; `null` when unbound. */
   readonly nodeId: string | null
-  /** 说出口的时刻，按那一刻切过。 */
+  /** When it was spoken, cut by that moment. */
   readonly saidAt: Date | null
-  /** 结掉的时刻，按那一刻切过：那一刻还没结就没有。 */
+  /** When it was closed, cut by that moment: not yet closed at that moment means absent. */
   readonly closedAt: Date | null
-  /** 记录自己写的那个词，原样（存量的旧值也原样带出来，不折算）；没写就没有。 */
+  /** The word the record itself wrote, verbatim (legacy old values come out verbatim too, no folding); absent when not written. */
   readonly recordState?: string
   /**
-   * 那一刻它还站着：词说的是 `live`，也没有一个已经到的那一刻把它收掉。
+   * Whether it still stands at that moment: the word says `live`, and no
+   * already-reached moment has collected it.
    */
   readonly standing: boolean
-  /** 那一刻它管得着：范围说的是「这一句算在谁头上」。 */
+  /** Whether it applies at that moment: the scope says "whose head this sentence counts on". */
   readonly inScope: boolean
-  /** 算数 ＝ 说出口了（所以它在读数里）＋ 还站着 ＋ 在范围里。 */
+  /** In force = spoken (hence present in the reading) + still standing + in scope. */
   readonly inForce: boolean
 }
 
-/** 词表上那四个读数各自那一栏，四栏互斥：一个节点只在一栏里。 */
+/** Each of the four columns on the word table, mutually exclusive: a node appears in exactly one. */
 export interface ColumnReadings {
   readonly completed: readonly NodeReading[]
-  /** 进行中：那一刻有条线握着、还没交付的。 */
+  /** Running: held by some cycle at that moment and not yet completed. */
   readonly running: readonly NodeReading[]
-  /** 等待处理：那一刻出局等人的；一个都没有时这一栏是空清单，不画，也不写 0。 */
+  /** Shelved: parked waiting for a person at that moment; when there are none, the column is an empty list — not drawn, and no 0 written. */
   readonly shelved: readonly NodeReading[]
-  /** 未开始：在局中、还没交付、也没人做（进行中的不在这一栏里）。 */
+  /** Not started: in play, not yet completed, and nobody working it (running nodes are not in this column). */
   readonly todo: readonly NodeReading[]
-  /** 可开工：未开始里依赖都交付了、也没人握着的那一半。 */
+  /** Ready: the half of not-started whose dependencies are all completed and which nobody holds. */
   readonly ready: readonly NodeReading[]
-  /** 前置未交付的那一半。 */
+  /** The half with uncompleted prerequisites. */
   readonly blocked: readonly NodeReading[]
 }
 
-/** 依赖场上的一条边：`from` 是前置、`to` 是等它的那一格，`span` 是两头隔了几层（至少是 1）。 */
+/** An edge on the dependency field: `from` is the prerequisite, `to` the node waiting on it, and `span` how many layers apart the two are (at least 1). */
 export interface GraphEdge {
   readonly from: string
   readonly to: string
@@ -207,42 +221,43 @@ export interface GraphEdge {
 }
 
 /**
- * 那一刻的依赖场读数：一张分层图。
+ * The dependency field's reading at that moment: a layered graph.
  *
- * 一格的层号是最长路那一档：它站在它最深的前置右边一层。
+ * A node's layer number is its longest-path tier: it stands one layer to the
+ * right of its deepest prerequisite.
  */
 export interface GraphReading {
-  /** 每一层里那几格，按记录里的次序。一个节点都没有时这一份是空的。 */
+  /** The nodes in each layer, in record order. Empty when there are no nodes at all. */
   readonly layers: readonly (readonly NodeReading[])[]
   readonly maxDepth: number
   readonly edges: readonly GraphEdge[]
 }
 
-/** 问题池里一条问题的四个状态，记录自己那几个词。 */
+/** The four states of an issue in the pool, the records' own words. */
 export type IssueState = 'open' | 'acknowledged' | 'rejected' | 'resolved'
 
-/** 那一刻的一条问题。 */
+/** One issue at that moment. */
 export interface IssueReading {
   readonly id: string
   readonly title?: string
-  /** 严重程度那一档，原样。 */
+  /** The severity tier, verbatim. */
   readonly severity?: string
-  /** 记录里那一档在重量表里算几倍；表里没有这一档就是 0。 */
+  /** How many times that tier counts in the records' weight table; 0 when the table has no such tier. */
   readonly weight: number
-  /** 那一刻它落在哪个状态：记录自己的词，那一刻还没写下来就是 `open`。 */
+  /** Which state it sits in at that moment: the record's own word, `open` when not yet written down by that moment. */
   readonly status: IssueState
-  /** 记录自己写的那个词，原样；没写就没有。 */
+  /** The word the record itself wrote, verbatim; absent when not written. */
   readonly recordStatus?: string
   readonly module?: string
-  /** 谁报的。 */
+  /** Who reported it. */
   readonly source?: string
-  /** 判决。 */
+  /** The verdict. */
   readonly decision?: string
-  /** 这一条压不压那条线：判决不给它压秤的就是 `false`——还在册、还算站着，只是不进加权和。 */
+  /** Whether this issue weighs on the line: `false` when the verdict exempts it from the scale — still on the books, still standing, just left out of the weighted sum. */
   readonly payable: boolean
-  /** 发现时刻，按那一刻切过：那一刻还没发现就没有。 */
+  /** When it was discovered, cut by that moment: not yet discovered at that moment means absent. */
   readonly discoveredAt: Date | null
-  /** 最后改动时刻，按那一刻切过。 */
+  /** Last modified moment, cut by that moment. */
   readonly updatedAt: Date | null
   readonly checkCount: number | null
   readonly files: readonly string[]
@@ -252,48 +267,49 @@ export interface IssueReading {
   readonly planPath?: string
 }
 
-/** 问题池里的一堆：一个状态下面那几条。 */
+/** One pile in the issue pool: the issues under one state. */
 export interface IssueGroupReading {
   readonly key: IssueState
-  /** 读作哪一个词：未解决 / 已承认 / 已驳回 / 已解决。 */
+  /** The word a reader sees, spelled from the state. */
   readonly label: string
-  /** 这一堆算不算池子还欠着的：欠着的两堆算，放下的两堆不算。 */
+  /** Whether this pile counts as still owed by the pool: the two standing piles count, the two set-down piles do not. */
   readonly standing: boolean
-  /** 这一堆里那几条，排序见 {@link PoolReading}。 */
+  /** The issues in this pile, ordered as in {@link PoolReading}. */
   readonly entries: readonly IssueReading[]
   readonly count: number
-  /** 这一堆的加权和：不压线的那几条不进这个和。 */
+  /** This pile's weighted sum: non-paying issues stay out of the sum. */
   readonly weight: number
 }
 
-/** 重量表：记录里写着的一档算几倍。 */
+/** The weight table: how many times a tier written in the records counts. */
 export type PoolWeights = Readonly<Record<string, number>>
 
-/** 那一刻的问题池读数。 */
+/** The issue pool's reading at that moment. */
 export interface PoolReading {
-  /** 策略线：`issue_pool_weight_limit` 那条线自己立的数；记录里没有这一条就是 `null`，不印 0。 */
+  /** The policy line: the number a cycle set via `issue_pool_weight_limit`; `null` when no record sets it — 0 is never printed. */
   readonly line: number | null
-  /** 重量表：记录里写着的那一份（几个等级各算几倍）；记录里没有这一份就是 `null`。 */
+  /** The weight table: the one written in the records (how many times each tier counts); `null` when the records have none. */
   readonly weights: PoolWeights | null
   readonly rows: readonly IssueReading[]
-  /** 四堆，按读者遇到它们的次序：未解决、已承认、已驳回、已解决；空的堆不收。 */
+  /** The four piles, in the order a reader meets them; empty piles are not collected. */
   readonly groups: readonly IssueGroupReading[]
   /**
-   * 还欠着的那几条：未解决的接着已承认的。池子的重量就是这一份里进和的那几条的重量，
-   * 重量表没有的话这一份也没有。
+   * The issues still owed: open followed by acknowledged. The pool's weight
+   * is the weight of the entries in this list that enter the sum; without a
+   * weight table this list is absent too.
    */
   readonly standing: readonly IssueReading[]
-  /** 站着那几条的加权和，不压线的那几条不进这个和；重量表读不出来就是 `null`。 */
+  /** The weighted sum of the standing issues, non-paying ones excluded; `null` when the weight table cannot be read. */
   readonly weight: number | null
-  /** 四个数，外加一个总数。 */
+  /** Four counts, plus a total. */
   readonly census: PoolCensus
 }
 
-/** 问题池那几个数。 */
+/** The issue pool's counts. */
 export interface PoolCensus {
-  /** 在册的一共几条。 */
+  /** How many issues are on the books in total. */
   readonly total: number
-  /** 站着的一共几条。 */
+  /** How many are standing in total. */
   readonly standing: number
   readonly open: number
   readonly acknowledged: number
@@ -301,19 +317,19 @@ export interface PoolCensus {
   readonly resolved: number
 }
 
-/** 那一刻的项目读数。 */
+/** The project reading at that moment. */
 export interface ProjectReading {
   readonly at: Date
   readonly nodes: readonly NodeReading[]
-  /** 同一份读数按身份取。 */
+  /** The same readings keyed by id. */
   readonly nodeById: Readonly<Record<string, NodeReading>>
   readonly columns: ColumnReadings
   readonly cycles: readonly CycleReading[]
-  /** 同一份读数按身份取。 */
+  /** The same readings keyed by id. */
   readonly cycleById: Readonly<Record<string, CycleReading>>
-  /** 那一刻说出口了的那几条指令。 */
+  /** The instructions in force at that moment. */
   readonly instructions: readonly InstructionReading[]
-  /** 那一刻的依赖场：谁挡着谁。 */
+  /** The dependency field at that moment: who blocks whom. */
   readonly graph: GraphReading
   readonly pool: PoolReading
 }

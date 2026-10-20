@@ -1,8 +1,12 @@
-/* 设置那一格的版面表：锁的是「行怎么从读数长出来」「已知的键怎么描」「那一列能拖到哪儿」。
+/* Layout table for the config section: locks in how rows grow out of readings, how known keys are
+ * described, and where that column can be dragged to.
  *
- * 工具是设置键的唯一出处，这一侧不声明「工具有哪些键」：行从 `pf config list` 的读数长出来，
- * 登记过的键照表描，没登记的照键名直显 + 文本框。不锁界面快照，锁几件会静默走偏的事：
- * 读数里有的键丢了行、下拉在读数里没有值时一不留神摆出第一档、表外的候选值被静默按回第一档。
+ * The tool is the single source of truth for config keys; this side never declares "which keys the
+ * tool has": rows grow out of `pf config list` readings, registered keys render per the table, and
+ * unregistered ones fall back to raw key name + text input. No UI snapshots are locked; instead a
+ * few things that could silently drift are: a key present in the reading losing its row, a
+ * dropdown settling on its first option when the reading has no value, and out-of-table candidate
+ * values being silently snapped back to the first option.
  *
  *   node --test tests/
  */
@@ -19,7 +23,7 @@ import {
   pickState,
 } from '../src/client/config-rows.ts'
 
-/** 一份合成的读数：键名随意——读面只认「印出来的每个键一行」。 */
+/** A synthetic reading: key names are arbitrary — the rendering only cares "one row per printed key". */
 function entry(value, layer = 'project') {
   return { value, layer }
 }
@@ -32,7 +36,7 @@ test('已知的四个键都有说法：中文名、那一句话、控件形态�
 })
 
 test('行从读数长出来：读数里有的键才有行；已知的照表序摆，不跟着工具印的次序晃', () => {
-  /* 读数故意按工具印的次序给：摆出来的次序仍是表里那份（蓝本）次序。 */
+  /* The reading is deliberately given in the tool's print order: the rendered order is still the table's (mock) order. */
   const rows = configRowsOf({
     max_agents: entry('1'),
     test_tier: entry('full'),
@@ -41,7 +45,7 @@ test('行从读数长出来：读数里有的键才有行；已知的照表序�
   })
 
   assert.deepEqual(rows.map((row) => row.key), ['worktree_mode', 'test_tier', 'max_agents', 'issue_repair'])
-  /* 工具哪天不印某个键了，那一行跟着消失——没有的东西不画，本仓不替它补行。 */
+  /* If the tool ever stops printing a key, its row disappears with it — nothing is drawn for what doesn't exist; this repo does not backfill rows. */
   assert.deepEqual(configRowsOf({ max_agents: entry('1') }).map((row) => row.key), ['max_agents'])
 })
 
@@ -94,7 +98,7 @@ test('读数里没有这个键的值时，两枚下拉一档都不落（留空�
   for (const row of picks) {
     const options = row.options ?? []
     assert.deepEqual(pickState(undefined, options), { value: '', extra: null }, `${row.key} 没有值时落了一档`)
-    /* 留空不是靠往候选表里塞一枚空词办的：表里还是工具认得的那几个词。 */
+    /* Leaving empty is not done by stuffing an empty word into the candidates: the table keeps only the words the tool recognizes. */
     assert.ok(!options.includes(''), `${row.key} 的候选表里被塞了空词`)
   }
 })

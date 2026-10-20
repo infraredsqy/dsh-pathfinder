@@ -1,6 +1,9 @@
-// 浏览器半身那一份产物的构建口：按蓝本取出面板要的样式表、收拢选择器，再捆成外壳认得的 `lib/client.js`。
-// 收拢只重写选择器、声明一个字节不动——那几张表是照整页写的（`body`、`html`、`*`），面板在 DSH 里只占一格。
-// 规则之间的注释留在产物里、不进选择器：注释里的逗号会被当成选择器分隔符，`:root` 因此整段对不上而没被认出来。
+// Build entry for the browser half's artifact: pull the sheets the panel needs from the mock
+// blueprint, scope the selectors, then bundle into `lib/client.js` for the shell.
+// Scoping rewrites selectors only — not one declaration byte changes: the sheets are written for
+// whole pages (`body`, `html`, `*`), while the panel occupies a single cell in DSH.
+// Comments between rules stay in the artifact and never enter the selector pass: commas inside a
+// comment would be parsed as selector separators, so a `:root` block would fail to match as a whole.
 //
 //   node tools/build-client.mjs
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -12,28 +15,29 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
 /**
- * 收拢的那一层：加什么前缀（`add`）、页面根那几条落在谁身上（`root`）、表里那枚「嵌入」记号
- * 换成谁（`marker`）。
+ * A scoping layer: what prefix to add (`add`), where page-root rules land (`root`), and what the
+ * sheet's own "embed" marker becomes (`marker`).
  *
- * 主面板那一层只加前缀。依赖与问题那两张表多两件事，都因为蓝本里它们是**两份独立文档**、
- * 进了面板却是同一棵树下的一格：
+ * The main panel layer only adds a prefix. The wires and issue sheets carry two extras, because in
+ * the mock they are **two standalone documents** that each become one cell under the same tree:
  *
- * - 前缀是这一格的页记号（`.pf-wires` / `.pf-issue`），不带 `:where()`：蓝本里这一页那份表是
- *   它那份文档里唯一的表，进了面板它得和面板那几张表争同一个元素（明细那一行 `.pf-row`、主
- *   面板那个 `.pf-head` 都同名）。它赢在「同档但排在后面」——这张表的次序在最后。前缀把档位
- *   降下去，那些同名的规矩就反超了。
- * - 表里自己写的让位规矩（`.is-embed X`）再抬一档，写成 `.is-embed.pf-issue X`：蓝本写这两行
- *   借的就是「比基础规则高一档」，这一档丢了，顶上那一段留白就回来了。
- * - 两张表各挂各的记号，不共用一枚：共用的话一张表的规矩会落在另一格上（问题池那个
- *   `padding: 0` 会盖掉依赖那页的下边距）。
+ * - The prefix is that cell's page marker (`.pf-wires` / `.pf-issue`), without `:where()`: in the
+ *   mock each sheet is the only sheet in its document, but inside the panel it competes with the
+ *   panel's own sheets for the same elements (`.pf-row` in the detail pane and the main panel's
+ *   `.pf-head` share the names). It wins by "same specificity, later in order" — this sheet sits
+ *   last. A bare prefix would drop specificity a notch and those same-named rules would overtake it.
+ * - The sheet's own yield rules (`.is-embed X`) get bumped one notch, written as `.is-embed.pf-issue X`:
+ *   the mock writes them to sit "one notch above the base rule"; lose that notch and the top padding returns.
+ * - Each sheet carries its own marker, never shared: a shared marker would let one sheet's rules
+ *   land on the other cell (the issue pool's `padding: 0` would override the wires page's bottom margin).
  *
- * 记号挂在面板里那两个 `.pf-pane` 上，与蓝本各文档的 `is-embed` 是同一个位置：`.is-embed` 那
- * 枚照旧留着，页记号跟在它后面。
+ * The marker sits on the two `.pf-pane` elements, the same spot as each mock document's `is-embed`:
+ * the `.is-embed` class stays, the page marker follows it.
  */
 const pageLayer = (root) => ({ root, add: root })
 const embedLayer = (root) => ({ root, add: root, marker: 'is-embed' })
 
-/** 次序就是蓝本 `<link>` 的次序。 */
+/** Order mirrors the mock's `<link>` order. */
 const SHEETS = [
   { sheet: 'tokens.css', scope: pageLayer('.pf-page') },
   { sheet: 'styles/main.css', scope: pageLayer('.pf-page') },
@@ -41,13 +45,14 @@ const SHEETS = [
   { sheet: 'styles/lines.css', scope: pageLayer('.pf-page') },
   { sheet: 'styles/detail.css', scope: pageLayer('.pf-page') },
   { sheet: 'styles/notes.css', scope: pageLayer('.pf-page') },
-  /* 这两张表里都写着自己的 `.pf-head`，收进 `.pf-page` 会把主面板自己的页头一起改掉；
-     它们在蓝本里各自是一份独立文档，靠 `.is-embed` 让出页头与页边距。 */
+  /* Both sheets define their own `.pf-head`; scoping them into `.pf-page` would restyle the main
+     panel's own header too. In the mock each is a standalone document that yields header and page
+     margins via `.is-embed`. */
   { sheet: 'styles/field.css', scope: embedLayer('.pf-wires') },
   { sheet: 'styles/register.css', scope: embedLayer('.pf-issue') },
 ]
 
-/** 蓝本末位挂着、但整张表不该进包：只取落在主面板 DOM 上的那几条。 */
+/** Linked last in the mock, but the sheet itself must not ship: only the rules landing on the main panel DOM are taken. */
 const CARRIED = [{
   sheet: 'styles/settings.css',
   selectors: ['.pf-stage', '.pf-frame', '.pf-configwrap', '.pf-configwrap .pf-scroll', '.pf-config', '.pf-config .pf-setrow', '.pf-vlayer'],
@@ -55,28 +60,29 @@ const CARRIED = [{
 
 const SCOPE = pageLayer('.pf-page')
 
-/** 进包的每一层：一道选择器落在哪一层上都算收拢过。 */
+/** Every layer that ships: a selector landing on any of them counts as scoped. */
 const SCOPES = [...new Map(SHEETS.map((entry) => [entry.scope.root, entry.scope])).values()]
 
 const PAGE_SELECTORS = new Set([':root', 'html', 'body'])
 
 /**
- * 那道尺子自己认的那一批：蓝本里写在页面自己那一层（`:root` / `html` / `body`）与全局
- * （`*`，两个伪元素在内）的选择器。它与 `PAGE_SELECTORS` 是两套——上面那一套说的是「收拢
- * 时怎么改」，这一份说的是「哪些选择器本该落在页面那一层」。两套合成一套的话，从上面那一套
- * 里拿掉一条选择器，尺子会跟着不看它，这一道就拦不住了。
+ * What the ruler itself recognizes: selectors written at page level (`:root` / `html` / `body`) and
+ * globally (`*`, its two pseudo-elements included) in the mock. Kept separate from `PAGE_SELECTORS` —
+ * that set says "how to rewrite while scoping", this one says "which selectors belong at page
+ * level". Merged into one, removing a selector from the former would make the ruler skip it too,
+ * and this check could no longer catch it.
  */
 const PAGE_LEVEL_SELECTORS = new Set([':root', 'html', 'body', '*', '*::before', '*::after'])
 
-/** 里面还住着规则的那几种 at-rule：收拢要往里走一层。 */
+/** At-rules that contain rules: scoping descends one level into them. */
 const NESTING_AT_RULES = ['@media', '@supports', '@layer']
 
-/** 注释不进选择器，它们另有去处。 */
+/** Comments never enter selectors; they are handled separately. */
 function stripComments(text) {
   return text.replace(/\/\*[\s\S]*?\*\//gu, ' ')
 }
 
-/** 产物里照样读得到这些注释。 */
+/** These comments stay readable in the artifact. */
 function comments(text) {
   return text.match(/\/\*[\s\S]*?\*\//gu)?.join('\n') ?? ''
 }
@@ -94,8 +100,8 @@ function closingBrace(css, open) {
 }
 
 /**
- * 走一张表，把每条规则的选择器交给 `rewrite`。
- * @param rewrite - 收到这条规则的选择器，返回改写后的那一串；返回 `null` 就把这条丢掉。
+ * Walk one sheet, handing each rule's selectors to `rewrite`.
+ * @param rewrite - Receives a rule's selectors, returns the rewritten string; returning `null` drops the rule.
  */
 function mapRules(css, rewrite) {
   let out = ''
@@ -114,13 +120,13 @@ function mapRules(css, rewrite) {
       const inner = mapRules(body, rewrite)
       if (stripComments(inner).trim().length > 0) out += `${comments(raw)}${prelude}{${inner}}`
     } else if (prelude.startsWith('@')) {
-      /* @keyframes / @font-face：整块原样带走，里面没有选择器可收拢。 */
+      /* @keyframes / @font-face: carried through as-is; no selectors inside to scope. */
       out += css.slice(i, close + 1)
     } else if (prelude.length > 0) {
       const scoped = rewrite(prelude)
       if (scoped !== null) out += `${comments(raw)}${scoped}{${body}}`
     } else {
-      /* 只有注释的一截：原样留着。 */
+      /* Comment-only segment: kept as-is. */
       out += css.slice(i, close + 1)
     }
     i = close + 1
@@ -129,12 +135,13 @@ function mapRules(css, rewrite) {
 }
 
 /**
- * 这一段选择器里有没有这一层那枚类名——切段之后逐段比，不看子串：先按组合子切开，
- * 每段再按 `.` / `#` / `:` / `[` 切出记号，整枚记号等于 `pf-page` 才算数。
+ * Whether this selector segment carries the layer's class — compared per token, not by substring:
+ * split on combinators first, then split each segment on `.` / `#` / `:` / `[` into tokens; only a
+ * whole token equal to `pf-page` counts.
  *
- * 子串那一版（`part.includes('.pf-page')`）会把 `.pf-pagewrap`、`.pf-pagefoot` 这类名字
- * 认成「已经在面板那一层里了」，那条规则整条漏出去落在页面根上；这些名字切出来的记号是
- * `pf-pagewrap`，与 `pf-page` 不等，照样加前缀。
+ * A substring version (`part.includes('.pf-page')`) would treat names like `.pf-pagewrap` and
+ * `.pf-pagefoot` as "already inside the panel layer", letting the whole rule escape onto the page
+ * root; their tokens are `pf-pagewrap` and the like, unequal to `pf-page`, so the prefix still applies.
  */
 function hasScopeClass(part, className) {
   return part
@@ -143,18 +150,19 @@ function hasScopeClass(part, className) {
     .some((token) => token === className)
 }
 
-/** 表里那枚「嵌入」记号（`.is-embed`）按整枚类名认，`pf-embedx` 这类名字不算。 */
+/** The sheet's own "embed" marker (`.is-embed`) is matched as a whole class name; names like `pf-embedx` do not count. */
 function markerPattern(marker) {
   return new RegExp(`\\.${marker}(?![\\w-])`, 'gu')
 }
 
 /**
- * @param scope - 这一层（见 `pageLayer` / `embedLayer`）。
- * @returns 收拢后的那几段（`*` 这类要拆成两段：这一层自己 + 后代）。
+ * @param scope - The layer (see `pageLayer` / `embedLayer`).
+ * @returns The scoped segments (`*` splits in two: the layer itself + descendants).
  */
 function scopeSelector(part, scope) {
-  /* 表里自己写着「嵌入」那枚记号的规矩：换成「这一枚 + 这一格的页记号」——蓝本靠它比基础
-     规则高一档，两枚类名把这一档还给它，同时只落在这一格上。 */
+  /* Rules carrying the sheet's own "embed" marker: rewritten to "this marker + this cell's page
+     marker" — the mock relies on it sitting one notch above the base rule; two classes restore
+     that notch while landing only on this cell. */
   if (scope.marker !== undefined && hasScopeClass(part, scope.marker)) {
     return [part.replace(markerPattern(scope.marker), `.${scope.marker}${scope.root}`)]
   }
@@ -175,16 +183,17 @@ function scopePrelude(prelude, scope) {
 }
 
 /**
- * 那道尺子：蓝本里固定在页面根与全局上的声明，收拢之后必须仍然落在这一层的根自己身上——
- * 页面根那几条落在 `root`，`*` 那几条落在 `root` 与它的两个伪元素上。
+ * The first ruler: declarations pinned to the page root and globals in the mock must still land on
+ * the layer's root itself after scoping — page-root rules land on `root`, `*` rules land on `root`
+ * and its two pseudo-elements.
  *
- * 收拢漏掉的声明不报错、只是不生效，界面上一眼看不出（`--pf-*` 令牌与 `box-sizing`
- * reset 都是这么丢的），所以在构建这一步把这一批点出来。
+ * A declaration missed by scoping fails silently and is invisible in the UI (that is how `--pf-*`
+ * tokens and the `box-sizing` reset were lost), so this step flags the batch at build time.
  *
- * @param name - 表名，报错时报得出是哪一份。
- * @param css - 表身，收拢前。
- * @param scope - 这一层（见 `pageLayer` / `embedLayer`）。
- * @returns 落空的那些（选择器 + 收拢后长什么样）；一条都没有就是空清单。
+ * @param name - Sheet name, so failures report which sheet.
+ * @param css - Sheet body, before scoping.
+ * @param scope - The layer (see `pageLayer` / `embedLayer`).
+ * @returns The misses (selector + what it looks like after scoping); empty list if none.
  */
 function assertRootLanding(name, css, scope) {
   const stray = []
@@ -206,17 +215,18 @@ function scopeSheet(css, scope) {
 }
 
 /**
- * 第二道尺子（管产物的形状）：进包的每一条选择器都必须打头落在某一层上——一条选择器的
- * 第一段里要真有一枚独立的层类名。
+ * The second ruler (product shape): every selector that ships must lead with a layer — the first
+ * segment of a selector must genuinely carry one of the layer class names.
  *
- * 上面那道管的是「页面根 / 全局那一批收拢后还盖不盖得住这一层的根自己」，它认人凭的是
- * `PAGE_LEVEL_SELECTORS` 那六个整段相等的选择器；前缀写错、或者一段没被认出来
- * （`.pf-pagewrap` 这类名字里带面板根的类），不在它眼皮底下。收拢漏掉的规矩在页面上不报错、
- * 只是管到了 DSH 的外壳，所以在这一步把整条选择器点出来。
+ * The first ruler covers "do the page-root / global batch still cover this layer's root after
+ * scoping", matching on the six whole-segment selectors in `PAGE_LEVEL_SELECTORS`; a wrong prefix,
+ * or a segment it fails to recognize (classes like `.pf-pagewrap` that embed the panel root's
+ * name), escapes it. Rules missed by scoping fail silently on the page while styling DSH's shell,
+ * so this step flags the whole selector.
  *
- * @param css - 收拢之后的表身。
- * @param scopes - 进包的每一层。
- * @returns 没有打头落在任何一层上的那些选择器；一条都没有就是空清单。
+ * @param css - Sheet body after scoping.
+ * @param scopes - Every layer that ships.
+ * @returns Selectors leading with no layer; empty list if none.
  */
 function assertScopedProduct(css, scopes) {
   const classes = scopes.map((scope) => scope.root.slice(1))
@@ -248,7 +258,7 @@ if (strayed.length > 0) {
   throw new Error(`build-client: 收拢之后有声明落不到面板根上（页面根 / 全局那一批）：\n  ${strayed.join('\n  ')}`)
 }
 const sheets = sources.map(({ css, scope }) => scopeSheet(css, scope))
-/* 蓝本末位那张表的共享两条：它们在蓝本的主面板上真的生效，次序也照蓝本摆在最后。 */
+/* The two shared rules from the mock's last sheet: they genuinely apply on the mock's main panel, and keep the mock's last position in the order. */
 const carried = CARRIED.map(({ sheet, selectors }) =>
   scopeSheet(pickRules(readFileSync(join(root, 'mock', sheet), 'utf8'), selectors), SCOPE))
 const css = [...sheets, ...carried].filter((part) => part.trim().length > 0).join('\n')
@@ -292,7 +302,8 @@ const head = `window.__ModuleLoader__.load({ id: ${JSON.stringify(manifest.name)
   + 'var module = { exports: {} }; var exports = module.exports;\n'
 const tail = '\nreturn module.exports; } });\n'
 writeFileSync(join(root, 'lib/client.js'), head + body + tail)
-// 中间件当场删掉，它只在上面那一步有用。留着的话 `files` 里那条 `lib/**/*.js` 会把它
-// 一起收进包——外壳套完的那一份已经在 lib/client.js 里，它纯属第二份。
+// The intermediate artifact is deleted on the spot; only the step above uses it. If kept, the
+// `lib/**/*.js` entry in `files` would bundle it too — the shell-wrapped copy already lives in
+// lib/client.js and this would be a pure duplicate.
 rmSync(join(root, 'lib/client-body.js'))
 console.log(`build-client: lib/client.js written (${String(head.length + body.length + tail.length)} chars, ${String(css.length)} chars of css)`)

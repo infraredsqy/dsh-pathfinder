@@ -1,15 +1,19 @@
 /**
- * 这个工作区的项目设置：工具那一条命令印出来的那几行，读成一份读数。
+ * This workspace's project settings: the lines printed by the tool's command,
+ * read into a reading.
  *
- * 有效值与「它来自哪一层」只有工具知道（全局那一层住在家目录里，工作区文件口子看不进去），
- * 所以这一份只把 `pf config list` 印出来的每一行读开，不做第二套判断。工具认得哪些键也归
- * 工具说：这里不立键的清单，印出来什么就读什么。
+ * Only the tool knows the effective value and which layer it came from (the
+ * global layer lives in the home directory, out of the workspace file
+ * gateway's sight), so this module only parses each line `pf config list`
+ * prints and makes no second set of judgments. Which keys the tool accepts is
+ * also the tool's business: no key list is kept here — whatever is printed
+ * gets read.
  */
 
-/** 一个值实际住在哪一层。 */
+/** Which layer a value actually lives on. */
 export type ConfigLayer = 'default' | 'project' | 'global'
 
-/** 一层覆盖在工具印的那一行里长什么样：按头两个字认；读不懂的层名不给层签，不替工具编一个它没说的读数。 */
+/** What a layer's overwrite tag looks like in the tool's printed line: recognized by the first two characters; an unreadable layer name gets no layer rather than inventing a reading the tool never gave. */
 const LAYER_HEADS: readonly (readonly [ConfigLayer, string])[] = [
   ['default', '出厂默认'],
   ['project', '项目 '],
@@ -17,46 +21,54 @@ const LAYER_HEADS: readonly (readonly [ConfigLayer, string])[] = [
 ]
 
 /**
- * 那一行。键名是字母数字下划线，值在等号与全角括号之间，层名在括号里、自己不含括号。
+ * The printed line. Key names are alphanumerics and underscores; the value
+ * sits between the equals sign and the full-width parentheses, the layer name
+ * inside the parentheses and itself free of parentheses.
  *
- * 值那一格用非贪婪：`worktree_mode = off` 这种值里没有空格，但真出现带空格的值时，尾巴上
- * 那个「空格 + 全角括号」才是分隔，贪婪那一版会把值一路吃到最后一个括号之前。
+ * The value group is lazy: values like `worktree_mode = off` contain no
+ * spaces, but if a value with spaces ever shows up, the trailing "space +
+ * full-width parenthesis" is the separator — the greedy version would swallow
+ * the value up to just before the last parenthesis.
  */
 const CONFIG_LINE = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*（([^（）]*)）\s*$/u
 
-/** 一行读出来的东西。 */
+/** What one parsed line yields. */
 export interface ConfigEntry {
-  /** 工具印的有效值。 */
+  /** The effective value as the tool printed it. */
   readonly value: string
-  /** 这个值住哪一层；层名读不懂时是 `null`。 */
+  /** Which layer this value lives on; `null` when the layer name is unreadable. */
   readonly layer: ConfigLayer | null
 }
 
 /**
- * 一份项目设置的读数。
+ * A reading of the project settings.
  *
- * `ok` 说的是工具这一趟成了没有（命令没起来、退出码非 0）；读面自己取不到数时另有一层
- * 失败（那一层由调用方按抛处置）。工具没成时 `entries` 是空的，面板照「记录里没有」画。
+ * `ok` says whether the tool's run succeeded (command failed to start,
+ * non-zero exit); a failure of the reading side itself is a separate layer,
+ * handled by the caller via throws. When the tool fails, `entries` is empty
+ * and the panel draws "absent from the records".
  */
 export interface PathfinderConfigReading {
-  /** 这次读的绝对工作区根，与四份记录那份读数同一个名字；设置落在它那份记录里。 */
+  /** The absolute workspace root read this time, same name as the four-records reading; settings land in its record. */
   readonly workspaceRoot: string
   readonly ok: boolean
-  /** 工具原话；没成时就是它给的那个理由。 */
+  /** The tool's own words; on failure, the reason it gave. */
   readonly text: string
-  /** 印出来的每一行，键就是设置键。没印出来的键不在这里。 */
+  /** Every printed line, keyed by setting key. Keys never printed are not here. */
   readonly entries: Readonly<Record<string, ConfigEntry>>
 }
 
-/** 层名读成一层；读不懂给 `null`。 */
+/** Parse a layer name into a layer; `null` when unreadable. */
 function layerOf(word: string): ConfigLayer | null {
   const head = LAYER_HEADS.find(([, text]) => word === text || word.startsWith(text))
   return head === undefined ? null : head[0]
 }
 
 /**
- * 把 `pf config list` 印出来的那几行读成一份表。认不出的行跳过（工具另会往那一路印
- * `Warning:` 之类的话，那是别的输出）；一行里的值空着也跳过：值空着就给不出读数。
+ * Parse the lines `pf config list` prints into a table. Unrecognizable lines
+ * are skipped (the tool also prints things like `Warning:` on that stream —
+ * that is other output); a line whose value is empty is skipped too: an empty
+ * value yields no reading.
  */
 export function parseConfigList(text: string): Record<string, ConfigEntry> {
   const out: Record<string, ConfigEntry> = {}

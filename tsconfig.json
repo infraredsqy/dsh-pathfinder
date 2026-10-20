@@ -1,7 +1,8 @@
 {
-  // 仓根的编译面。包与仓同名，宿主半身在 src/host，浏览器半身将来落在 src/client（各自一份
-  // tsconfig，见 tsconfig.host.json 那一份的写法）。
-  // 这里刻意不写 include/files：基线只放编译器选项，具体收哪些文件由各半身那一份说了算。
+  // Repo-root compile baseline. Package shares the repo name; the host half lives in src/host, the
+  // browser half lands in src/client (each with its own tsconfig, see tsconfig.host.json).
+  // No include/files here on purpose: this baseline only carries compiler options; each half's own
+  // tsconfig decides what to include.
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",
@@ -16,7 +17,7 @@
     "noUnusedParameters": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    // 源码里用 `./x.ts` 这种带扩展名的相对引用：运行时（Node 直接加载 .ts）与构建产物两头都认。
+    // Source uses extensioned relative imports like `./x.ts`: accepted both at runtime (Node loads .ts directly) and in build output.
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,

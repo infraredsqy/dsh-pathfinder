@@ -1,8 +1,10 @@
 /**
- * 浏览器半身取数与落笔的那一条路：把「哪条会话」递出去，把那一份读数拿回来。
+ * The browser half's single path for fetching data and writing back: hands over "which session"
+ * and brings the reading back.
  *
- * 两条线都通到同一个端点：先走 DSH 那条装好的远程命名空间，命名空间没装上的部署退到载体那一层
- * 直接叫 `/api` 上的同一条端点。端点名字符串只在这一份里出现一次。
+ * Both lines reach the same endpoint: first through DSH's mounted remote namespace; deployments
+ * without that namespace fall back to the carrier layer calling the same endpoint on `/api`
+ * directly. The endpoint name string appears only once, here.
  */
 import type { PathfinderReading } from '../host/contract.ts'
 import type { PathfinderConfigReading } from '../host/project-config.ts'
@@ -10,12 +12,12 @@ import type { PathfinderSessionsReading } from '../host/sessions.ts'
 import type { PfOutcome } from '../host/write.ts'
 import type { CyclePolicyKey, InstructionScope } from '../host/gateway.ts'
 
-/** 命名空间，与宿主半身那条服务键同名。 */
+/** The namespace, named after the host-half service key. */
 export const NAMESPACE = 'pathfinderRecords'
 
 export type WriteVerb = 'archive' | 'revive' | 'remove'
 
-/** 一条写命令对应宿主上的哪个端点。 */
+/** Which host endpoint each write verb maps to. */
 const WRITE_ENDPOINTS: Readonly<Record<WriteVerb, string>> = {
   archive: 'archiveInstruction',
   revive: 'reviveInstruction',
@@ -23,35 +25,38 @@ const WRITE_ENDPOINTS: Readonly<Record<WriteVerb, string>> = {
 }
 
 /**
- * 面板要与宿主说话的那条口子。
+ * The port the panel uses to talk to the host.
  *
- * 每条口子都带一个 `workspaceRoot`：面板顶上那枚工作区选择器挑中的那个根（绝对路径），空字符串
- * ＝没挑，按这条会话自己那个根读。挑哪一个读哪一个——与这条会话落在哪个工作区无关。
+ * Every method carries a `workspaceRoot`: the root picked in the workspace selector at the top of
+ * the panel (an absolute path); an empty string means nothing was picked, and the read falls back
+ * to this session's own root. Whichever is picked is read — unrelated to which workspace the
+ * session belongs to.
  *
- * `source` 说的是这一条口子最后是从哪一层接上的：`remote` 是装好的远程命名空间，`carrier` 是
- * 载体那一层，`none` 是两条都没接上——那时候每一次读都直接给出失败，编不出读数来。
+ * `source` says which layer this port ultimately connected through: `remote` is the mounted remote
+ * namespace, `carrier` is the carrier layer, `none` is neither — every read then fails outright,
+ * since no reading can be fabricated.
  */
 export interface PanelPort {
   readonly source: 'remote' | 'carrier' | 'none'
-  /** 点名那个工作区里的四份记录。 */
+  /** Read the four records of the named workspace. */
   read(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderReading>
-  /** 点名那个工作区里每一格最近开过的那条会话：卡上那一下要去的地方。 */
+  /** The most recent session opened for each cell in the named workspace: where card clicks go. */
   readSessions(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderSessionsReading>
-  /** 记下一条指令：把用户的原话与范围递给工具。 */
+  /** Record an instruction: hand the user's verbatim text and scope to the tool. */
   say(sessionId: string, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<PfOutcome>
-  /** 归档 / 复原 / 删除一条指令。 */
+  /** Archive / revive / delete an instruction. */
   write(verb: WriteVerb, sessionId: string, workspaceRoot: string, id: string): Promise<PfOutcome>
-  /** 写一条线自己的一个策略数。 */
+  /** Write one policy number of a line. */
   setPolicy(sessionId: string, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome>
-  /** 点名那个工作区的项目设置：有效值与它住在哪一层，从工具那一条命令上来。 */
+  /** The named workspace's project settings: effective values and which layer each lives on, from the tool's command. */
   readConfig(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderConfigReading>
-  /** 写一条项目设置；落的永远是这个项目那一层。 */
+  /** Write one project setting; it always lands on this project's layer. */
   setConfig(sessionId: string, workspaceRoot: string, key: string, value: string): Promise<PfOutcome>
 }
 
 type Answer<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string }
 
-/** 一个服务的最小形状：这一层只用得上它下面那几条方法。 */
+/** The minimal shape of a service: this layer only needs the few methods below. */
 type Service = Readonly<Record<string, unknown>>
 
 interface Carrier {
@@ -66,11 +71,11 @@ interface Carrier {
 }
 
 /**
- * 从上下文的几处入口现取一条服务。
+ * Fetch a service from the context's several entrances, on the spot.
  *
- * 两处都试：先问上下文自己的 `get`，再问属性代理。取不到就是取不到——这一层不抛，调用方按
- * 「没有」处置。
- * @param owner - 一个上下文（插件自己的，或注入回调给的那个）。
+ * Both are tried: first the context's own `get`, then the property proxy. If it cannot be fetched,
+ * it cannot be fetched — this layer does not throw; callers treat it as "absent".
+ * @param owner - A context (the plugin's own, or the one given to the inject callback).
  */
 export function serviceAt(owner: unknown, name: string): Service | undefined {
   const holder = owner as { get?: (key: string) => unknown } | null | undefined
@@ -79,7 +84,7 @@ export function serviceAt(owner: unknown, name: string): Service | undefined {
       const value = holder.get(name)
       if (value !== undefined && value !== null) return value as Service
     } catch (error) {
-      /* 没声明过的名字问上去会抛，这跟「没有」是同一件事。 */
+      /* Asking for an undeclared name throws, which counts the same as "absent". */
     }
   }
   try {
@@ -98,7 +103,7 @@ export function createPanelPort(ctx: unknown): PanelPort {
   return absentPort()
 }
 
-/** 装好的远程命名空间，两条取法都试一遍。 */
+/** The mounted remote namespace; both lookups are tried. */
 function remoteNamespace(ctx: unknown): Service | undefined {
   const direct = serviceAt(ctx, `remote.${NAMESPACE}`)
   if (direct !== undefined) return direct
@@ -108,21 +113,23 @@ function remoteNamespace(ctx: unknown): Service | undefined {
     const namespace = remote[NAMESPACE]
     return namespace === undefined || namespace === null ? undefined : (namespace as Service)
   } catch (error) {
-    /* 没声明过的命名空间在代理上读一下就会抛：这里按「没装上」处置。 */
+    /* Reading an undeclared namespace off the proxy throws: treated here as "not mounted". */
     return undefined
   }
 }
 
-/** 一条读调用的参数：三个位置都在。 */
+/** Arguments for a read call: all three positions present. */
 function readArgs(sessionId: string, workspaceRoot: string): Readonly<Record<string, unknown>> {
   return { sessionId, workspaceRoot, options: {} }
 }
 
 /**
- * 每条端点按什么次序收实参：远程那一层按位置递参，实参照这张表摆。
+ * The order in which each endpoint takes its arguments: the remote layer passes them by position,
+ * so actual arguments follow this table.
  *
- * 端点换签名时这里跟着换——不靠「对象键序＝端点形参序」那条没有单一出处的约定，键序一变
- * 就静默错位的债不留在这一层。
+ * When an endpoint changes signature, this table changes with it — the layer refuses to lean on the
+ * unsourced convention "object key order = endpoint parameter order", whose silent misalignment on
+ * a key reorder is debt this layer does not carry.
  */
 const REMOTE_PARAM_ORDER: Readonly<Record<string, readonly string[]>> = {
   read: ['sessionId', 'workspaceRoot', 'options'],
@@ -136,12 +143,12 @@ const REMOTE_PARAM_ORDER: Readonly<Record<string, readonly string[]>> = {
   setConfig: ['sessionId', 'workspaceRoot', 'key', 'value'],
 }
 
-/** 端点这一趟收的那串实参：照形参表摆，表上没有的键不带。 */
+/** The arguments this endpoint call receives: laid out per the parameter table; keys absent from it are dropped. */
 function positional(method: string, args: Readonly<Record<string, unknown>>): readonly unknown[] {
   return (REMOTE_PARAM_ORDER[method] ?? []).map((key) => args[key])
 }
 
-/** 两条取数路各自交出的那一手：一条调用，回来的已经是摊开过的两分支。 */
+/** What each of the two fetch paths yields: one call whose answer already arrives unfolded into the two branches. */
 type PortCall = <T>(
   method: string,
   args: Readonly<Record<string, unknown>>,
@@ -149,9 +156,10 @@ type PortCall = <T>(
 ) => Promise<Answer<T>>
 
 /**
- * 面板那条口子的共同骨架：七条口子写一遍，两条路只差 call 那一层与 signal 怎么递。
- * @param source - 这一条口子最后是从哪一层接上的。
- * @param call - 端点名字、具名参数与中止信号递给它，它把答案摊成两分支。
+ * The common skeleton of the panel's port: the seven methods written once, with the two paths
+ * differing only in the `call` layer and how the signal is passed.
+ * @param source - Which layer this port ultimately connected through.
+ * @param call - Given the endpoint name, named arguments, and abort signal; it unfolds the answer into the two branches.
  */
 function portFromCall(source: PanelPort['source'], call: PortCall): PanelPort {
   return {
@@ -190,7 +198,7 @@ function portFromCall(source: PanelPort['source'], call: PortCall): PanelPort {
   }
 }
 
-/** 远程命名空间那一条路：按形参表把实参摆成位置实参，signal 跟在最后。 */
+/** The remote-namespace path: lays arguments out positionally per the parameter table, signal last. */
 function remotePort(namespace: Service): PanelPort {
   const call: PortCall = async <T>(
     method: string,
@@ -213,7 +221,7 @@ function remotePort(namespace: Service): PanelPort {
   return portFromCall('remote', call)
 }
 
-/** 载体那一层：自己拼端点与参数，回来的还是 `{ ok, value }` 那一副脸。 */
+/** The carrier layer: assembles endpoint and arguments itself; the answer still wears the `{ ok, value }` shape. */
 function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
   const call: PortCall = async <T>(
     method: string,
@@ -230,7 +238,7 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
   return portFromCall('carrier', call)
 }
 
-/** 两条都没接上时的那条口子：每一次读都明说取不到。 */
+/** The port used when neither path connects: every read states the failure outright. */
 function absentPort(): PanelPort {
   const missing = async (): Promise<never> => {
     throw new Error('该部署未连接寻路记录服务，无法读取记录。')
@@ -239,7 +247,7 @@ function absentPort(): PanelPort {
   return { source: 'none', read: missing, readSessions: missing, say: refused, write: refused, setPolicy: refused, readConfig: missing, setConfig: refused }
 }
 
-/** 把 `{ ok, value }` 那一副脸摊成这一层用的两分支。 */
+/** Unfolds the `{ ok, value }` shape into the two branches this layer uses. */
 function unwrap<T>(answer: unknown): Answer<T> {
   if (typeof answer !== 'object' || answer === null) return { ok: false, message: '宿主返回了无法解析的数据。' }
   const held = answer as { ok?: unknown; value?: unknown; error?: unknown }

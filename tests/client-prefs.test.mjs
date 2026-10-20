@@ -1,13 +1,17 @@
-/* 浏览器半身设置那一条通路：锁的是几个不变量。
+/* The browser-half settings pathway: locks in a few invariants.
  *
- * 面板自己的偏好从一份设置文档来（`src/host/settings-fields.ts` 那份字段表、宿主那侧照它建
- * schema），这里量三件事：一份设置文档读成面板那几个值、写回交给设置服务的那条动作带哪一个
- * 修订号、那条口子在设置服务到场前后的读数（值没动就不惊动订阅者——`useSyncExternalStore`
- * 靠它，破了就是面板一直重画）。
+ * The panel's own preferences come from a settings document (the field table in
+ * `src/host/settings-fields.ts`, with the host building the schema from it). This file measures
+ * three things: a settings document reads into the panel's values, the write-back op handed to
+ * the settings service carries the right revision, and the source's readings before/after the
+ * settings service arrives (no change means no subscriber wake-up — `useSyncExternalStore`
+ * depends on it; breaking that means the panel re-renders forever).
  *
- * 另有一份照 `buildConfig` 问的：宿主那份 schema 里五个字段都在、个个标了 volatile、出厂
- * 默认与上下限就是字段表里那几个数。漏标 volatile 的字段在设置页里不出现、页面上也不报错，
- * 所以拿一份记下每次调用的替身顶替 schemastery，把这件事问到底。
+ * A second set asks `buildConfig` directly: all five fields present in the host schema, each
+ * marked volatile, and the factory defaults and bounds matching the field table's numbers. A
+ * field missing the volatile mark simply never appears on the settings page, with no error
+ * either — so a stand-in that records every call stands in for schemastery to press that
+ * question to the end.
  *
  *   node --test tests/
  */
@@ -36,9 +40,10 @@ import {
   VIEW_LABELS,
 } from '../src/client/prefs.ts'
 
-/* Node 这一版把 `localStorage` 摆成一个一碰就打一条 ExperimentalWarning 的取值器，而这条
- * 通路在接上设置表单那一刻会去问它一次。垫一份最小的替身顶上：这一份管整个文件，哪条用例
- * 要亲手量本地存储，自己再换一份（下面那两条就是这么做的）。 */
+/* This Node version exposes `localStorage` as a getter that fires an ExperimentalWarning on every
+ * touch, and this pathway consults it the moment the settings form attaches. Pad a minimal
+ * stand-in over it: this one covers the whole file; a case that wants to measure local storage
+ * itself swaps in its own (the two below do exactly that). */
 Object.defineProperty(globalThis, 'localStorage', {
   value: { removeItem() {} },
   configurable: true,
@@ -47,7 +52,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 test('字段表就是那几个键，出厂默认那几条与浏览器那侧逐项对得上', () => {
   assert.deepEqual(Object.keys(PANEL_PREF_DEFAULTS).sort(), Object.values(PANEL_PREF_FIELDS).sort())
-  /* 印在设置页与面板上的那几个字：六个看法与三档信息量各一份。 */
+  /* The words printed on the settings page and the panel: one entry per view (six) and per info level (three). */
   assert.deepEqual(Object.keys(INFO_LABELS).sort(), [...INFO_LEVELS].sort())
   assert.deepEqual(Object.keys(VIEW_LABELS).sort(), [...VIEW_IDS].sort())
 })
@@ -68,7 +73,7 @@ test('那几节读不懂时各自退到出厂那一份，别的照读', () => {
   assert.deepEqual(prefsFromSection(null), DEFAULT_PREFS)
   assert.deepEqual(prefsFromSection('不是一份文档'), DEFAULT_PREFS)
   assert.deepEqual(prefsFromSection({}), DEFAULT_PREFS)
-  /* 存量记录里可能留着旧版本写下的词：认不出来的那几个各自退回，旁边的照读。 */
+  /* Stored records may still hold words written by older versions: unrecognized ones each fall back, the rest read through. */
   assert.deepEqual(
     prefsFromSection({ infoLevel: 'verbose', defaultTab: 'overview', showArchived: 'yes', sideWidth: 'wide' }),
     DEFAULT_PREFS,
@@ -101,7 +106,7 @@ test('写回是一条顶层 set，路径就是字段表里那个字', () => {
     path: ['sideWidth'],
     value: 216,
   })
-  /* 每次调用给一份新的：调用方改它不该动到别处。 */
+  /* A fresh object per call: callers mutating it must not leak elsewhere. */
   assert.notEqual(prefsWriteOp(PANEL_PREF_FIELDS.showArchived, true), prefsWriteOp(PANEL_PREF_FIELDS.showArchived, true))
 })
 
@@ -128,11 +133,11 @@ function fakeForm(initial) {
       for (const listener of [...listeners]) listener()
       return Promise.resolve(true)
     },
-    /** 值一个字节没动，只叫醒订阅者：量「没变就不通知」那一条。 */
+    /** Wakes subscribers without touching a byte of the value: measures the "unchanged means no notification" path. */
     notify: () => { for (const listener of [...listeners]) listener() },
-    /** 别处把文档换了一版（修订号往前走），这一侧还没读到——同一趟往返里踩到的就是它。 */
+    /** Someone else bumped the document (revision moved forward) before this side read it — hit within the same round trip. */
     bump: () => { revision += 1 },
-    /** 这份文档一律不收改动：量「两笔都不作数时不许静默」那一条。 */
+    /** This document rejects all writes: measures the "no silent failure when both writes count for nothing" path. */
     refuse: (on = true) => { refuse = on },
   }
 }
@@ -185,7 +190,7 @@ test('同一趟往返里的第二笔：头一笔带着过期修订号被拒，�
   const form = fakeForm({})
   const source = createPrefsSource()
   source.attach(form)
-  /* 别处先把文档换了一版，这一侧手里还是 1。 */
+  /* Someone else bumped the document first; this side still holds 1. */
   form.bump()
 
   assert.equal(await source.write(PANEL_PREF_FIELDS.showArchived, true), true)
@@ -194,7 +199,7 @@ test('同一趟往返里的第二笔：头一笔带着过期修订号被拒，�
     ops: [{ op: 'set', path: ['showArchived'], value: true }],
     expected: 1,
   })
-  /* 被拒之后这一笔不带围栏：控制器自己会取当下最新那一个。 */
+  /* After the rejection this write carries no fence: the controller picks up the latest revision itself. */
   assert.deepEqual(form.writes[1], {
     ops: [{ op: 'set', path: ['showArchived'], value: true }],
     expected: undefined,
@@ -217,7 +222,7 @@ test('两笔都不作数时不静默：读数里摆出一句话，下一笔写�
   assert.equal(typeof failure, 'string')
   assert.ok(failure.length > 0)
 
-  /* 写回成功的那一笔把它收回去：那句话说的是「上一笔没落定」。 */
+  /* A successful write clears it: the message is about "the previous write did not land". */
   form.refuse(false)
   assert.equal(await source.write(PANEL_PREF_FIELDS.showOtherStates, true), true)
   assert.equal(source.getSnapshot().failure, null)
@@ -271,8 +276,9 @@ test('别处翻了一行：订阅者当场收到新读数', () => {
   form.mutate([prefsWriteOp(PANEL_PREF_FIELDS.showArchived, true)], undefined)
   assert.equal(source.getSnapshot().prefs.archived, true)
 
-  /* 值一个字节没动地叫醒一次：读数不换新对象，也不再通知——`useSyncExternalStore`
-   * 拿它比前后两次，每读一次都新造一个的话面板会一直重画。 */
+  /* One wake-up with the value untouched: the snapshot is not replaced and no further notification
+   * happens — `useSyncExternalStore` compares it across reads; a fresh object per read would make
+   * the panel re-render forever. */
   const held = source.getSnapshot()
   const before = rounds
   form.notify()
@@ -294,7 +300,7 @@ test('表单换一份、或收回去：读数跟着换，收回去就回到出�
   assert.equal(source.getSnapshot().prefs.info, 'full')
 
   off()
-  /* `off` 说的是「还是我那一份就摘掉」；此时站着的已经是第二份，所以读数不动。 */
+  /* `off` means "detach only if it is still my instance"; the second form is the one attached now, so the reading stays. */
   assert.equal(source.getSnapshot().prefs.info, 'full')
   source.attach(null)
   assert.deepEqual(source.getSnapshot().prefs, DEFAULT_PREFS)
@@ -330,7 +336,7 @@ test('宿主那份 schema：五个字段都在，个个标了 volatile', () => {
   const z = fakeSchemastery()
   const schema = buildConfig(z)
   assert.deepEqual(Object.keys(schema.dict), Object.values(PANEL_PREF_FIELDS))
-  /* 一个一个问过去：漏标 volatile 的字段在设置页里不出现，页面上也不报错。 */
+  /* Asked one by one: a field missing the volatile mark never appears on the settings page, and the page raises no error either. */
   for (const [name, node] of Object.entries(schema.dict)) {
     assert.ok(node.marks.includes('volatile'), `${name} 那一个字段漏标了 volatile`)
   }

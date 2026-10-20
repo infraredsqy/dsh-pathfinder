@@ -1,5 +1,5 @@
-/* 依赖场那一段：只锁不变量——层怎么算出来、边怎么长出来、记录里没有的东西怎么处置。
- * 不锁版面，也不锁快照。
+/* The dependency field segment: invariants only — how layers are computed, how edges grow, and
+ * what happens to things absent from the record. No layout and no snapshots are locked.
  *
  *   node --test tests/
  */

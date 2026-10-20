@@ -1,19 +1,23 @@
 /**
- * 面板自己的偏好在设置文档里那一节的字段面：字段名、出厂默认、以及几个取值集合。
+ * The field surface of the panel's own preferences section in the settings
+ * document: field names, factory defaults, and a few value sets.
  *
- * 这一份两边都读（宿主照它建 `Config`，浏览器照它读写设置文档），所以出厂默认只写这一遍。
- * 命名空间由 profile 那一行决定，不在这里。
+ * Both sides read this file (the host builds `Config` from it, the browser
+ * reads and writes the settings document by it), so the factory defaults are
+ * written exactly once. The namespace is decided by the profile line, not
+ * here.
  */
 
-/** 每列几张卡那一档。 */
+/** The per-column card count tier. */
 export type InfoLevel = 'lean' | 'three' | 'full'
 
-/** 六个看法的身份；键名与蓝本那两列（`tab-*` / `pane-*`）对得上。 */
+/** Ids of the six views; key names line up with the blueprint's two columns (`tab-*` / `pane-*`). */
 export type ViewId = 'now' | 'detail' | 'notes' | 'wires' | 'issue' | 'config'
 
 /**
- * 这一节里那几个字段的名字：宿主 schema 的键、写回时 `set` 那一条的路径、以及浏览器半身
- * 读回来时认的键，三处是同一个字，所以它只写在这一份里。
+ * The names of the fields in this section: the host schema's keys, the paths
+ * of the write-back `set` calls, and the keys the browser half reads back are
+ * all the same string, so it is written only here.
  */
 export const PANEL_PREF_FIELDS = {
   sideWidth: 'sideWidth',
@@ -23,25 +27,26 @@ export const PANEL_PREF_FIELDS = {
   showOtherStates: 'showOtherStates',
 } as const
 
-/** 明细左侧线路栏宽度的下限，与蓝本同一档。 */
+/** Lower bound of the wire column width on the detail's left, same tier as the blueprint. */
 export const SIDE_MIN = 120
 
 export const SIDE_MAX = 320
 
-/** 没拖过时的宽度。 */
+/** The width before any dragging. */
 export const SIDE_DEFAULT = 176
 
-/** 三档信息量，次序就是设置页那一行钮的次序。 */
+/** The three info levels, ordered as the row of buttons in the settings page. */
 export const INFO_LEVELS: readonly InfoLevel[] = ['lean', 'three', 'full']
 
-/** 六个看法，次序就是标签那一排的次序。 */
+/** The six views, ordered as the row of tabs. */
 export const VIEW_IDS: readonly ViewId[] = ['now', 'detail', 'notes', 'wires', 'issue', 'config']
 
 /**
- * 没记过时的样子。
+ * The shape before anything has been recorded.
  *
- * 侧栏宽度在设置页里没有对应的行——它是拖出来的一个值，蓝本那一页也没有这一行——但值
- * 同样住这份文档，所以它照旧在这里给一个出厂默认。
+ * The sidebar width has no row in the settings page — it is a dragged value,
+ * absent from the blueprint's page too — but the value lives in this document
+ * all the same, so it still gets a factory default here.
  */
 export const PANEL_PREF_DEFAULTS = {
   sideWidth: SIDE_DEFAULT,

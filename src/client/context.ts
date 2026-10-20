@@ -1,41 +1,44 @@
 /**
- * 三个入口（插件入口、设置那一节、调度中心那两处）共用的装配件：DSH 插件上下文上这一层摸得到
- * 的那几手、装配出岔子时那一声警告，以及「等服务到场再挂」的那一套样板。
+ * Assembly helpers shared by the three entry points (the plugin entry, the settings section, and
+ * the two dispatch-center spots): the handful of methods reachable on the DSH plugin context, the
+ * warning emitted when assembly goes wrong, and the boilerplate for "mount once the service arrives".
  *
- * 服务都用动态的 `ctx.inject([...])` 等：槽位由别人在运行时声明，往还没声明的槽里注册会在加载
- * 时直接抛。取不到就安静地不做——这一层从不把插件的 `apply` 弄挂，wire 里抛的每一手都挡在
- * 自己那一层，只留一条可查的痕迹。
+ * Services are awaited with dynamic `ctx.inject([...])`: slots are declared by others at runtime,
+ * and registering into an undeclared slot throws at load time. When unreachable, quietly do nothing
+ * — this layer never breaks the plugin's `apply`; every throw inside `wire` is contained in its own
+ * layer and leaves only a traceable record.
  */
 
-/** 插件上下文上这一层用得到的那几手。 */
+/** The methods this layer needs from the plugin context. */
 export interface ClientContext {
   inject?: (names: readonly string[], callback: (owner: unknown) => void) => unknown
 }
 
-/** 槽位服务：往别人声明的槽里注册的那条口子。 */
+/** Slots service: the gateway for registering into slots declared by others. */
 export interface SlotsService {
   inject?: (key: string, register: () => unknown) => unknown
   register?: (options: unknown, component: unknown) => unknown
 }
 
-/** 带卸载通知的上下文：真 Cordis 的上下文都带 `effect`，替身上下文没有。 */
+/** Context with unmount notification: real Cordis contexts carry `effect`; stand-in contexts do not. */
 export interface EffectOwner {
   effect?: (run: () => () => void, name?: string) => unknown
 }
 
-/** 一条警告；装配出了岔子不该静悄悄。 */
+/** One warning; an assembly failure must not stay silent. */
 export function report(what: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error)
-  // eslint-disable-next-line no-console -- 装配失败必须留下一条可查的痕迹
+  // eslint-disable-next-line no-console -- assembly failures must leave a traceable record
   console.warn(`dsh-pathfinder: ${what}：${message}`)
 }
 
 /**
- * 等那几个名字到场，再把到手的东西交给 wire。
+ * Wait for the given names to arrive, then hand what arrived to `wire`.
  *
- * `what` 是这一路装配说自己的名字：wire 里抛的、`inject` 本身抛的，都用它留那一声警告。
- * @param ctx - 浏览器半身那一个插件上下文。
- * @param wire - 服务到场后怎么接；抛了不外泄。
+ * `what` is the name this assembly path calls itself: throws inside `wire` and throws from `inject`
+ * itself are both reported under it.
+ * @param ctx - The browser-half plugin context.
+ * @param wire - How to wire up once services arrive; its throws do not escape.
  */
 export function injectAt(ctx: unknown, names: readonly string[], what: string, wire: (owner: unknown) => void): void {
   const holder = ctx as ClientContext | null | undefined
@@ -54,8 +57,9 @@ export function injectAt(ctx: unknown, names: readonly string[], what: string, w
 }
 
 /**
- * 同一条注册挂到 owner 自己那条 `effect` 上：有就挂（清理随卸载跑），没有就当场跑——
- * 没有 `effect` 的上下文没人替它管卸载，那一手也无处可交。
+ * Hang the same registration on the owner's own `effect`: mount it when present (cleanup runs on
+ * unmount), run it inline otherwise — a context without `effect` has no one managing unmount for
+ * it, and the cleanup would have nowhere to go.
  */
 export function serveOn(owner: unknown, serve: () => () => void, name: string): void {
   const effect = (owner as EffectOwner).effect

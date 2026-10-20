@@ -1,18 +1,22 @@
 /**
- * 把工作区里那份记录读成一份读数：定位置、分页读、解析、原样收进边界形状。
+ * Read the workspace's records into a reading: locate, page through, parse,
+ * and collect verbatim into the boundary shapes.
  *
- * 取数只走宿主已有的工作区文件口子（按行分页读、列目录），一律只读。口子对一页有字节上限，
- * 超了那一页会被拒绝，所以这里是「一页一页取到 `eof`」，它拒了这一页就把行数减半重取。
+ * Reads only go through the host's existing workspace file gateway (paged
+ * reads by line, directory listings), always read-only. The gateway caps a
+ * page by bytes and rejects pages over the cap, so the strategy here is
+ * "fetch page by page until `eof`", halving the line count and retrying
+ * whenever a page is refused.
  */
 import { RECORD_DIR, RECORD_SOURCES } from './contract.ts'
 import type { PathfinderReading, PathfinderSourceState } from './contract.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** 取数时按哪一套位置去读。 */
+/** Where to read from during a fetch. */
 export interface PathfinderScope {
-  /** 会话身份：工作区文件口子按它认路径。 */
+  /** Session identity; the workspace file gateway resolves paths by it. */
   readonly sessionId: SessionId
-  /** 要读的那个工作区根，绝对路径，记录从它往下找。 */
+  /** The workspace root to read, absolute; records are looked up below it. */
   readonly workspaceRoot: string
 }
 
@@ -29,17 +33,19 @@ export interface WorkspaceDirectoryListing {
 }
 
 export interface WorkspaceFilePage {
-  /** 这一页的行，用 `\n` 连起来。 */
+  /** This page's lines, joined with `\n`. */
   readonly text: string
-  /** 这一页有几行；`0` 表示起点已经越过文件末尾。 */
+  /** How many lines this page holds; `0` means the offset is past the end of the file. */
   readonly lines: number
-  /** 这一页是否含最后一行。 */
+  /** Whether this page includes the last line. */
   readonly eof: boolean
 }
 
 /**
- * 宿主工作区文件口子里这一步要用的那两个动作。两个都写成方法声明：真口子按会话身份解析
- * 路径，参数上的那点出入由方法位的宽松匹配兜住。
+ * The two actions this step needs from the host's workspace file gateway.
+ * Both are declared as methods: the real gateway resolves paths from the
+ * session identity, and small differences in the parameters are absorbed by
+ * the lenient matching at the method position.
  */
 export interface WorkspaceFilesPort {
   list(scope: PathfinderScope, path: string, signal: AbortSignal): Promise<WorkspaceDirectoryListing>
@@ -51,7 +57,7 @@ export interface WorkspaceFilesPort {
   ): Promise<WorkspaceFilePage>
 }
 
-/** 每一份来源里装集合的那个顶层键，与记录自己的写法一致。 */
+/** The top-level key holding the collection in each source, matching the records' own spelling. */
 const COLLECTION_KEY = {
   nodes: 'nodes',
   cycles: 'cycles',
@@ -60,51 +66,56 @@ const COLLECTION_KEY = {
 } as const
 
 /**
- * 口子在目标不存在时给的那一个码；只有它算「工作区里没有这一份」。
+ * The code the gateway gives when the target does not exist; only it counts
+ * as "this piece is absent from the workspace".
  *
- * 这是工作区文件口子的错误契约，全仓只写这一处：sessions.ts 判「这一层目录在不在」用的也是它。
+ * This is the workspace file gateway's error contract, written in exactly one
+ * place in the repo: sessions.ts uses it too, when judging whether that
+ * directory layer exists.
  */
 export const NOT_FOUND = 'workspace-file/not-found'
 
-/** 口子对一页的字节数另有上限：这一页超了它拒绝，不替我们截短。 */
+/** The gateway also caps a page by bytes: it refuses an over-cap page rather than truncating it for us. */
 const PAGE_TOO_LARGE = 'workspace-file/too-large'
 
-/** 请求里的页行数超过口子自己那一档时，它给的那一个码。 */
+/** The code it gives when the requested page line count exceeds its own tier. */
 const PAGE_LIMIT_REFUSED = 'gateway/bad-request'
 
-/** 默认档被拒、又还没从哪一页学到口子那一档时的减半起点。 */
+/** The halving start point when the default tier is refused and the gateway's tier has not been learned from any page yet. */
 const SHRINK_FROM_LINES = 256
 
-/** 这一次的错算不算「工作区里没有这一份」；判据就是 {@link NOT_FOUND} 那一个码。 */
+/** Whether this error counts as "this piece is absent from the workspace"; the criterion is exactly the {@link NOT_FOUND} code. */
 export function isAbsent(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === NOT_FOUND
 }
 
 /**
- * 口子拒了这一页的两种说法：页的字节数超上限，或请求的行数超过它那一档。
- * 两种都只说明「这个页大小在它这儿过不去」，收小一档重取就是。
+ * The two ways the gateway refuses a page: the page's byte size is over the
+ * cap, or the requested line count exceeds its tier. Both only mean "this
+ * page size does not pass here" — shrink a tier and retry.
  */
 function isPageRefused(error: unknown): boolean {
   if (typeof error !== 'object' || error === null || !('code' in error)) return false
   return error.code === PAGE_TOO_LARGE || error.code === PAGE_LIMIT_REFUSED
 }
 
-/** 记录把节点与问题池写成以身份为键的一层表；线路与指令写成一张清单。 */
+/** The records store nodes and the issue pool as id-keyed maps; cycles and instructions as lists. */
 function isMapLike(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
- * 收一份集合：键名照记录，条目照抄字段；记录里还带着这里没列出来的字段时一并带过来，
- * 这一步不裁剪，也不替它补默认值。
- * @returns 形状对得上时给那份集合，对不上给 `undefined`（这一份算取不动）。
+ * Collect one collection: key names as in the records, entries copied
+ * field-for-field; fields present in the records but not listed here come
+ * along too — no trimming, no default-filling.
+ * @returns The collection when the shape matches, `undefined` otherwise (the piece counts as unreadable).
  */
 function collect(key: keyof typeof COLLECTION_KEY, parsed: unknown): unknown {
   if (!isMapLike(parsed)) return undefined
   const value = parsed[COLLECTION_KEY[key]]
   if (key === 'cycles' || key === 'instructions') {
     if (!Array.isArray(value)) return undefined
-    // 一趟走完：逐条验形兼拷贝，撞上不合形的条目当场判这一份取不动。
+    // One pass: validate and copy per item; an ill-shaped item marks the whole piece unreadable on the spot.
     const out: Record<string, unknown>[] = []
     for (const item of value) {
       if (!isMapLike(item)) return undefined
@@ -122,11 +133,14 @@ function collect(key: keyof typeof COLLECTION_KEY, parsed: unknown): unknown {
 }
 
 /**
- * 一页一页把一份文件取全，中间用 `\n` 接回去。
+ * Fetch a whole file page by page, joining the pieces back with `\n`.
  *
- * 页大小先取口子自己那一档：请求里省掉 `limit`，它给默认档。它拒了这一页（字节数超它那一页
- * 的上限，或请求的行数超过它那一档）就把这一页的行数减半重取，一直收到整份读完；单行本身
- * 就超上限（收到一行也过不去）才是真的读不动，照抛给调用方判。
+ * The page size starts at the gateway's own tier: omitting `limit` from the
+ * request gets its default tier. When it refuses a page (bytes over its
+ * per-page cap, or requested lines over its tier), halve the page's line
+ * count and retry until the whole file is read; only a single line exceeding
+ * the cap (unpassable even at one line) is a genuinely unreadable file, and
+ * that is rethrown for the caller to judge.
  */
 export async function readWholeFile(
   port: WorkspaceFilesPort,
@@ -136,9 +150,9 @@ export async function readWholeFile(
 ): Promise<string> {
   const pages: string[] = []
   let offset = 1
-  // 这一页要几行：`undefined`＝口子默认档；被拒过之后就定在一个更小的档上，只减不增。
+  // Lines per page for this page: `undefined` = the gateway's default tier; after a refusal it settles on a smaller tier, only ever shrinking.
   let limit: number | undefined
-  // 口子默认档一页给几行：不带 `limit` 的那一页成功时学到，被拒之后拿它减半，比凭空挑一档更贴它那一档。
+  // Lines per page the gateway's default tier gives: learned when a `limit`-less page succeeds, then halved after refusals — closer to its tier than picking one out of thin air.
   let defaultLines: number | undefined
   for (;;) {
     try {
@@ -151,13 +165,13 @@ export async function readWholeFile(
       }
       pages.push(page.text)
       if (limit === undefined && defaultLines === undefined) defaultLines = page.lines
-      // 空页而还没到末尾：口子给了个它自己也不打算往前走的回复，收在这里，免得转不出来。
+      // Empty page but not at the end: the gateway answered with something it does not intend to advance past; stop here so the loop cannot spin.
       if (page.eof || page.lines === 0) return pages.join('\n')
       offset += page.lines
     } catch (error) {
       if (!isPageRefused(error)) throw error
       const shrunk = Math.floor((limit ?? defaultLines ?? SHRINK_FROM_LINES) / 2)
-      // 一行也过不去：这一份是真的取不动（例如整份记录压在一行里、那一行就超了上限），照抛。
+      // Not even one line passes: this piece is truly unreadable (e.g. the whole record compressed onto one line that alone exceeds the cap) — rethrow.
       if (shrunk < 1) throw error
       limit = shrunk
     }
@@ -165,10 +179,12 @@ export async function readWholeFile(
 }
 
 /**
- * 读一个工作区里那份记录。
+ * Read one workspace's records.
  *
- * 取不到的四份来源给空集合，读数照常返回：工作区里没有记录是一种正常读数，面板据此
- * 「什么都没发生」地画。真出错（列目录被拒、调用方取消）照抛，不在这里咽掉。
+ * The four sources that cannot be fetched yield empty collections and the
+ * reading still returns: a workspace without records is a normal reading,
+ * and the panel draws "nothing happened" from it. Real errors (refused
+ * directory listing, caller cancellation) are rethrown, not swallowed here.
  */
 export async function readReading(
   port: WorkspaceFilesPort,
@@ -206,7 +222,7 @@ export async function readReading(
     issues: {} as Record<string, never>,
   }
 
-  // 记录那一层目录先列一次：列得到才算这个工作区里有记录，列不到就是「没有这份记录」。
+  // List the records' directory layer once first: a listing means the workspace has records; no listing means "no such records".
   if ((await listDir(RECORD_DIR)) === undefined) return reading as PathfinderReading
 
   for (const key of Object.keys(RECORD_SOURCES) as (keyof typeof RECORD_SOURCES)[]) {
@@ -231,7 +247,7 @@ export async function readReading(
       else reading[key] = collection as never[]
       sources[key] = 'read'
     } catch (error) {
-      // 取消照抛：调用方要的不是一份缺一半的读数。
+      // Cancellation is rethrown: the caller did not ask for a half-read reading.
       if (signal.aborted) throw error
       sources[key] = 'unusable'
     }

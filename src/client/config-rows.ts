@@ -1,10 +1,13 @@
 /**
- * 设置那一格的读数面：已知的键怎么描（中文名、那一句话、控件形态、下拉的候选值抄本），
- * 行本身从 `pf config list` 的读数长出来。
+ * The reading face of the settings view: how known keys are described (display name, caption,
+ * control kind, a copy of the dropdown candidates); the rows themselves grow out of the
+ * `pf config list` reading.
  *
- * 这一份里没有 JSX 也没有 DOM，所以能在不装浏览器的地方单独量。工具是设置键的唯一出处，
- * 这里不声明「工具有哪些键」：读数里出现的键都有行——登记过的照这份表描，没登记的照键名
- * 直显、给一枚文本框；读数里没有的键这里也不摆行，没有的东西不画。
+ * No JSX and no DOM here, so it can be measured standalone where no browser is installed. The tool
+ * is the single source of settings keys, so this file does not declare "which keys the tool has":
+ * every key in the reading gets a row — registered keys are described per this table, unregistered
+ * ones show the key name directly with a text box; keys absent from the reading get no row here —
+ * nothing is drawn for what does not exist.
  */
 import type { ConfigEntry, ConfigLayer } from '../host/project-config.ts'
 
@@ -15,14 +18,16 @@ export interface ConfigRow {
   readonly name: string
   readonly caption: string
   readonly kind: ControlKind
-  /** 只有下拉那一档有：工具认得的那几个词，次序照蓝本。 */
+  /** Only the dropdown kind has it: the words the tool accepts, in blueprint order. */
   readonly options?: readonly string[]
 }
 
 /**
- * 已知的键怎么描，次序就是读者遇到它们的次序（照蓝本）。工具只在 `config --help` 的散文里说
- * 它认得哪些值，没有机器可读的清单，所以候选值在这里留一份抄本；工具那侧加了词时读数里会
- * 出现表外的值，那一枚由 {@link pickState} 就地补成一档，不静默落第一档。
+ * How known keys are described, in the order readers meet them (blueprint order). The tool only
+ * mentions its accepted values in the prose of `config --help`, with no machine-readable list, so
+ * the candidates are copied here. When the tool side adds a word, the reading will carry an
+ * off-table value; {@link pickState} then promotes it to an option on the spot instead of silently
+ * falling to the first one.
  */
 export const KNOWN_CONFIG_ROWS: Readonly<Record<string, ConfigRow>> = {
   worktree_mode: {
@@ -53,16 +58,17 @@ export const KNOWN_CONFIG_ROWS: Readonly<Record<string, ConfigRow>> = {
   },
 }
 
-/** 没登记的键底下那一句：它叫什么键名已经摆在名字那一格了，这里只说值由谁判。 */
+/** The caption under unregistered keys: the key name is already in the name cell, so this only says who judges the value. */
 const UNREGISTERED_CAPTION = '这一键还没有它的说法，值合不合法由工具判'
 
 /**
- * 从一份读数长出这一格的行：读数里有的键才有行，一行都不添。
+ * Grow this view's rows out of a reading: only keys present in the reading get rows, none are added.
  *
- * 登记过的键照 {@link KNOWN_CONFIG_ROWS} 摆，次序也照它（蓝本那份次序，读者认得的那一版
- * 版面不跟着工具印的次序晃）；没登记的键跟在后面，次序照读数，照键名直显、给一枚文本框——
- * 写面不拦键，值合不合法由工具判。
- * @param entries - `pf config list` 读出来的键到「值 + 层」的表。
+ * Registered keys are laid out per {@link KNOWN_CONFIG_ROWS}, in its order too (the blueprint
+ * order, the layout readers recognize — it does not wobble with the order the tool prints);
+ * unregistered keys follow, in reading order, showing the key name directly with a text box — the
+ * write side does not filter keys, and the tool judges whether a value is valid.
+ * @param entries - The key to "value + layer" table read out of `pf config list`.
  */
 export function configRowsOf(entries: Readonly<Record<string, ConfigEntry>>): readonly ConfigRow[] {
   const rows: ConfigRow[] = []
@@ -76,19 +82,23 @@ export function configRowsOf(entries: Readonly<Record<string, ConfigEntry>>): re
 }
 
 export interface PickState {
-  /** 它该选中的那一档；没有一档可选时是空串（留空）。 */
+  /** The option that should be selected; an empty string when nothing matches (left blank). */
   readonly value: string
-  /** 候选表外的那一枚：读数里有、表里没有的值补成一档摆出来；没有就是 `null`。 */
+  /** The off-table entry: a value present in the reading but not in the table, promoted to an option; `null` when none. */
   readonly extra: string | null
 }
 
 /**
- * 下拉选哪一档：读数里没有这个键的值时一档都不落（留空），不去摆第一档。
+ * Which dropdown option to pick: when the reading has no value for the key, none is chosen (left
+ * blank) rather than defaulting to the first option.
  *
- * 受控 select 在 `value` 对不上任何一枚 option 时由浏览器自己回落选第一枚——`worktree_mode` 就
- * 落成 `off`、`test_tier` 落成 `full`，正好是两个键的出厂默认词，读者分不出「记录里没有」与
- * 「记录里就是 off / full」。没有的东西不画：这里把那一手挡在前面，没有值就留空。值在读数里、
- * 只是不在候选表里（工具那一侧加了词）时不藏它，把它自己补成一档摆出来，读数与记录一致。
+ * A controlled select with a `value` matching no option falls back to the first one by the
+ * browser's own hand — `worktree_mode` would land on `off` and `test_tier` on `full`, exactly the
+ * two keys' factory default words, leaving the reader unable to tell "absent from the record" from
+ * "the record says off / full". Nothing is drawn for what does not exist: this function blocks that
+ * move up front, leaving the select blank when there is no value. When the value exists in the
+ * reading but not in the candidate table (the tool side added a word), it is not hidden: it is
+ * promoted to an option on the spot, keeping the view consistent with the record.
  */
 export function pickState(entry: ConfigEntry | undefined, options: readonly string[]): PickState {
   const value = entry?.value ?? ''
@@ -96,14 +106,14 @@ export function pickState(entry: ConfigEntry | undefined, options: readonly stri
   return options.includes(value) ? { value, extra: null } : { value, extra: value }
 }
 
-/** 行尾那枚层签的三个词。默认那一档读作「默认」：出厂那一份谁都没改过。 */
+/** The three words for the layer tag at the end of a row. The default layer reads as "default": the factory copy nobody has changed. */
 export const LAYER_WORDS: Readonly<Record<ConfigLayer, string>> = {
   default: '默认',
   project: '本项目',
   global: '全局',
 }
 
-/** 那一列宽窄的上下限、默认值与两种步子，照蓝本。 */
+/** That column's width bounds, default, and two step sizes, per the blueprint. */
 export const CONFIG_WIDTH = 720
 export const CONFIG_WIDTH_MIN = 480
 export const CONFIG_WIDTH_MAX = 960

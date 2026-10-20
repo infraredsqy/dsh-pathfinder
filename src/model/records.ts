@@ -1,60 +1,62 @@
 /**
- * 记录原形：四份记录文件里原有字段的直通副本，一个字段都不改名、不做单位换算、不折算时刻，
- * 外加宿主半身一趟取数交回来的那份结果形状。
+ * The raw records: field-for-field copies of the four record files' own
+ * fields — no field renamed, no unit converted, no moment folded — plus the
+ * result shape the host half hands back from one fetch.
  *
- * 这是模型层的最底层：只描述记录自己，不 import 任何东西；宿主半身与浏览器半身都反过来
- * 从这里拿这些形状（宿主那侧由 `src/host/contract.ts` 转手）。
+ * This is the model layer's bottom layer: it describes only the records
+ * themselves and imports nothing; the host and browser halves both take these
+ * shapes from here in turn (on the host side via `src/host/contract.ts`).
  */
 
-/** 一份来源这一趟的取值结局。 */
+/** The outcome of one source's fetch this round. */
 export type PathfinderSourceState =
-  /** 取到了，集合里是它的内容。 */
+  /** Fetched; the collection holds its content. */
   | 'read'
-  /** 工作区里没有这一份（目录里没列到它）。 */
+  /** The workspace has no such piece (not listed in the directory). */
   | 'missing'
-  /** 列到了、读不动：不是可读的 JSON 文本，或者中途出错。 */
+  /** Listed but unreadable: not readable JSON text, or an error midway. */
   | 'unusable'
 
-/** 记录里的节点：字段照抄记录，取值类型照记录里实际出现的那一种写。 */
+/** A node in the records: fields copied from the record, value types as written by whichever spelling actually appears in the record. */
 export interface PathfinderNode {
   readonly title?: string
   readonly description?: string
   readonly tags?: readonly string[]
-  /** 跑这一格的模式，例如 `auto`／`manual`／`checkpoint`。 */
+  /** The mode this node runs in, e.g. `auto`／`manual`／`checkpoint`. */
   readonly mode?: string
-  /** 这一格现在的判定：`completed`／`shelved`／`todo`。 */
+  /** The node's current verdict: `completed`／`shelved`／`todo`. */
   readonly status?: string
-  /** 记录把它写成文本，照抄。 */
+  /** The record writes it as text; copied as such. */
   readonly weight?: string
   readonly dsh_session?: string
-  /** 前置节点的身份清单；每一条是一条依赖边。 */
+  /** The list of prerequisite node ids; each one a dependency edge. */
   readonly dependencies?: readonly string[]
   readonly created_at?: string | null
   readonly completed_at?: string | null
   readonly updated_at?: string | null
-  /** 记录里还带着别的字段时一并带过来：这一步不裁剪。 */
+  /** Any other fields the record carries come along: no trimming at this step. */
   readonly [field: string]: unknown
 }
 
-/** 线路上走过的一步。 */
+/** One step walked on a cycle. */
 export interface PathfinderStep {
   readonly node?: string
   readonly started_at?: string | null
   readonly ended_at?: string | null
   readonly result?: string | null
-  /** 记录里还带着别的字段时一并带过来。 */
+  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 
-/** 线路上握着某个节点的那一条。 */
+/** The entry where a cycle holds a node. */
 export interface PathfinderHolding {
   readonly id?: string
   readonly since?: string | null
-  /** 记录里还带着别的字段时一并带过来。 */
+  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 
-/** 记录里的一条线路。 */
+/** One cycle in the records. */
 export interface PathfinderCycle {
   readonly id?: string
   readonly title?: string
@@ -62,35 +64,35 @@ export interface PathfinderCycle {
   readonly tags?: readonly string[]
   readonly created_at?: string | null
   readonly updated_at?: string | null
-  /** 这条线挂着的策略：键与值都照记录。 */
+  /** The policies this cycle hangs: keys and values as in the record. */
   readonly policies?: Readonly<Record<string, unknown>>
-  /** 谁在做它：写成一份握着清单的那一种。 */
+  /** Who is working it: the list-of-holdings spelling. */
   readonly holding?: readonly PathfinderHolding[]
-  /** 谁在做它：写成单值的那一种。 */
+  /** Who is working it: the single-value spelling. */
   readonly current_node?: string | null
-  /** 与 `current_node` 配对的握住时刻，记录里原样的那串文本。 */
+  /** The hold moment paired with `current_node`, the record's verbatim text. */
   readonly current_started_at?: string | null
-  /** 这条线走过的步，按记录里的顺序。 */
+  /** The steps this cycle has walked, in record order. */
   readonly path?: readonly PathfinderStep[]
-  /** 记录里还带着别的字段时一并带过来。 */
+  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 
-/** 记录里的一条指令。 */
+/** One instruction in the records. */
 export interface PathfinderInstruction {
   readonly id?: string
   readonly text?: string
   readonly scope?: string
-  /** 这条指令落在哪一类对象上。 */
+  /** Which kind of object this instruction lands on. */
   readonly target?: string
   readonly state?: string
-  /** 绑到哪条线路；没绑就是 `null`。 */
+  /** Which cycle it binds to; `null` when unbound. */
   readonly cycle?: string | null
-  /** 绑到哪个节点；没绑就是 `null`。 */
+  /** Which node it binds to; `null` when unbound. */
   readonly node?: string | null
-  /** 第几轮生效；没记就是 `null`。 */
+  /** Which round it takes effect in; `null` when unrecorded. */
   readonly round?: number | null
-  /** 哪一拍生效；没记就是 `null`。 */
+  /** At which beat it takes effect; `null` when unrecorded. */
   readonly stage?: number | null
   readonly said_by?: string
   readonly at?: string | null
@@ -98,25 +100,25 @@ export interface PathfinderInstruction {
   readonly resolved_by?: string | null
   readonly superseded_by?: string | null
   readonly note?: string | null
-  /** 走几格之后停下；记录里只有少数条目带这个数。 */
+  /** Stop after walking so many nodes; only a few entries in the records carry this number. */
   readonly stop_after_nodes?: number | null
   readonly applied_rounds?: readonly unknown[]
   readonly applied?: readonly unknown[]
-  /** 记录里还带着别的字段时一并带过来。 */
+  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 
-/** 问题池里的一条问题。 */
+/** One issue in the pool. */
 export interface PathfinderIssue {
   readonly id?: string
   readonly title?: string
-  /** 严重程度档位。 */
+  /** The severity tier. */
   readonly severity?: string | null
   readonly status?: string
   readonly module?: string
-  /** 谁报的。 */
+  /** Who reported it. */
   readonly source?: string | null
-  /** 判决。 */
+  /** The verdict. */
   readonly decision?: string | null
   readonly discovered?: string | null
   readonly updated_at?: string | null
@@ -127,28 +129,28 @@ export interface PathfinderIssue {
   readonly suggestion?: string | null
   readonly reason?: string | null
   readonly plan_path?: string | null
-  /** 记录里还带着别的字段时一并带过来。 */
+  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 
-/** 取数结果里四份来源各自的键，与记录自己的顶层集合一一对应。 */
+/** The key of each of the four sources in a fetch result, one-to-one with the records' own top-level collections. */
 export type RecordSourceKey = 'nodes' | 'cycles' | 'instructions' | 'issues'
 
-/** 一次取数的结果。 */
+/** The result of one fetch. */
 export interface PathfinderReading {
-  /** 这份读数取自哪个工作区根——调用方点名的那一个，没点名就是这条会话自己那个。绝对路径。 */
+  /** Which workspace root this reading was taken from — the caller-named one, or this session's own when none was named. Absolute path. */
   readonly workspaceRoot: string
-  /** 记录所在的那一层目录，工作区相对。 */
+  /** The directory layer holding the records, workspace-relative. */
   readonly recordPath: string
   /**
-   * 四份来源各自这一趟的结局，键是 {@link RecordSourceKey}。
-   * 取不到的那几份在下面给空集合：面板照「记录里没有」画。
+   * Each of the four sources' outcome this round, keyed by {@link RecordSourceKey}.
+   * Sources that could not be fetched yield empty collections below: the panel draws "absent from the records".
    */
   readonly sources: Readonly<Record<RecordSourceKey, PathfinderSourceState>>
-  /** 键就是节点身份。 */
+  /** Keys are node ids. */
   readonly nodes: Readonly<Record<string, PathfinderNode>>
   readonly cycles: readonly PathfinderCycle[]
   readonly instructions: readonly PathfinderInstruction[]
-  /** 键就是问题身份。 */
+  /** Keys are issue ids. */
   readonly issues: Readonly<Record<string, PathfinderIssue>>
 }

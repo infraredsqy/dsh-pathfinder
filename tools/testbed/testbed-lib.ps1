@@ -1,26 +1,33 @@
-﻿# testbed-lib.ps1 —— 测试床公共实现：路径与磁盘格式换算、合成记录落盘、实例起停、HTTP 调用、主 home 指纹。
+﻿# testbed-lib.ps1 —— testbed shared implementation: path and on-disk format conversions, synthetic
+# record fixtures, instance start/stop, HTTP calls, main-home fingerprints.
 #
-# 只被 tools/testbed/testbed.ps1 调用。运行实体（隔离 home / profile / 合成工作区 / 合成会话）
-# 全部落在调用方传入的 -Root 目录下，本文件不假设任何具体路径。
+# Called only by tools/testbed/testbed.ps1. Everything it creates (isolated home / profile /
+# synthetic workspaces / synthetic sessions) lands under the caller's -Root; this file assumes no concrete paths.
 #
-# 设计要点（照本机实测行为写，不照抄别处）：
-#   * 会话根目录键：会话日志落在 <home>\sessions\<projectKey(cwd)>\<encodeSegment(id)>\session.v4.jsonl。
-#     实例读日志时会核对「header 的 id + cwd 反算出来的路径」与磁盘路径是否同一个文件，路径算错就会被丢弃。
-#   * 会话物理编码在整根上排他：同一个根里混了另一种后缀，整个会话列表会抛错。
-#     测试床的 home 每次重建，profile 里把压缩固定成 none，于是全根都是明文 .jsonl。
-#   * 会话 header 字段名/类型不合法不会报错，那一条会话会从清单里静默消失。故先验 header，再看清单。
-#   * 工作区记录（<home>\storages\workspace.json）只在实例启动时读一次，必须在实例停着的时候写。
-#   * 主 home 是多租户的：别的项目有 live 会话在往里追加。判据 4 要求**每一处差异都印得出正面归属证据**，
-#     两条证据取并集：S1 结构性（project key 与本格派生的键都不同 + 编码后缀是本 profile 写不出的那一种）、
-#     S2 见证集（「实例没在跑」的观测窗里确实动过的路径）。删除、带本格名字的路径、两处静区的任何变化一律失败。
+# Design notes (written from measured behavior on this machine, not copied from elsewhere):
+#   * Session root layout: session logs land at <home>\sessions\<projectKey(cwd)>\<encodeSegment(id)>\session.v4.jsonl.
+#     When reading logs the instance cross-checks "the path recomputed from the header's id + cwd" against the on-disk
+#     path; a wrongly computed path gets the session dropped.
+#   * A session's physical encoding is exclusive across the whole root: mixing another suffix into the same root makes
+#     the entire session list throw. The testbed home is rebuilt each time and its profile pins compression to none,
+#     so the whole root is plaintext .jsonl.
+#   * An invalid session header field name/type raises no error; that session silently vanishes from the list.
+#     Hence validate the header first, then look at the list.
+#   * The workspace registry (<home>\storages\workspace.json) is read once at instance start; it must be written while the instance is stopped.
+#   * The main home is multi-tenant: other projects have live sessions appending to it. Criterion 4 demands
+#     **positive ownership evidence for every difference**, unioning two kinds:
+#     S1 structural (project key differs from every key this fixture derives + the encoding suffix is one this profile cannot write) and
+#     S2 witnessed (paths really touched in a "no instance running" observation window). Deletions, paths carrying a
+#     testbed-made name, and any change in the two quiet areas fail outright.
 
 $script:Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 # ---------------------------------------------------------------------------
-# 路径与磁盘格式换算
+# Path and on-disk format conversions
 # ---------------------------------------------------------------------------
 
-# 把 cwd 换成会话根目录下那一层「项目目录」名（与产品侧同算法：分隔符折叠成 '-'，其余非安全字符转 ~XXXX）。
+# Convert a cwd into the "project directory" level under the session root (same algorithm as the
+# product side: separators fold to '-', other unsafe chars become ~XXXX).
 function Get-ProjectKey {
   param([Parameter(Mandatory=$true)][string]$Cwd)
   if ($Cwd.Length -eq 0) { throw 'project key: cwd must not be empty' }
@@ -44,7 +51,7 @@ function Get-ProjectKey {
   return '--' + $slug + '--'
 }
 
-# 会话 id 变成单个安全路径段。
+# Turn a session id into a single safe path segment.
 function Get-EncodedSegment {
   param([Parameter(Mandatory=$true)][string]$Raw)
   if ($Raw.Length -eq 0) { throw 'encoded segment: value must not be empty' }
@@ -58,7 +65,7 @@ function Get-EncodedSegment {
   return $out
 }
 
-# 用 Node 的 fs.realpathSync 求规范路径：产品侧的工作区路径唯一性判定用的就是这个 canon。
+# Canonical path via Node's fs.realpathSync: the product side judges workspace-path uniqueness by this same canon.
 function Get-CanonicalPath {
   param([Parameter(Mandatory=$true)][string]$Path, [string]$NodeExe = 'node')
   $out = & $NodeExe -e "process.stdout.write(require('fs').realpathSync(process.argv[1]))" $Path
@@ -66,7 +73,7 @@ function Get-CanonicalPath {
   return [string]$out
 }
 
-# 解析出可直接 CreateProcess 的可执行体：要 .cmd/.bat/.exe 那一份，不要 npm 目录里那个没有扩展名的 POSIX 壳。
+# Resolve a directly-CreateProcess-able executable: want the .cmd/.bat/.exe one, not the extensionless POSIX shim in the npm directory.
 function Resolve-ApplicationExecutable {
   param([Parameter(Mandatory=$true)][string]$Name)
   $candidates = @(Get-Command -Name $Name -All -ErrorAction SilentlyContinue |
@@ -81,7 +88,7 @@ function Resolve-ApplicationExecutable {
   throw "cannot resolve an executable launcher named '$Name'"
 }
 
-# 写文本：默认不带 BOM（JSON / JSONL 解析器碰到 BOM 会当坏数据），行尾按调用方给的原文。
+# Write text: no BOM by default (JSON / JSONL parsers treat a BOM as corrupt data); line endings exactly as the caller's text.
 function Write-TextFile {
   param([Parameter(Mandatory=$true)][string]$Path, [Parameter(Mandatory=$true)][string]$Text)
   $dir = Split-Path -Parent $Path
@@ -89,24 +96,25 @@ function Write-TextFile {
   [System.IO.File]::WriteAllText($Path, $Text, $script:Utf8NoBom)
 }
 
-# JSON 字符串字面量（转义交给 ConvertTo-Json，保证 Windows 反斜杠写对）。
+# JSON string literal (escaping left to ConvertTo-Json, which gets Windows backslashes right).
 function ConvertTo-JsonString {
   param([Parameter(Mandatory=$true)][string]$Value)
   return (ConvertTo-Json -InputObject $Value -Compress)
 }
 
 # ---------------------------------------------------------------------------
-# 主 home 指纹（完成判定第 4 条的反证读数）
+# Main home fingerprints (the counter-evidence readings for completion criterion 4)
 # ---------------------------------------------------------------------------
 
-# 取一处路径的指纹。tree 递归，file 单文件。
-#   contentDigest —— 只由「相对路径 + 字节数 + 内容 SHA256」组成，这是「计数与哈希」的字面读数；
-#   entryDigest   —— 上面再加 mtime，用来在判据之外指出到底哪些文件动过；
-#   entries       —— 相对路径 -> "长度|mtime|内容哈希"，用于逐路径比对。
+# Fingerprint one path. kind tree recurses; kind file is a single file.
+#   contentDigest —— composed only of "relative path + byte count + content SHA256": the literal "counts and hashes" reading;
+#   entryDigest   —— the above plus mtime, used outside the criteria to show exactly which files moved;
+#   entries       —— relative path -> "length|mtime|content hash", for per-path comparison.
 function Get-AreaFingerprint {
   param([Parameter(Mandatory=$true)][string]$Path)
-  # 空集合也必须有确定的摘要：目录里一个文件都没有（或这一面根本不在）时取固定空串的 sha256，
-  # 两边才有得比，调用方也不会撞上「参数为 null」的绑定错。
+  # Even an empty set must have a definite digest: when a directory holds no file (or the area is
+  # absent entirely) the fixed empty-string sha256 is taken, so both sides have something to compare
+  # and the caller never trips over a "parameter is null" binding error.
   $emptyDigest = Get-TextDigest -Lines @()
   $result = [ordered]@{
     path = $Path; exists = $false; kind = 'missing'
@@ -148,7 +156,7 @@ function Get-AreaFingerprint {
   return $result
 }
 
-# 一处路径的文本摘要。空集合（没有文件的那一面、空子集）收下，摘要取固定空串的 sha256。
+# Text digest of one path's entries. Empty sets (a file-less area, an empty subset) are accepted; the digest is the fixed empty-string sha256.
 function Get-TextDigest {
   param([AllowEmptyCollection()][AllowNull()][string[]]$Lines = @())
   if ($null -eq $Lines) { $Lines = @() }
@@ -159,7 +167,7 @@ function Get-TextDigest {
   } finally { $sha.Dispose() }
 }
 
-# 逐路径比对两枚指纹，返回变化集（按 mtime/长度/内容哈希任一项不同即算变化）。
+# Per-path comparison of two fingerprints, returning the change set (a difference in mtime, length, or content hash counts as changed).
 function Compare-AreaFingerprint {
   param([Parameter(Mandatory=$true)]$Before, [Parameter(Mandatory=$true)]$After)
   $changed = New-Object System.Collections.Generic.List[string]
@@ -173,15 +181,16 @@ function Compare-AreaFingerprint {
   return @($changed | Sort-Object)
 }
 
-# 去掉变化集条目前缀，得到纯相对路径。没有变化时返回空数组（调用方不必区分 $null）。
+# Strip the change-set prefix, leaving the plain relative path. Returns an empty array when nothing changed (callers need not distinguish $null).
 function Get-ChangedPaths {
   param([AllowEmptyCollection()][string[]]$Changed = @())
   if ($null -eq $Changed) { return @() }
   return @($Changed | ForEach-Object { $_.Substring(1) })
 }
 
-# 轻量观测：只有「相对路径 -> 长度|mtime 刻度」，不读文件内容（主 home 会话库 1.5 GB，
-# 读内容那一趟留着给判据真正要比对的前后两份全量指纹）。观测"动没动"用它就够。
+# Lightweight scan: only "relative path -> length|mtime tick", never reads file content (the main
+# home's session store is 1.5 GB; reading content is reserved for the two full fingerprints the
+# criteria actually compare). For "did it move" this is enough.
 function Get-AreaMetaScan {
   param([Parameter(Mandatory=$true)][string]$Path)
   $result = [ordered]@{ path = $Path; exists = $false; kind = 'missing'; fileCount = 0; entries = @{} }
@@ -205,8 +214,8 @@ function Get-AreaMetaScan {
   return $result
 }
 
-# 两次观测之间动过的相对路径（新增 / 改写 / 消失都算）。
-# Before 是轻量观测（长度|mtime），After 是全量指纹（长度|内容哈希|mtime），只比长度与 mtime。
+# Relative paths touched between two observations (added / rewritten / vanished all count).
+# Before is a lightweight scan (length|mtime), After a full fingerprint (length|content hash|mtime); only length and mtime are compared.
 function Get-TouchedPaths {
   param([Parameter(Mandatory=$true)]$MetaBefore, [Parameter(Mandatory=$true)]$FingerprintAfter)
   $touched = New-Object System.Collections.Generic.List[string]
@@ -222,9 +231,10 @@ function Get-TouchedPaths {
   return @($touched | Sort-Object -Unique)
 }
 
-# 一枚指纹里「排除若干条相对路径之后」的文件数与内容摘要。
-# 用途：见证集挑出来的那些外来写入路径先被摘掉，判据的计数与哈希就在剩下的这份集合上取，
-# 等式才有意义（而且摘掉的是哪几条，读数里逐条印出来）。
+# File count and content digest of one fingerprint "excluding certain relative paths".
+# Purpose: the foreign write paths picked out by the witness set are carved off first, and the
+# criteria's counts and hashes are taken over the remainder, which is what makes the equality
+# meaningful (and which paths were carved off is printed line by line in the readings).
 function Get-FingerprintSubset {
   param(
     [Parameter(Mandatory=$true)]$Fingerprint,
@@ -251,10 +261,12 @@ function Get-FingerprintSubset {
   }
 }
 
-# S1（结构性豁免）：这条路径凭「落在哪个 project key 下 + 物理编码后缀」就能证明本格写不出来。
-# 两条同时成立才算：① project key 与本格派生的所有 key 都不同；② 编码后缀是本 profile 写不出的那一种
-# （本 profile 把压缩固定成 none，整根只能是明文 .jsonl）。缺一条就不豁免——这一条正是为了堵住
-# 「名字不认识就放过」那条退路：别的 project key 下多出一个明文 .jsonl，照样判失败。
+# S1 (structural exemption): a path proves "this fixture cannot have written it" by where it sits
+# (which project key) plus its physical encoding suffix. Both must hold: (1) the project key differs
+# from every key this fixture derives; (2) the encoding suffix is one this profile cannot write
+# (this profile pins compression to none, so the whole root can only be plaintext .jsonl). Missing
+# either means no exemption — this exists precisely to close the "unknown name, let it pass" escape
+# hatch: a plaintext .jsonl under some other project key still fails.
 function Test-StructuralExemption {
   param(
     [Parameter(Mandatory=$true)][string]$RelativePath,
@@ -292,13 +304,17 @@ function Test-StructuralExemption {
   return [ordered]@{ exempt = $exempt; projectKey = $key; leaf = $leaf; reason = $reason }
 }
 
-# 判据 4 的泄漏签名集：测试床自己造出来的名字。判定拿相对路径去 `-like "*签名*"`（见 Get-MainHomeAreaVerdict），
-# 而相对路径是逐段拼出来的——Windows 的单段目录名里既没有 ':' 也没有 '\'，所以一整条绝对路径（形如
-# %LOCALAPPDATA%\dsh-pathfinder-testbed\workspaces\workspace-alpha）在相对路径里连不成一片，
-# 那样的条目一条也认不出来。签名一律取「能在相对路径里连续出现的片段」：
-#   * 合成会话 id（它本身就是单个路径段）；
-#   * 合成工作区的目录名（会话按 cwd 归目录，这个名字会被 Get-ProjectKey 编进 project key 那一段）；
-#   * 测试床根目录的叶子名（本格派生的 key 全都含它，这条是兜底的那一张网）。
+# Criterion 4's leak-signature set: names this testbed itself makes. The verdict matches them
+# against relative paths with `-like "*signature*"` (see Get-MainHomeAreaVerdict), and relative
+# paths are assembled segment by segment — a single Windows directory segment contains neither ':'
+# nor '\', so a whole absolute path (like
+# %LOCALAPPDATA%\dsh-pathfinder-testbed\workspaces\workspace-alpha) is never contiguous
+# inside a relative path, and such entries would never be recognized. Signatures are therefore
+# always fragments that can appear contiguously inside a relative path:
+#   * the synthetic session ids (each is itself a single path segment);
+#   * the synthetic workspaces' directory names (sessions are grouped by cwd, so the name is folded
+#     into the project-key segment by Get-ProjectKey);
+#   * the testbed root's leaf name (every key this fixture derives contains it; this is the safety net).
 function Get-TestbedLeakSignatures {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
@@ -321,16 +337,22 @@ function Get-TestbedLeakSignatures {
   return @($signatures.ToArray())
 }
 
-# 一处主 home 面的判定：把「跑前基准 vs 跑后」的变化集按归属切开，给出这一面算不算过。
-# 判据 4 的口径：**每条差异都要能被正面证明不是本格写的**，两条正面证据取并集：
-#   * S1 结构性：project key 与本格派生的所有 key 都不同，且编码后缀是本 profile 写不出的那一种（两条都要）；
-#   * S2 见证集：「测试床实例没在跑」的观测窗里确实动过的路径；
-#   两条都不满足的变化一律失败。前缀保留：+ 新建 / ~ 改写 / - 删除。
-# 硬失败面不参与任何豁免：带本格造出来的名字的路径（泄漏签名）、两处静区的任何变化、**任何删除**（- 前缀）。
-# 四档（exempt / deletions / leaks / unattributed）**互斥**：每条变化只落一档，四档的条目合起来正好盖住全部变化，
-# 一条不多、一条不少。partitionConsistent 记录这个自查成没成（入口把它当断言印出来；判据仍旧只看那三项计数）。
-# passed 只由三项计数决定（deletions / unattributed / leaks 全为 0）；exempt* / exemptReasons / subset* /
-# partitionConsistent 是印出来的读数，其中 subset* 是支撑读数：它由那三项计数蕴含，当不了独立证据。
+# The verdict for one main-home area: split the "before baseline vs after" change set by ownership
+# and decide whether this area passes. Criterion 4's terms: **every difference must carry positive
+# evidence it was not written by this fixture**, unioning two kinds:
+#   * S1 structural: the project key differs from every key this fixture derives, and the encoding
+#     suffix is one this profile cannot write (both required);
+#   * S2 witnessed: the path really moved during a "no testbed instance running" observation window;
+#   a change satisfying neither fails. Prefixes kept: + new / ~ rewritten / - deleted.
+# Hard-failure faces join no exemption: paths carrying a testbed-made name (leak signatures), any
+# change in the two quiet areas, and **any deletion** (- prefix).
+# The four buckets (exempt / deletions / leaks / unattributed) are **mutually exclusive**: each
+# change lands in exactly one, and the four buckets together cover every change — no more, no less.
+# partitionConsistent records whether this self-check held (the entry point prints it as an
+# assertion; the criteria still read only the three counts).
+# passed is decided by the three counts alone (deletions / unattributed / leaks all 0); exempt* /
+# exemptReasons / subset* / partitionConsistent are printed readings, of which subset* is a support
+# reading: it is implied by those three counts and is no independent evidence.
 function Get-MainHomeAreaVerdict {
   param(
     [Parameter(Mandatory=$true)][string]$Name,
@@ -359,16 +381,18 @@ function Get-MainHomeAreaVerdict {
       if ([string]::IsNullOrEmpty([string]$signature)) { continue }
       if ($rel -like "*$signature*") { $named = $true; break }
     }
-    # 四档**互斥**：每条变化只落一档，落到就 continue（于是每条变化在明细里只印一行，
-    # 读数里那四个计数相加必然等于 changed 的条数——同一格在 lib 里算出来当断言用）。
-    # 顺序：删除 -> 带本格名字 -> 静区 -> 豁免／未归属。
-    #   删除排在最前：一条被删掉的路径即便带着本格名字，也按「删除」记一次，不再同时落进命名档
-    #   —— 否则读数会在「删除 0 条」的同时列出一条真的删除，或者反过来在「带本格名字 0 条」
-    #   的同时列出一条显然带名字的路径。两档都是硬失败，判定结果不受这个归属影响。
+    # The four buckets are **mutually exclusive**: each change lands in exactly one and then
+    # continues (so each change prints one detail line, and the four counts in the readings must sum
+    # to the number of changes — the same invariant computed in this lib serves as the assertion).
+    # Order: deletion -> testbed-made name -> quiet area -> exempt/unattributed.
+    #   Deletions come first: a deleted path carrying a testbed-made name is still recorded once, as
+    #   a deletion, and never also into the named bucket — otherwise the readings would say "0
+    #   deletions" while listing a real deletion, or the reverse with "0 testbed-made names" beside
+    #   an obviously named path. Both buckets are hard failures; the verdict is unaffected by this filing.
     if ($change.StartsWith('-')) { $deletions.Add($change); continue }
     if ($named) { $leaks.Add($change); continue }
     if ($QuietArea) { $unattributed.Add($change); continue }
-    # 两条正面证据取并集：先看结构性那一条，再看见证集那一条。
+    # Union the two positive kinds of evidence: structural first, then the witness set.
     $structural = Test-StructuralExemption -RelativePath $rel -FixtureProjectKeys $FixtureProjectKeys -FixtureEncodings $FixtureEncodings
     $witnessed = $witnessKeys.Contains("$Name/$rel")
     if ($structural.exempt) {
@@ -388,15 +412,19 @@ function Get-MainHomeAreaVerdict {
     $unattributed.Add($change)
   }
   $exemptPaths = @($exempt | ForEach-Object { $_.Substring(1) })
-  # 摘掉豁免路径之后的子集比对：它把「被豁免的那几条」从两侧各摘一遍，于是只要 deletions / unattributed /
-  # leaks 三项为 0（＝每条变化都进了豁免），两侧子集必然逐条相同——它是那三项计数的复述，给不出独立证据，
-  # 因此**不进 $passed**：判定的依据就是那三项计数。仍旧算出来，作为支撑读数印给人看。
+  # Subset comparison after carving off the exempt paths: it removes the exempt entries from both
+  # sides, so as long as deletions / unattributed / leaks are all 0 (i.e. every change was exempted)
+  # the two subsets are necessarily identical entry by entry — it restates those three counts and
+  # gives no independent evidence, hence it does **not enter $passed**: the verdict rests on those
+  # three counts alone. It is still computed, printed as a support reading.
   $subsetBefore = Get-FingerprintSubset -Fingerprint $Before -Exclude $exemptPaths
   $subsetAfter = Get-FingerprintSubset -Fingerprint $After -Exclude $exemptPaths
   $subsetIdentical = ($subsetBefore.fileCount -eq $subsetAfter.fileCount) -and ($subsetBefore.digest -eq $subsetAfter.digest)
   $passed = ($deletions.Count -eq 0) -and ($unattributed.Count -eq 0) -and ($leaks.Count -eq 0)
-  # 四档互斥的自查：把四档的条目收成一堆，条数要等于变化条数（一条不漏），去重后的条数也要等于变化条数
-  # （一条不重）。入口把它当断言印出来：读数与明细行相抵时，这里当场露。
+  # Four-bucket exclusivity self-check: pool the four buckets' entries; the pool's count must equal
+  # the change count (nothing missing) and its deduplicated count must equal it too (nothing
+  # doubled). The entry point prints this as an assertion: a mismatch between readings and detail
+  # lines shows up right here.
   $filed = New-Object System.Collections.Generic.List[string]
   foreach ($entry in @($exempt)) { $filed.Add([string]$entry) }
   foreach ($entry in @($deletions)) { $filed.Add([string]$entry) }
@@ -427,11 +455,12 @@ function Get-MainHomeAreaVerdict {
 }
 
 # ---------------------------------------------------------------------------
-# 合成记录落盘
+# Synthetic record fixtures
 # ---------------------------------------------------------------------------
 
-# 造一份合成工作区目录（含一小份可数的记录）与会话日志，并把清单写进 <Root>\logs\fixture.json。
-# 参数化：-WorkspaceName / -SessionCount 造第二份工作区、第二条会话；-EmptyWorkspaceName 造一份没有会话的工作区。
+# Create a synthetic workspace directory (with a small countable record) and its session logs, and
+# write the manifest to <Root>\logs\fixture.json.
+# Parameters: -WorkspaceName / -SessionCount add a second workspace and session; -EmptyWorkspaceName adds a session-less workspace.
 function New-TestbedFixture {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
@@ -453,7 +482,7 @@ function New-TestbedFixture {
   $iso = $now.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
   $epochMs = [long]([DateTimeOffset]$now).ToUnixTimeMilliseconds()
 
-  # 主工作区：一个真实存在的目录 + 一份小的可数记录。
+  # Main workspace: a real directory + a small countable record.
   $wsDir = Join-Path $Root ('workspaces\' + $WorkspaceName)
   if (-not (Test-Path -LiteralPath $wsDir)) { New-Item -ItemType Directory -Force -Path $wsDir | Out-Null }
   $wsPath = Get-CanonicalPath -Path $wsDir -NodeExe $NodeExe
@@ -490,12 +519,13 @@ function New-TestbedFixture {
     $logPath = Join-Path $sessionDir 'session.v4.jsonl'
     $createdMs = $epochMs + $i
 
-    # 第一行是会话 header：字段名与类型必须落在产品侧允许的那一组里，多一个键就会被整条丢弃。
+    # The first line is the session header: field names and types must fall in the set the product
+    # side allows; one extra key and the whole session is dropped.
     $header = '{"type":"session","version":4,"id":' + (ConvertTo-JsonString $sid) +
       ',"createdAt":' + $createdMs +
       ',"cwd":' + (ConvertTo-JsonString $wsPath) +
       ',"isSeeded":false,"delegationDepth":0}'
-    # 会话正文：一对最小的 turn/start + turn/end。seq 必须与行序一致（从 0 起、不跳号）。
+    # Session body: one minimal pair of turn/start + turn/end. seq must match line order (from 0, no gaps).
     $event0 = '{"type":"turn/start","seq":0,"time":' + ($createdMs + 1) + ',"data":{"turn":1}}'
     $event1 = '{"type":"turn/end","seq":1,"time":' + ($createdMs + 2) + ',"data":{"turn":1}}'
     Write-TextFile -Path $logPath -Text ($header + "`n" + $event0 + "`n" + $event1 + "`n")
@@ -536,7 +566,7 @@ function New-TestbedFixture {
     })
   }
 
-  # 工作区注册表：只读一次、没有 watcher，所以在实例停着的时候整份写下来。
+  # Workspace registry: read once, no watcher, so it is written wholesale while the instance is stopped.
   $ids = @($workspaces | ForEach-Object { $_.workspaceId })
   $table = [ordered]@{}
   $order = [ordered]@{
@@ -574,9 +604,9 @@ function New-TestbedFixture {
   return $manifest
 }
 
-# header 里的计数型字段（version / createdAt / delegationDepth）必须是数值：
-# 产品侧那一层（dsh-session-format 的 header 校验）要求非负整数，写成字符串的那种
-# 不会被当成错——那一条会话直接从清单里消失。这里按类型拦下来。
+# The header's count-typed fields (version / createdAt / delegationDepth) must be numbers:
+# the product layer (dsh-session-format's header validation) demands non-negative integers, and a
+# string-typed value raises no error — that session simply vanishes from the list. Caught by type here.
 function Test-HeaderInteger {
   param($Value)
   if ($Value -is [bool]) { return $false }
@@ -587,8 +617,9 @@ function Test-HeaderInteger {
   return $false
 }
 
-# 校验一条合成会话的 header 与磁盘落点：先验头部，再看清单（头部不合法时清单里会静默少一条）。
-# 字段集合、字段类型（字符串 / 数值 / 布尔）、id 与磁盘落点互认、事件 seq 致密，四样都验。
+# Validate a synthetic session's header and on-disk location: header first, then the list (an
+# invalid header silently drops one entry from the list). Field set, field types (string / number /
+# boolean), id-vs-disk-location cross-check, and event seq density — all four are validated.
 function Test-TestbedSessionFixture {
   param([Parameter(Mandatory=$true)]$Session)
   $problems = New-Object System.Collections.Generic.List[string]
@@ -617,7 +648,8 @@ function Test-TestbedSessionFixture {
   elseif ([string]$header.id -ne [string]$Session.sessionId) { $problems.Add('header id does not match the requested session id') }
   if (-not (Test-HeaderInteger -Value $header.createdAt)) { $problems.Add("header createdAt is not a non-negative integer: '$($header.createdAt)'") }
   if ($header.cwd -isnot [string] -or [string]::IsNullOrEmpty([string]$header.cwd)) {
-    # 没有可用的 cwd 就算不出磁盘落点，后面两条（落点互认、事件 seq）也没法验：先报这一条再收。
+    # Without a usable cwd the on-disk location cannot be computed, and the last two checks
+    # (location cross-check, event seq) could not run either: report this one and stop.
     $problems.Add("header cwd is not a usable string: '$($header.cwd)'")
     return @($problems)
   }
@@ -637,15 +669,17 @@ function Test-TestbedSessionFixture {
 }
 
 # ---------------------------------------------------------------------------
-# npm pack 的压缩包：列条目、取其中几件
+# The npm pack tarball: list entries, extract a few members
 # ---------------------------------------------------------------------------
 
-# Windows 上有两套 tar：Git 自带的 GNU tar（MSYS2 那一份）与系统自带的 bsdtar。两处都由这一层摆平：
-#   * 交给它的路径一律换成正斜杠。MSYS2 对从原生进程收到的参数会做一遍反斜杠转义解码，`logs\tarball`
-#     这类片段被吃成制表符、路径当场对不上（实测 `…\logs\x1` 过，`…\logs\tarball` 与 `…\logs\bb` 不过）。
-#   * GNU tar 会把 `C:...` 里的冒号当远端主机名，要 `--force-local` 才就地读；不支持这个开关的实现
-#     退回「切到压缩包所在目录、只把叶子名交给它」那一趟。
-# 只做「读」：列条目、取指定成员到指定目录，不改压缩包、不碰别处的文件。
+# Windows ships two tars: the GNU tar bundled with Git (the MSYS2 one) and the system bsdtar. This
+# layer smooths over both:
+#   * every path handed to tar is converted to forward slashes. MSYS2 re-decodes backslash escapes
+#     in arguments received from native processes, so a fragment like `logs\tarball` gets eaten into
+#     a tab and the path stops matching (measured: `…\logs\x1` passes, `…\logs\tarball` and `…\logs\bb` fail).
+#   * GNU tar reads the colon in `C:...` as a remote host; `--force-local` makes it read locally.
+#     Implementations without that flag fall back to "cd into the archive's directory, hand over the leaf name only".
+# Read-only: list entries and extract named members to a directory; never modifies the archive or anything else.
 function Invoke-Tar {
   param(
     [Parameter(Mandatory=$true)][string]$Archive,
@@ -657,7 +691,7 @@ function Invoke-Tar {
   if (-not (Test-Path -LiteralPath $full)) { throw "archive is missing: $full" }
   $fullArg = $full -replace '\\', '/'
   $afterArg = @($AfterArchive | ForEach-Object { ([string]$_) -replace '\\', '/' })
-  # `--force-local` 要排在 `-xzf`／`-tzf` 前面：那两个短选项里的 f 会把紧随其后的一个词当档案名吃掉。
+  # `--force-local` must precede `-xzf`/`-tzf`: the f in those short options eats the next word as the archive name.
   $out = @(& $TarExe '--force-local' @BeforeArchive $fullArg @afterArg 2>&1)
   if ($LASTEXITCODE -eq 0) { return @($out | ForEach-Object { [string]$_ }) }
   $firstTry = ($out -join ' ')
@@ -690,9 +724,10 @@ function Expand-TarMember {
   $null = Invoke-Tar -Archive $Archive -BeforeArchive @('-xzf') -AfterArchive (@('-C', $dest) + @($Members)) -TarExe $TarExe
 }
 
-# 往一份合成工作区里放一份真记录：把指到的记录目录复制成工作区下的 `.pf`。
-# 面板读的就是工作区里那层隐藏目录；合成工作区默认没有它，于是实例里只能画出「没有记录」那一屏。
-# 只在调用方（up 动作）点名要它时才动手；不给就不碰任何工作区。
+# Drop a real record into a synthetic workspace: copy the pointed-to records directory as the
+# workspace's `.pf`. The panel reads exactly that hidden directory in the workspace; synthetic
+# workspaces lack it by default, so the instance would only ever draw the "no records" screen.
+# Acts only when the caller (the up action) asks for it; otherwise no workspace is touched.
 function Add-TestbedRecords {
   param(
     [Parameter(Mandatory=$true)]$Manifest,
@@ -720,11 +755,12 @@ function Add-TestbedRecords {
 }
 
 # ---------------------------------------------------------------------------
-# profile 与实例
+# Profile and instance
 # ---------------------------------------------------------------------------
 
-# 从 web 模板造出隔离 profile，并把会话压缩那一档固定成 none（profile 的 cordis.patch.yml）。
-# 用 --dump-config 造 profile：它会写下 profile 再打印合成后的树并退出，不会起服务。
+# Build the isolated profile from the web template, pinning session compression to none (the
+# profile's cordis.patch.yml). The profile is created with --dump-config: it writes the profile,
+# prints the composed tree, and exits — it never starts a service.
 function New-TestbedProfile {
   param([Parameter(Mandatory=$true)][string]$TestbedHome, [Parameter(Mandatory=$true)][string]$Profile, [string]$DshCmd = 'dsh')
   $profileDir = Join-Path $TestbedHome ('profiles\' + $Profile)
@@ -734,7 +770,8 @@ function New-TestbedProfile {
     $dump = & $DshCmd $Profile --from-default-profile web --dump-config 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "profile creation failed: $dump" }
     if (-not (Test-Path -LiteralPath $profileDir)) { throw "profile directory was not created: $profileDir" }
-    # 用户层是 id 定向的补丁：config 是整块替换而不是逐键合并，故 root 必须一起写回去。
+    # The user layer is an id-targeted patch: config is replaced wholesale rather than merged key by
+    # key, so root must be written back along with it.
     $patch = @(
       '# pf testbed profile layer.',
       '# Sessions in this home are stored as plaintext JSONL: the physical encoding is exclusive',
@@ -752,10 +789,12 @@ function New-TestbedProfile {
   } finally { $env:DSH_HOME = $previous }
 }
 
-# 行里指向的入口在不在盘上：照 profile 自己的解析位置（profile 目录下那份 package.json）去 resolve
-# 那一行 `name:` 说的包，以及它的浏览器半身那一手（`exports["./client"]` 那一格）。
-# 只做解析、不 import 插件代码、不起服务；解出来的路径再落到盘上核一次（require.resolve 走的是
-# 真路径，软链已经还原）。生成的那个小 .cjs 写在测试床自己的根里，不动别处。
+# Whether the entries a config row points at exist on disk: resolve the package named by the row's
+# `name:` from the profile's own resolution location (the package.json in the profile directory),
+# plus the browser half's hand (`exports["./client"]`). Parsing only — no importing of plugin code,
+# no service started; the resolved paths are then verified on disk once more (require.resolve walks
+# real paths; symlinks are already resolved). The small generated .cjs is written into the testbed's
+# own root, touching nothing else.
 function Resolve-PluginEntryFiles {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
@@ -797,17 +836,21 @@ for (const spec of process.argv.slice(3)) {
   return @($rows.ToArray())
 }
 
-# 把指到的那一份插件装进隔离 profile，并当场把「装上了」变成可复算的读数。
+# Install the pointed-to plugin into the isolated profile, turning "installed" into reproducible
+# readings on the spot.
 #
-# 两种交付形态都收：
-#   * 包目录（`-Plugin <本仓>`，开发者自用的那一档）——pnpm 记成 `link:`；
-#   * npm pack 的压缩包（`-Plugin <…>.tgz`，分发给陌生人的那一档）——pnpm 把包解开装进 profile，
-#     用户端不跑任何构建脚本。两条腿都走 DSH 自己那一条入口 `dsh plugin --profile <名字> add <目标>`。
+# Both delivery forms are accepted:
+#   * a package directory (`-Plugin <this repo>`, the developer's own form) — pnpm records it as `link:`;
+#   * an npm pack tarball (`-Plugin <…>.tgz`, the form handed to strangers) — pnpm unpacks the
+#     package into the profile and the user side runs no build scripts. Both legs go through DSH's
+#     own entry `dsh plugin --profile <name> add <target>`.
 #
-# 包名与行 id 都不写死，从指到的那份包自己读：包名取它 `package.json` 的 `name`（pnpm 记下的
-# 依赖键、bundle 清单里那一条、交给浏览器的启动名册都是这一个字）；行 id 取 compose 之后配置
-# 树里这一条包自己那一节（`# == <包名>`）的头一个顶层行。装完照实核：profile 清单记了包名、
-# bundle 清单选了它、配置树里那一行在且没被关掉——都读到才算装上了。
+# Neither the package name nor the row id is hardcoded; both are read from the pointed-to package
+# itself: the name from its `package.json` `name` (the same word is the dependency key pnpm records,
+# the bundle list's entry, and the boot manifest handed to the browser); the row id from the first
+# top-level row under the package's own section (`# == <package name>`) in the composed config tree.
+# After installing, verify for real: the profile manifest records the package name, the bundle list
+# selects it, and the row exists in the config tree and is not disabled — all read, or it is not installed.
 function Install-TestbedPlugin {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
@@ -821,8 +864,10 @@ function Install-TestbedPlugin {
   $PluginPath = [System.IO.Path]::GetFullPath($PluginPath)
   if (-not (Test-Path -LiteralPath $PluginPath)) { throw "plugin source is missing: $PluginPath" }
 
-  # 装的是**产物**：宿主半身与浏览器半身两份都得在场，否则装上去的是一条起不来的行。
-  # 目录形态就直接看盘；压缩包形态先在归档里列出条目，再取出这四件（含 package.json）。
+  # What is installed is the **build output**: both the host half and the browser half must be
+  # present, otherwise what gets installed is a line that cannot start. Directory form is checked on
+  # disk directly; tarball form lists the entries in the archive first, then extracts these four
+  # (package.json included).
   $artifactRels = @('lib\host\index.js', 'lib\client.js')
   $packageForm = 'directory'
   $tarballSha256 = ''
@@ -871,8 +916,9 @@ function Install-TestbedPlugin {
       throw "profile bundle list does not select $PluginName after the install (bundles: $($bundles -join ', ')): $install"
     }
 
-    # compose 之后的配置树：这一条包自己那一节（`# == <包名>`）里的头一个顶层行就是它那一行。
-    # id 与 name 都照 dump 出来的读，不拿写死的名字去对。`--dump-config` 只打印、不起服务。
+    # The composed config tree: the first top-level row under this package's own section
+    # (`# == <package name>`) is its row. Both id and name are read from the dump; no hardcoded
+    # names are matched. `--dump-config` only prints; it never starts a service.
     $composed = & $DshCmd $Profile --dump-config 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "dump-config failed after the install (exit $LASTEXITCODE): $composed" }
     $composedLines = $composed -split "`r?`n"
@@ -901,7 +947,7 @@ function Install-TestbedPlugin {
     }
     $rowText = ($rows -join ' | ').Trim()
     if ($rowText -match 'disabled:') { throw "the composed row for '$PluginId' is disabled: $rowText" }
-    # 行里指向的入口都得在盘上：宿主那一手（`.`）与浏览器那一手（`./client`）。
+    # Every entry the row points at must be on disk: the host hand (`.`) and the browser hand (`./client`).
     $entries = @(Resolve-PluginEntryFiles -Root $Root -ProfileDir $profileDir -PluginName $PluginName -NodeExe $NodeExe)
     foreach ($entry in $entries) {
       if (-not $entry.exists) {
@@ -931,7 +977,7 @@ function Install-TestbedPlugin {
   return $reading
 }
 
-# 起一个脱离当前进程的实例：立刻返回，PID 记进 <Root>\logs\instance.pid。
+# Start a detached instance: returns immediately, PID recorded in <Root>\logs\instance.pid.
 function Start-TestbedInstance {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
@@ -949,8 +995,9 @@ function Start-TestbedInstance {
   }
   $dshArgs += @('--port', '0', '--no-open')
 
-  # 启动器是落在盘上的 .cmd：它自己设 DSH_HOME，并且把三路流都指到文件/NUL。
-  # 这样常驻的 cmd.exe / node 不会继承调用方（harness）的管道句柄，调用方才能立刻返回。
+  # The launcher is a .cmd on disk: it sets DSH_HOME itself and points all three streams at
+  # files/NUL. That way the long-lived cmd.exe / node never inherits the caller's (harness's) pipe
+  # handles, which is what lets the caller return immediately.
   $nodeApplication = Resolve-ApplicationExecutable -Name $NodeExe
   $entry = Join-Path (Split-Path -Parent $DshCmd) 'node_modules\@deepseek-ai\dsh\lib\bin.js'
   if (Test-Path -LiteralPath $entry) {
@@ -976,7 +1023,8 @@ function Start-TestbedInstance {
   return $proc.Id
 }
 
-# 就绪探测：读实例自己的输出里那一行 URL（带退避与上限），进程提前退出就立刻报错。
+# Readiness probe: read the URL line from the instance's own output (with backoff and a cap); an
+# early process exit errors out immediately.
 function Wait-TestbedReady {
   param([Parameter(Mandatory=$true)][string]$Root, [Parameter(Mandatory=$true)][int]$ProcessId, [int]$TimeoutSeconds = 30)
   $log = Join-Path $Root 'logs\instance.out.log'
@@ -1003,14 +1051,16 @@ function Wait-TestbedReady {
       if (Test-Path -LiteralPath $errPath) { $errText = (Get-Content -LiteralPath $errPath -Raw) }
       throw "instance $ProcessId exited before printing its URL. stderr: $errText"
     }
-    # Start-Process 起的子进程只给出一个日志文件，没有可挂的事件；这里按退避轮询该文件，上限 TimeoutSeconds。
+    # A child started by Start-Process offers only a log file, nothing to hang an event on; poll that
+    # file with backoff, capped at TimeoutSeconds.
     Start-Sleep -Milliseconds $backoffMs
     if ($backoffMs -lt 500) { $backoffMs = $backoffMs * 2 }
   }
   throw "instance $ProcessId printed no URL within $TimeoutSeconds s"
 }
 
-# 一个测试床实例的进程：启动器 .cmd 的路径只由这一格写出来，命令行里带着它就足以确认身份。
+# One testbed instance's processes: the launcher .cmd path is written by this cell alone, so its
+# presence in a command line is enough to confirm identity.
 function Get-TestbedInstanceProcesses {
   param([Parameter(Mandatory=$true)][string]$Root, [Parameter(Mandatory=$true)][string]$Profile)
   $launcher = Join-Path $Root ('logs\start-' + $Profile + '.cmd')
@@ -1022,8 +1072,9 @@ function Get-TestbedInstanceProcesses {
   return @($found.ToArray())
 }
 
-# 只收自己记下来的那个 PID：先核对命令行里确实是这个 profile，再连同子进程一起收掉。
-# pid 文件不在（或那个进程已经没了）时，退回到"命令行里带着本格启动器路径"的那一份，一样先核对再收。
+# Stop only the PID we recorded: verify the command line really is this profile first, then kill it
+# together with its children. When the pid file is missing (or the process is gone), fall back to
+# "command line carries this fixture's launcher path", verified the same way before killing.
 function Stop-TestbedInstance {
   param([Parameter(Mandatory=$true)][string]$Root, [Parameter(Mandatory=$true)][string]$Profile)
   $pidFile = Join-Path $Root 'logs\instance.pid'
@@ -1052,7 +1103,7 @@ function Stop-TestbedInstance {
   }
   foreach ($proc in $targets) {
     & taskkill.exe /PID $proc.ProcessId /T /F 2>&1 | Out-Null
-    # 等退出用 Wait-Process（进程退出事件），不轮询。
+    # Waiting for exit uses Wait-Process (the process-exit event), not polling.
     Wait-Process -Id $proc.ProcessId -Timeout 15 -ErrorAction SilentlyContinue
     if ($null -ne (Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue)) {
       throw "instance $($proc.ProcessId) is still alive after taskkill"
@@ -1062,7 +1113,7 @@ function Stop-TestbedInstance {
   return $true
 }
 
-# 端口上还有人监听吗（用来证明收尾干净；一次连接尝试，不轮询）。
+# Is anyone still listening on the port (proof the teardown was clean; one connection attempt, no polling).
 function Test-TcpListener {
   param([Parameter(Mandatory=$true)][int]$Port, [int]$TimeoutMs = 1500)
   $client = New-Object System.Net.Sockets.TcpClient
@@ -1073,7 +1124,7 @@ function Test-TcpListener {
   } catch { return $false } finally { $client.Close() }
 }
 
-# 一个进程的祖先链（从父进程往上，最多 64 层）：用来把调用者自身从收尾断言里排除出去。
+# A process's ancestor chain (up from the parent, at most 64 levels): used to exclude the caller itself from the teardown assertion.
 function Get-ProcessAncestorIds {
   param([Parameter(Mandatory=$true)][int]$ProcessId, [AllowEmptyCollection()]$ProcessTable = $null)
   $table = $(if ($null -ne $ProcessTable) { @($ProcessTable) } else { @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue) })
@@ -1091,29 +1142,34 @@ function Get-ProcessAncestorIds {
   return @($chain.ToArray())
 }
 
-# 收尾断言：还有没有**属于本测试床**的 node/cmd 进程在跑。认的是本格自己写下过的那份身份：
-#   ① 命令行里带着本格自己写下的那份启动器路径（<Root>\logs\start-<profile>.cmd）；
-#   ② 是「本格写下过的实例 pid」的后代——pid 文件里的那个 pid，加上调用方传进来的本次运行自己起的那几个。
-#      实例那条 node 的命令行里不含启动器路径，只有按 pid 树才认得出来；父亲已经死掉的孤儿也算，
-#      靠它自己记着的 ParentProcessId 从身份 pid 那一边找回来。
-# 并显式排除调用者自身与它的祖先链：跑 check 的那个 shell 及其宿主的命令行里，只要调用方提过运行根
-# （显式传 -Root 就是最直接的例子），旧的子串判据就会把调用者自己读成「测试床残留」——于是同一份交付物、
-# 同一个盘上状态，换个调用写法就换一个退出码。真正的残留进程永远不可能是调用者的祖先，排除它不影响这一条。
+# Teardown assertion: any node/cmd process still running that **belongs to this testbed**. Identity
+# is what this fixture itself has written down:
+#   (1) the command line carries the launcher path this fixture wrote (<Root>\logs\start-<profile>.cmd);
+#   (2) the process is a descendant of "instance pids this fixture wrote down" — the pid in the pid
+#       file plus the ones the caller passed in for this run. The instance's own node command line
+#       does not carry the launcher path, so only the pid tree identifies it; orphans whose father
+#       already died count too, recovered via their own remembered ParentProcessId from the identity pids.
+# The caller itself and its ancestor chain are explicitly excluded: if the caller mentions the run
+# root in its command line (passing -Root explicitly is the most direct example), the old substring
+# check would read the caller itself as "testbed leftover" — same deliverable, same on-disk state,
+# a different invocation style would flip the exit code. A real leftover process can never be the
+# caller's ancestor, so excluding it does not weaken this check.
 function Get-StrayTestbedProcess {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
-    # 默认值就是本入口用的那个 profile 名：交付的入口每次显式传 -Profile，这一层默认值留给别处的调用
-    # （前两轮的探针里就有只传 -Root 的），免得这次换判据把它们的调用方式一起弄断。
+    # The default is the profile name this entry point uses: the shipped entry always passes
+    # -Profile explicitly; this default is for callers elsewhere (the earlier probe rounds did pass
+    # only -Root), so that changing the criteria here does not break their invocation style.
     [string]$Profile = 'pf-testbed',
     [AllowEmptyCollection()][int[]]$InstancePids = @()
   )
   $launcher = Join-Path $Root ('logs\start-' + $Profile + '.cmd')
   $table = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-  # 排除集＝调用者自身（跑这一格的那个 pwsh）＋它的祖先链（它的宿主进程们）。
+  # Exclusion set = the caller itself (the pwsh running this cell) + its ancestor chain (its host processes).
   $excluded = New-Object System.Collections.Generic.HashSet[int]
   $null = $excluded.Add([int]$PID)
   foreach ($ancestor in (Get-ProcessAncestorIds -ProcessId $PID -ProcessTable $table)) { $null = $excluded.Add([int]$ancestor) }
-  # 身份本体：本格写下过的实例 pid。
+  # Identity core: the instance pids this fixture wrote down.
   $identityPids = New-Object System.Collections.Generic.HashSet[int]
   $pidFile = Join-Path $Root 'logs\instance.pid'
   if (Test-Path -LiteralPath $pidFile) {
@@ -1121,7 +1177,7 @@ function Get-StrayTestbedProcess {
     if ([int]::TryParse(((Get-Content -LiteralPath $pidFile -Raw).Trim()), [ref]$instancePid)) { $null = $identityPids.Add($instancePid) }
   }
   foreach ($id in @($InstancePids)) { $null = $identityPids.Add([int]$id) }
-  # 从身份 pid 出发逐层收后代（父亲那条边已断的孤儿也收得到）。
+  # Collect descendants level by level from the identity pids (orphans whose parent edge is broken are found too).
   $descendants = New-Object System.Collections.Generic.HashSet[int]
   foreach ($id in $identityPids) { $null = $descendants.Add([int]$id) }
   $grew = $true
@@ -1149,10 +1205,10 @@ function Get-StrayTestbedProcess {
 }
 
 # ---------------------------------------------------------------------------
-# HTTP 调用（实例自己的 /api 接口）
+# HTTP calls (the instance's own /api surface)
 # ---------------------------------------------------------------------------
 
-# 拿实例的启动 token 换一个浏览器 cookie：GET URL 会 303 到 ./ 并把 cookie 种进会话。
+# Trade the instance's boot token for a browser cookie: a GET on the URL 303s to ./ and plants the cookie in the session.
 function Connect-TestbedBrowser {
   param([Parameter(Mandatory=$true)][string]$Url)
   $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
@@ -1160,11 +1216,13 @@ function Connect-TestbedBrowser {
   return $session
 }
 
-# 「面板真装起来了」在那个正在跑的实例上的两处正面读数（都不是读磁盘上的配置树）：
-#   * 设置命名空间：`settings/describe` 的名册里看得到这一行的 id（一条插件行的 id 就是它那个
-#     设置命名空间的名字，宿主半身交出去的 `Config` 就挂在它下面）；
-#   * 浏览器半身：实例交给浏览器的启动名册里列着 `<包名>/client.js`——那是外壳要去拉的那一份。
-# 两处都得读到，缺一处就抛：装上了但没起起来，与没装上一样是坏的。
+# Two positive readings, on the running instance itself, that "the panel is really installed"
+# (neither reads the config tree off disk):
+#   * settings namespace: the line's id shows up in the `settings/describe` roster (a plugin line's
+#     id is the name of its settings namespace, and the `Config` the host half exposes hangs under it);
+#   * browser half: the boot manifest the instance hands the browser lists `<package name>/client.js` —
+#     the bundle the shell is to fetch.
+# Both must read back; missing either throws: installed but not serving is as broken as not installed.
 function Get-TestbedPanelMount {
   param(
     [Parameter(Mandatory=$true)][int]$Port,
@@ -1200,9 +1258,11 @@ function Get-TestbedPanelMount {
   }
 }
 
-# 一次 /api/<namespace>/<method> 调用：请求信封恰好是 { type, rpcId, method, payload:{ args } }，响应是 { result:{ ok, value } }。
-# 端点拼写是 <namespace>/<method>（实例只认两段式路径），信封里的 method 与之逐字相同；
-# args 的键名由方法签名决定：session/list 是 _request，session/page、session/projections、workspace/create 是 request。
+# One /api/<namespace>/<method> call: the request envelope is exactly { type, rpcId, method, payload:{ args } },
+# the response is { result:{ ok, value } }. The endpoint spelling is <namespace>/<method> (the
+# instance only accepts two-segment paths) and the envelope's method matches it verbatim; args key
+# names follow the method signature: session/list takes _request; session/page, session/projections
+# and workspace/create take request.
 function Invoke-TestbedApi {
   param(
     [Parameter(Mandatory=$true)][int]$Port,
@@ -1235,17 +1295,21 @@ function Invoke-TestbedApi {
   return $parsed.result.value
 }
 
-# 完成判定第 1 条要的「一条命令把会话列表打出来」。
-#   * 只印一种 shell：入口自己跑的那个 shell（pwsh）。两种 shell 的引法不一样（cmd 里单引号是普通字符、
-#     %TEMP% 才展开；pwsh 里单引号里的 JSON 原样送出、$env:TEMP 才展开），并排印两行只会让人拿错那一行。
-#   * 印出来的就是一行：原样粘进 pwsh 回车，就把清单打出来（第一段取 cookie，第二段打清单）。
-#   * curl 带 -f：HTTP 4xx/5xx 时退出码非零，免得"被拒了但 curl 退 0"读成成功。
+# Completion criterion 1's "one command that prints the session list".
+#   * Only one shell is printed: the shell the entry point itself runs under (pwsh). The two shells
+#     quote differently (in cmd, single quotes are plain characters and %TEMP% expands; in pwsh the
+#     JSON inside single quotes goes out verbatim and $env:TEMP expands) — printing both side by
+#     side only invites pasting the wrong line.
+#   * What is printed is one line: paste it into pwsh as-is and hit enter, and the list prints
+#     (first segment takes the cookie, second prints the list).
+#   * curl carries -f: a non-zero exit code on HTTP 4xx/5xx, so "it was rejected but curl exited 0"
+#     cannot read as success.
 function Format-TestbedListCommand {
   param([Parameter(Mandatory=$true)][int]$Port, [Parameter(Mandatory=$true)][string]$Token)
   $body = '{"type":"client-request","rpcId":"list-1","method":"session/list","payload":{"args":{"_request":{}}}}'
   $cookieJar = '"$env:TEMP\pf-testbed-cookies.txt"'
   $line1 = 'curl.exe -s -f -c ' + $cookieJar + ' "http://127.0.0.1:' + $Port + '/?token=' + $Token + '" -o NUL'
   $line2 = 'curl.exe -s -f -b ' + $cookieJar + ' -H "content-type: application/json" -d ''' + $body + ''' http://127.0.0.1:' + $Port + '/api/session/list'
-  # 一行；不要用带 + 的数组元素去 join（逗号与 + 的优先级会把两段粘错）。
+  # One line; do not join array elements with + (comma and + precedence glues the segments wrong).
   return ($line1 + '; ' + $line2)
 }

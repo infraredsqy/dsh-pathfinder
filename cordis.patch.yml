@@ -1,10 +1,10 @@
-# dsh-pathfinder 这一行的挂载点：`dsh plugin add` 装的是它，一个 profile 因此不必手改
-# cordis.patch.yml 就有这一行。profile 那层仍然可以照 id 把它关掉。
+# Mount point for the dsh-pathfinder line: `dsh plugin add` installs it, so a profile never needs
+# manual edits to cordis.patch.yml. The profile layer can still disable the line by id.
 #
-# 这条 id 是这一行自己的事实，同时就是它那个设置命名空间的名字——DSH 里一条插件行就是
-# 一个设置命名空间（`packages/settings/settings`），而设置页里那一节是浏览器半身注册的，
-# 它写的 `SETTINGS_NAMESPACE` 与这里的 id 是同一个字。改这里的 id 等于把命名空间挪走，
-# 面板那一节会静静地落在没有读数的位置上。
+# This id is the line's identity and also the name of its settings namespace — in DSH one plugin
+# line is one settings namespace (`packages/settings/settings`), and the settings-page section is
+# registered by the browser half with `SETTINGS_NAMESPACE` equal to this id. Changing the id moves
+# the namespace, and the panel section silently lands where no data is read.
 
 - insert:
     - id: pathfinder

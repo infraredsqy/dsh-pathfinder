@@ -1,9 +1,13 @@
 /**
- * 那一刻的项目读数：节点、线路，以及四个读数各自那一栏。
+ * The project reading at that moment: nodes, cycles, and each of the reading
+ * columns.
  *
- * 每一条在那一刻是什么样，由它自己的字段说：时刻按那一刻切，记录自己的词在它自己的最后改动
- * 时刻之前写下来才算数，记录里没有那一刻就空着，不拿 0 顶上。进行中以线路记录里的持有关系
- * 为准：谁在做它这个问题记在线路那一侧，卡片自己的字段只回答「交付了没有」。
+ * What each entry looks like at that moment is stated by its own fields:
+ * moments are cut by that moment, the record's own word counts only if it was
+ * written before the record's own last-modified moment, and a moment absent
+ * from the records stays empty — never filled with 0. Running is judged by
+ * the cycle records' holdings: who is working a node is recorded on the cycle
+ * side, and the card's own fields only answer "completed or not".
  */
 import type { PathfinderCycle, PathfinderNode, PathfinderStep } from './records.ts'
 import type {
@@ -22,26 +26,26 @@ import { readGraph } from './graph.ts'
 import { readInstructions } from './instructions.ts'
 import { readPool } from './pool.ts'
 
-/** 没交付的那两个判决：落到卡片上就是把这一格搁置了。 */
+/** The two verdicts that mean not completed: on a card, the node is shelved. */
 const PARKED_RESULTS = new Set(['failed', 'stopped'])
 
-/** 线在服务里、不在服务里：记录自己那两个词。 */
+/** In service / not in service: the record's own two words. */
 const ACTIVE = 'active'
 const INACTIVE = 'inactive'
 
-/** 线路上的一步，连同它走的哪一格（步自己的字段里也写着，这里留一份现成的给节点分堆）。 */
+/** A step on a cycle, together with which node it walked (the step's own fields carry it too; a ready copy is kept here for piling nodes). */
 interface CutStep {
   readonly nodeId: string | null
   readonly reading: StepReading
 }
 
-/** 线路上的一手：哪条线握着、握着谁。 */
+/** A hold on a cycle: which cycle holds, and whom. */
 interface CutHolding {
   readonly cycleId: string
   readonly holding: HoldingReading
 }
 
-/** 一条线在那一刻的样子，还没填「它名下出局等人的那几格」（那要等节点读数算完）。 */
+/** A cycle at that moment, with "its parked nodes" not yet filled in (that waits for the node readings). */
 interface CutCycle {
   readonly id: string
   readonly title: string | undefined
@@ -53,7 +57,7 @@ interface CutCycle {
   readonly steps: readonly CutStep[]
 }
 
-/** 一个节点自己的事实，还没算依赖那两栏（那要等同批节点的状态都出来）。 */
+/** One node's own facts, with the two dependency columns not yet computed (that waits until the whole batch's states are out). */
 interface NodeFacts {
   readonly id: string
   readonly node: PathfinderNode
@@ -62,13 +66,13 @@ interface NodeFacts {
   readonly walkedBy: readonly string[]
   readonly held: readonly CutHolding[]
   readonly firstStep: StepReading | undefined
-  /** 最后落停的那一步，连同它自己的判决；一步都没落停就没有。 */
+  /** The last step that came to rest, with its own verdict; absent when no step has come to rest. */
   readonly lastVerdict: StepReading | undefined
 }
 
 /**
- * 读那一刻的项目。
- * @throws 进来的不是一个时刻时给 TypeError：一个说不通的时刻，读出来每个字都不作数。
+ * Read the project at that moment.
+ * @throws A TypeError when the input is not a moment: with an unspeakable moment, no word of the reading counts.
  */
 export function readProject(input: RecordsAtMoment): ProjectReading {
   const at = input.at
@@ -104,7 +108,7 @@ function cutCycle(cycle: PathfinderCycle, at: Date): CutCycle {
     const cut = cutStep(step, id, at)
     if (cut === null) continue
     steps.push(cut)
-    /* 走过的步：落停了才算走过。那一刻还没落停的那一步是「正走着」，它不在走过的那串里。 */
+    /* A step counts as walked only once it has come to rest. The step not yet at rest at that moment is "being walked" and stays out of the walked list. */
     if (cut.reading.endedAt !== null) path.push(cut.reading)
   }
   const recordStatus = text(cycle.status)
@@ -121,7 +125,7 @@ function cutCycle(cycle: PathfinderCycle, at: Date): CutCycle {
   }
 }
 
-/** 线路在不在服务里：记录那个词写下来了就用它，还没写下来就按它手上握着谁读。 */
+/** Whether the cycle is in service: use the record's word when it has been written down; until then, read it by whom it currently holds. */
 function inServiceOf(
   cycle: PathfinderCycle,
   recordStatus: string | undefined,
@@ -130,11 +134,11 @@ function inServiceOf(
 ): boolean {
   const stated = recordStatus === ACTIVE || recordStatus === INACTIVE
   if (stated && writtenBy(toMoment(cycle.updated_at), at)) return recordStatus === ACTIVE
-  /* 那一刻这个词还没写下来（或者记录里没有这个词）：手上什么都没有的线，读作不在服务里。 */
+  /* At that moment the word was not yet written down (or the record has no such word): a cycle holding nothing reads as not in service. */
   return holding.length > 0
 }
 
-/** 一条线在那一刻握着谁：清单与单值两种写法都读。 */
+/** Whom a cycle holds at that moment: both the list and the single-value spellings are read. */
 function readHolding(cycle: PathfinderCycle, at: Date): readonly CutHolding[] {
   const id = text(cycle.id) ?? ''
   const out: CutHolding[] = []
@@ -146,12 +150,12 @@ function readHolding(cycle: PathfinderCycle, at: Date): readonly CutHolding[] {
   const current = text(cycle.current_node)
   if (current === undefined) return out
   const startedAt = toMoment(cycle.current_started_at)
-  /* 那一刻还没拿起来的那一手，当时还没被握着。 */
+  /* A hold not yet picked up at that moment: at that time it was not held. */
   if (startedAt !== null && !happenedAt(startedAt, at)) return out
   return [{ cycleId: id, holding: { nodeId: current, since: startedAt } }]
 }
 
-/** 一手里那一条：写成对象，或只写一个身份。 */
+/** One entry of a hold: written as an object, or as a bare id. */
 function holdingOf(entry: unknown, at: Date): HoldingReading | null {
   if (typeof entry === 'string') return entry.length > 0 ? { nodeId: entry, since: null } : null
   if (typeof entry !== 'object' || entry === null) return null
@@ -159,16 +163,16 @@ function holdingOf(entry: unknown, at: Date): HoldingReading | null {
   const nodeId = text(fields.id)
   if (nodeId === undefined) return null
   const since = toMoment(fields.since)
-  /* 记录说这一手是那一刻才拿起来的，而那一刻还没到：当时它还没被握着。 */
+  /* The record says this hold was picked up only at a moment still ahead: at that time it was not held. */
   if (since !== null && !happenedAt(since, at)) return null
   return { nodeId, since }
 }
 
-/** 线路上的一步：那一刻还没摆出来的步不进读数。 */
+/** A step on a cycle: a step not yet laid out at that moment stays out of the reading. */
 function cutStep(step: PathfinderStep, cycleId: string, at: Date): CutStep | null {
   const rawStart = toMoment(step.started_at)
   const rawEnd = toMoment(step.ended_at)
-  /* 记录把这一步摆在了那一刻之后：那一刻它还没摆出来。没记开始时刻的，按它的落停时刻算。 */
+  /* The record places this step after that moment: at that moment it had not been laid out yet. A step with no start moment is placed by its end moment. */
   const placed = rawStart !== null ? happenedAt(rawStart, at) : rawEnd === null || happenedAt(rawEnd, at)
   if (!placed) return null
   const startedAt = cutAt(rawStart, at)
@@ -188,22 +192,21 @@ function cutStep(step: PathfinderStep, cycleId: string, at: Date): CutStep | nul
   }
 }
 
-/** 一个节点在那一刻的状态：记录自己的词先说话，那一刻还没写下那个词就按它走过的步判。 */
+/** A node's state at that moment: the record's own word speaks first; before that word is written down, the steps it has walked decide. */
 function stateOf(node: PathfinderNode, lastVerdict: StepReading | undefined, at: Date): NodeState {
   const word = text(node.status)
   const wordAtCut = writtenBy(toMoment(node.updated_at), at)
   const deliveredAt = cutAt(toMoment(node.completed_at), at)
-  /* 交付时刻到了就是交付了；记录里根本没写这个时刻时，它自己那个词才算数。 */
+  /* The completion moment having arrived means completed; only when the record never wrote this moment does its own word count. */
   if (deliveredAt !== null) return 'completed'
   if (toMoment(node.completed_at) === null && word === 'completed' && wordAtCut) return 'completed'
   if (wordAtCut && word === 'shelved') return 'shelved'
   if (wordAtCut && word === 'todo') return 'todo'
-  /* 词还没写下来（或者不是这三个词里的一个）：按它最后落停那一步的判决读——那一步带回
-   * 未交付那两个词之一才算出局等人；它已经带着 completed 落停，这一格就回到了局中。 */
+  /* The word not yet written down (or not one of these three): read by the verdict of its last step at rest — the node is parked only if that step came back with one of the two not-completed words; having come to rest with completed, it is back in play. */
   return lastVerdict !== undefined && PARKED_RESULTS.has(lastVerdict.result ?? '') ? 'shelved' : 'todo'
 }
 
-/** 每个节点自己的事实，按记录里的顺序。 */
+/** Each node's own facts, in record order. */
 function readFacts(
   source: Readonly<Record<string, PathfinderNode>>,
   cut: readonly CutCycle[],
@@ -225,10 +228,9 @@ function readFacts(
 
   return Object.entries(source).map(([id, node]) => {
     const steps = stepsOf.get(id) ?? []
-    /* 它自己那一步：记录里最先走的那一步。重跑过的格有两步，头一步是它自己的。 */
+    /* Its own step: the first step walked in the records. A re-run node has two steps; the first one is its own. */
     const firstStep = steps[0]
-    /* 最后落停的那一步：重跑过的那一格，重跑那一趟就把先头那一趟的判决盖过去了。那一刻
-     * 还没落停的步手上没有判决，停不了任何事。 */
+    /* The last step at rest: for a re-run node, the re-run's verdict overrides the earlier pass's. A step not yet at rest at that moment carries no verdict and can stop nothing. */
     let lastVerdict: StepReading | undefined
     for (const step of steps) {
       if (step.endedAt !== null) lastVerdict = step
@@ -288,7 +290,7 @@ function readNode(
     dependencies: [...(node.dependencies ?? [])],
     openDependencies,
     heldBy: heldByIDs,
-    /* 把它拿起来的那一刻：最早的那一手；记录里没记就是空。 */
+    /* The moment it was picked up: the earliest hold; empty when the record has none. */
     heldSince: holdMoments.length > 0 ? new Date(Math.min(...holdMoments.map((d) => d.getTime()))) : null,
     createdAt: cutAt(toMoment(node.created_at), at),
     completedAt,
@@ -308,7 +310,8 @@ function readNode(
 }
 
 /**
- * 这一格要不要一个人：一个词 + 那一刻。判据全在记录里，不要人的格没有这个词。
+ * Whether this node needs a person: one word plus a moment. All criteria in
+ * the records; a node needing nobody has no word.
  */
 function gateOf(facts: {
   readonly id: string
@@ -345,7 +348,7 @@ function finishCycle(cycle: CutCycle, nodes: readonly NodeReading[]): CycleReadi
   }
 }
 
-/** 四个读数各自那一栏：四栏互斥，一个节点只在一栏里。 */
+/** Each of the reading columns: mutually exclusive, a node appears in exactly one. */
 function columnsOf(nodes: readonly NodeReading[]): ColumnReadings {
   const completed: NodeReading[] = []
   const running: NodeReading[] = []

@@ -1,8 +1,11 @@
 /**
- * 时长与钟点：把读数上的时刻与秒数写成一行字。
+ * Durations and clock times: turn the readings' moments and seconds into one
+ * line of text.
  *
- * 同样的取值在哪儿都按同一种写法；没有那一刻的时候给「没有」的样子（`--` / 空 / 没有记录），
- * 不留一个 `0` 让人误读成「刚好是零」。一切以调用方给的那一刻为准，这里自己不取当前时间。
+ * The same value is spelled the same way everywhere; when the moment is
+ * absent, an "absent" shape is given (`--` / empty / no record) rather than a
+ * `0` that reads as "exactly zero". Everything is based on the moment the
+ * caller provides; this module never takes the current time itself.
  */
 import { secondsBetween } from './fields.ts'
 
@@ -11,14 +14,14 @@ export function two(n: number): string {
 }
 
 /**
- * 钟点：`HH:MM`。
+ * Clock time: `HH:MM`.
  */
 export function clock(moment: Date | null): string {
   return moment ? `${two(moment.getHours())}:${two(moment.getMinutes())}` : '--'
 }
 
 /**
- * 日子的叫法：今天 / 昨天 / 前天 / `N月N日`。
+ * The day's label: today / yesterday / the day before / a month-and-day date.
  */
 export function dayLabel(moment: Date | null, at: Date): string {
   if (!moment) return ''
@@ -31,7 +34,7 @@ export function dayLabel(moment: Date | null, at: Date): string {
   return `${moment.getMonth() + 1}月${moment.getDate()}日`
 }
 
-/** 折秒的分段：不足一分钟的归秒档，折出分、不足一小时的归分档，再往上归时档；没有时长（或那一刻还没到）不分段。 */
+/** Bucketing for folding seconds: under a minute goes to the seconds bucket, a whole minute but under an hour to the minutes bucket, beyond that to the hours bucket; no duration (or the moment not yet reached) gets no bucket. */
 function splitSeconds(seconds: number | null): { readonly unit: 'seconds' | 'minutes' | 'hours'; readonly value: number; readonly rest: number } | null {
   if (seconds === null || seconds < 0) return null
   if (seconds < 60) return { unit: 'seconds', value: seconds, rest: 0 }
@@ -41,7 +44,7 @@ function splitSeconds(seconds: number | null): { readonly unit: 'seconds' | 'min
 }
 
 /**
- * 时长的紧凑写法：`41s` / `24m` / `2h14` / `3h`。
+ * Compact spelling of a duration: `41s` / `24m` / `2h14` / `3h`.
  */
 export function duration(seconds: number | null): string {
   const parts = splitSeconds(seconds)
@@ -52,7 +55,7 @@ export function duration(seconds: number | null): string {
 }
 
 /**
- * 时长的长写法：`3 秒` / `5 分钟` / `2 小时 14 分`。
+ * Long spelling of a duration, in seconds / minutes / hours and minutes.
  */
 export function durationLong(seconds: number | null): string {
   const parts = splitSeconds(seconds)
@@ -63,14 +66,14 @@ export function durationLong(seconds: number | null): string {
 }
 
 /**
- * 从那一刻到 `at` 过了多久，紧凑写法。
+ * How long from that moment to `at`, compact spelling.
  */
 export function elapsedSince(moment: Date | null, at: Date): string {
   return moment === null ? '--' : duration(secondsBetween(moment, at))
 }
 
 /**
- * 相对这一刻的说法：刚刚 / `N 分钟前` / `N 小时前` / `N 天前`。
+ * Relative to this moment: just now / N minutes / N hours / N days ago.
  */
 export function ago(moment: Date | null, at: Date): string {
   if (!moment) return ''

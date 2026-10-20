@@ -1,10 +1,12 @@
-/* 写面那一段：锁的是「一条动作对应哪一条命令」，以及那道参数闸。
+/* The write-plane segment: locks in "which command one op maps to", plus the argument gate.
  *
- * 这一层不碰记录本身，落笔全靠递出去的那条命令行，所以锁住的就是那条命令行：六个端点
- * 各起哪一条 `pf` 命令、参数闸把什么样的输入挡在外面、Windows 上那条命令行拼成什么样。
+ * This layer never touches the records themselves — every write rides on the command line handed
+ * outward, so that command line is what gets locked: which `pf` command each of the six endpoints
+ * spawns, what inputs the argument gate keeps out, and how the command line is assembled on Windows.
  *
- * 「记下一条」带的是用户的原话，过不了那道闸，于是它另有一条 argv：解释器 + `pf.py`，整句
- * 作为一个参数递进去——那条命令行里 `&` 还是 `&`，所以这几条把它单锁一遍。
+ * "Add an instruction" carries the user's verbatim words, which cannot pass that gate, so it has
+ * its own argv: interpreter + `pf.py`, the whole sentence passed as a single argument — `&` stays
+ * `&` in that command line, which is why these tests lock it separately.
  *
  *   node --test tests/
  */
@@ -45,7 +47,7 @@ function fakeSubprocess({
   }
 }
 
-/** 一份够这一层用的最小宿主上下文：会话头指着哪个根就写到哪个根。 */
+/** A minimal host context, enough for this layer: writes go to whatever root the session header points to. */
 function fakeContext({ subprocess, workspaceRoot = 'C:\\workspace' } = {}) {
   return {
     workspaceFiles: {},

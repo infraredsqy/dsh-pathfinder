@@ -1,29 +1,31 @@
 /**
- * 依赖那一格的布局引擎：把一张图排出来、画出来，只是不碰界面。
+ * The layout engine of the dependency view: lays out a graph and draws it, without touching the UI.
  *
- * 层与边从记录里来，摆在哪儿由这一份算：每一层一列，列里的次序按邻居的平均高度过两趟（先看它
- * 欠的，再看欠它的），线在列与列之间自己找一条不压记号的走法。没有物理、没有动画、没有帧循环
- * ——图在第一笔画出来之前就已经定了。这里没有 JSX 也没有 DOM 调用，与 config-rows.ts 同一条
- * 路子，因此能在不装浏览器的地方单独量；组件那一侧（field.tsx）只量地界、照这份算出来的场景
- * 渲染。
+ * Layers and edges come from the record; where things sit is computed here: one column per layer,
+ * ordering within a column refined over two passes by neighbors' mean height (first the nodes it
+ * depends on, then those depending on it), and wires find their own path between columns that
+ * avoids crossing marks. No physics, no animation, no frame loop — the graph is fully decided
+ * before the first stroke is drawn. No JSX and no DOM calls here, same approach as config-rows.ts,
+ * so it can be measured standalone where no browser is installed; the component side (field.tsx)
+ * only measures the viewport and renders the scene computed here.
  */
 import type { GraphReading, NodeReading } from '../model/index.ts'
 
-/** 三种读法：点阵、点阵铺到四列一屏、卡片（最上面那一档多带一行前置）。 */
+/** Three readings: dot matrix, dot matrix spread over four columns, cards (the top level adds a prerequisite row). */
 export type Zoom = 0 | 1 | 2 | 3
 
-/** 第一档带名字的尺寸：点进一个记号就落到它上面。 */
+/** The first named size: clicking a mark zooms in onto it. */
 export const CARD_ZOOM: Zoom = 2
 
-/** 那一层顶上的留白：记号不进这里，横穿的线因此能从所有格子上头绕过去。 */
+/** The blank strip at the top: marks never enter it, so crossing wires can detour above every cell. */
 const STRIP = 22
-/** 一条绕行的线要跟别人的记号隔开多少：记号 7px 宽，这是它的一半再加一点。 */
+/** How far a detouring wire must keep from other marks: marks are 7px wide; this is half of that plus a bit. */
 const CLEAR = 5.6
-/** 压到一枚记号算绕多远的路；拿它跟绕行的距离放在同一把尺子上比。 */
+/** The path length charged for grazing one mark; compared on the same scale as the detour distance. */
 const LANE_HIT = 24
-/** 点阵铺到四列一屏：只有横向的疏密变了，纵向还是全景那一套。 */
+/** Dot matrix spread over four columns: only the horizontal density changes, vertical stays panoramic. */
 const DOTS_COLS = 4
-/** 卡片那两档各自的尺寸与行距。 */
+/** The sizes and row pitches of the two card levels. */
 export const CARD_GEOM = {
   2: { card: 280, gap: 44, row: 34, pad: 16, full: false },
   3: { card: 340, gap: 52, row: 52, pad: 16, full: true },
@@ -60,8 +62,9 @@ export function sceneOf(input: {
   readonly focusId: string | null
   readonly cut: boolean
 }): Scene {
-  /* 邻接从读数自己带着的那份边上来，不从 dependencies 重推：不在册的前置挡不住人，这条
-     跳过规则只在模型层一处。 */
+  /* Adjacency comes from the edges the reading already carries, not re-derived from dependencies:
+     unregistered prerequisites must not block anyone — that skip rule lives in exactly one place,
+     the model layer. */
   const deps = new Map<string, string[]>()
   const dependents = new Map<string, string[]>()
   for (const node of input.nodes) {
@@ -74,7 +77,7 @@ export function sceneOf(input: {
   }
 
   const focused = input.focusId === null ? null : input.nodes.find((node) => node.id === input.focusId) ?? null
-  /* 亮着的那些：选中的自己、它欠的、欠它的。没选中就一个都不亮。 */
+  /* The lit ones: the selection itself, what it depends on, and what depends on it. Nothing lit without a selection. */
   const lit = new Set<string>()
   if (focused !== null) {
     lit.add(focused.id)
@@ -93,7 +96,7 @@ export function sceneOf(input: {
   ))
   const lanes = laneHeights(placed)
   const cards = input.zoom >= CARD_ZOOM
-  /* 放大那两档整张图退成灰，等读者点一个出来；点阵那两档只在有选中的时候才压暗别的。 */
+  /* At the zoomed levels the whole graph fades to gray until the reader picks one; the dot levels dim others only when something is selected. */
   const dimming = input.zoom >= CARD_ZOOM || focused !== null
   const dimMark = input.zoom > 0 && focused !== null
 
@@ -120,7 +123,7 @@ export function sceneOf(input: {
   }
 }
 
-/** 每一格是哪一列的、摆在哪：最长路那一档先排一遍，再按邻居的平均高度过两趟。 */
+/** Which column each cell belongs to and where it sits: one pass on the longest-path tier, then two passes by neighbors' mean height. */
 function orderColumns(
   layers: readonly (readonly NodeReading[])[],
   deps: ReadonlyMap<string, string[]>,
@@ -141,7 +144,7 @@ function orderColumns(
   return placed
 }
 
-/** 把一列按它邻居的平均高度重排；高度一样时保持记录给的次序。 */
+/** Reorder one column by its neighbors' mean height; ties keep the record's order. */
 function reorder(
   columns: readonly NodeReading[][],
   col: number,
@@ -165,12 +168,12 @@ function reorder(
   return out
 }
 
-/** 全景那一档：列就是层，纵向一套共同的间距，整张图正好装进地界。 */
+/** The panoramic level: columns are layers, one shared vertical pitch, the whole graph fits the viewport exactly. */
 function assignFit(columns: readonly (readonly NodeReading[])[], width: number, height: number): Placed {
   const rows = rowsOf(columns)
   const room = height - STRIP - 7
   const pitch = rows > 1 ? room / (rows - 1) : 0
-  /* 记号可以缩到 5px，也不许一列从地界底下长出去。 */
+  /* Marks may shrink to 5px, but a column must never grow past the bottom of the viewport. */
   const mark = Math.max(5, Math.min(8, Math.floor(pitch * 0.4)))
   const step = width / Math.max(1, columns.length)
   const inner = height - STRIP - mark
@@ -185,7 +188,7 @@ function assignFit(columns: readonly (readonly NodeReading[])[], width: number, 
   return { columns, pos, mark, step, width, height }
 }
 
-/** 点阵那一档：纵向还是全景那一套，列距摊到四列一屏，画布因此比地界宽。 */
+/** The dot level: vertical stays panoramic, column pitch spreads to four columns per screen, so the canvas ends up wider than the viewport. */
 function dotPlaced(fit: Placed, width: number, height: number): Placed {
   const step = width / DOTS_COLS
   const pos: Record<string, Point> = {}
@@ -199,7 +202,7 @@ function dotPlaced(fit: Placed, width: number, height: number): Placed {
   return { columns: fit.columns, pos, mark: fit.mark, step, width: step * fit.columns.length, height }
 }
 
-/** 卡片那一档：每一格一张卡片，列与列之间留一道缝。 */
+/** The card level: one card per cell, with a gutter between columns. */
 function cardPlaced(columns: readonly (readonly NodeReading[])[], zoom: Zoom, rows: number): Placed {
   const geom = CARD_GEOM[zoom === 3 ? 3 : 2]
   const step = geom.card + geom.gap
@@ -219,7 +222,7 @@ function cardPlaced(columns: readonly (readonly NodeReading[])[], zoom: Zoom, ro
   }
 }
 
-/** 选中的那一档：只留亮着的那一圈，空掉的列与行不再占地方。 */
+/** The focused level: only the lit ring remains; emptied columns and rows no longer take up room. */
 function cutPlaced(fit: Placed, lit: ReadonlySet<string>, width: number, height: number, zoom: Zoom): Placed {
   const keep = fit.columns
     .map((list) => list.filter((node) => lit.has(node.id)))
@@ -267,7 +270,7 @@ function rowsOf(columns: readonly (readonly NodeReading[])[]): number {
   return columns.reduce((most, list) => Math.max(most, list.length), 1)
 }
 
-/** 每一列里那几格的高度，按当前这一版的列号分堆。 */
+/** The heights of the cells in each column, grouped by the current layout's column index. */
 function laneHeights(placed: Placed): readonly (readonly number[])[] {
   const out: number[][] = placed.columns.map(() => [])
   for (const list of placed.columns) {
@@ -282,7 +285,7 @@ function laneHeights(placed: Placed): readonly (readonly number[])[] {
   return out
 }
 
-/** 点阵那一档的线：隔一列的拉一条弧，隔得远的走阶梯。 */
+/** Wires at the dot level: one-adjacent columns get an arc, farther spans take steps. */
 function dotWire(placed: Placed, from: string, to: string, span: number, lanes: readonly (readonly number[])[]): string {
   const a = placed.pos[from]
   const b = placed.pos[to]
@@ -300,16 +303,17 @@ function dotWire(placed: Placed, from: string, to: string, span: number, lanes: 
 }
 
 /**
- * 一条绕行的线走哪一条缝：擦到的记号最少、又离直线最近的那一条。
+ * Which gap a detouring wire takes: the one grazing the fewest marks and closest to the straight line.
  *
- * 擦到一枚算绕 24px 的路，跟绕行的距离放在同一把尺子上比——只数擦到几枚的话，密度一上来中间
- * 那些缝个个都算擦到，长边就一齐挤到画面顶上去了。
+ * Grazing one mark costs 24px of path, compared on the same scale as the detour distance — counting
+ * grazes alone would, once density rises, make every middle gap count as grazed and push all long
+ * wires up against the top of the canvas.
  */
 function pickLane(a: Point, b: Point, lanes: readonly (readonly number[])[]): number {
   const merged: number[] = []
   for (let col = a.col + 1; col < b.col; col += 1) merged.push(...(lanes[col] ?? []))
   merged.sort((left, right) => left - right)
-  /* 顶上那一条在每个列里都是空的，所以它永远走得通。 */
+  /* The topmost gap is empty in every column, so it is always passable. */
   const candidates = [STRIP / 2]
   for (let at = 1; at < merged.length; at += 1) candidates.push(((merged[at - 1] ?? 0) + (merged[at] ?? 0)) / 2)
   const want = (a.y + b.y) / 2
@@ -329,7 +333,7 @@ function pickLane(a: Point, b: Point, lanes: readonly (readonly number[])[]): nu
   return best
 }
 
-/** 卡片那一档的线：从源头出到右边的缝，上下走到目标那一层，再进目标。 */
+/** Wires at the card level: out of the source's right gutter, up/down to the target's row, then into the target. */
 function cardWire(placed: Placed, from: string, to: string, zoom: Zoom): string {
   const a = placed.pos[from]
   const b = placed.pos[to]
@@ -344,7 +348,7 @@ function cardWire(placed: Placed, from: string, to: string, zoom: Zoom): string 
   ])
 }
 
-/** 一条折线，转角上削掉一点；转角都落在列与列之间的缝里，削掉的那点够不到任何记号。 */
+/** One polyline with the corners shaved a little; corners all sit in the gutters between columns, so the shaved bits touch no mark. */
 function rounded(points: readonly (readonly [number, number])[]): string {
   const r = 3
   const first = points[0]
@@ -367,7 +371,7 @@ function rounded(points: readonly (readonly [number, number])[]): string {
   return `${d}L${String(last[0])} ${String(last[1])}`
 }
 
-/** 一条线此刻是什么颜色：它两头有没有人等人、有没有人握着、等的那一头开不开工。 */
+/** A wire's current color: whether either end is waited on, whether either is running, and whether the waited-on end has started. */
 function edgeInk(from: string, to: string, nodes: readonly NodeReading[]): string {
   const a = nodes.find((node) => node.id === from)
   const b = nodes.find((node) => node.id === to)

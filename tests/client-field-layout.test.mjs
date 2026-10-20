@@ -1,5 +1,7 @@
-/* 依赖那一格的布局引擎（src/client/field-layout.ts）：只锁行为——列怎么排、格摆在哪、线怎么走、
- * 颜色跟谁走、抠出来留谁。不锁界面快照；量的都是引擎算出来的场景，与 field.tsx 怎么渲染无关。
+/* Layout engine of the dependencies section (src/client/field-layout.ts): behavior only — how
+ * columns are laid out, where cells sit, how wires run, which side colors an edge, and what a cut
+ * keeps. No UI snapshots; everything measured is a scene computed by the engine, independent of
+ * how field.tsx renders it.
  *
  *   node --test tests/
  */
@@ -22,7 +24,7 @@ function reading(parts) {
   return readProject(record(parts))
 }
 
-/** 引擎的口子：1280×720 的地界，全景那一档，没有选中、没抠出来；给了的就盖上。 */
+/** The engine's doorway: a 1280x720 viewport, overview zoom, no selection, no cut; overrides win where given. */
 function layout(part, over = {}) {
   return sceneOf({
     graph: part.graph,
@@ -40,7 +42,7 @@ const ids = (list) => list.map((one) => one.id)
 const markIds = (marks) => marks.map((mark) => mark.node.id)
 const cardIds = (cards) => cards.map((card) => card.node.id)
 
-/** 四层各一格，最长路那条从 root 直达 far。 */
+/** Four layers of one cell each; the longest path runs root straight to far. */
 function chain4() {
   return reading({
     nodes: {
@@ -191,7 +193,7 @@ test('点阵那一档：隔一列的拉弧，隔得远的走阶梯，从记号�
   const s = layout(part, { zoom: 1 })
   const near = s.edges.find((edge) => edge.from === 'a' && edge.to === 'm3')
   assert.ok(near.d.includes('C') && !near.d.includes('L'), '隔一列的拉一条弧')
-  /* 中间那列五格把 y=371 那条缝堵死了：直线上下最近的两条缝等远，取先数到的那条（284.75）。 */
+  /* The five cells of the middle column block the y=371 gap: the two gaps nearest above/below the straight line are equidistant, so the first one counted wins (284.75). */
   const far = s.edges.find((edge) => edge.from === 'a' && edge.to === 'z')
   assert.equal(far.d, 'M164 371L320 371L320 284.75L640 284.75L640 371L796 371')
 })

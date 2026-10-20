@@ -1,8 +1,9 @@
 /**
- * 依赖那一格：一张分层场，谁挡着谁。
+ * The dependency view: one layered field of who blocks whom.
  *
- * 地界量出来之后，摆在哪儿、线怎么走都由 field-layout.ts 算——那份引擎没有 JSX 也没有 DOM，
- * 单独量得出；这一份只管量地界（露面与窗口变了量一次）与照引擎算出来的场景渲染。
+ * Once the viewport is measured, placement and wire routing are computed by field-layout.ts — that
+ * engine has no JSX and no DOM, so it can be measured standalone; this file only measures the
+ * viewport (on show and on window resize) and renders the scene the engine computed.
  */
 import * as React from 'react'
 import { depsWord } from '../model/index.ts'
@@ -11,7 +12,7 @@ import type { NodeReading, ProjectReading } from '../model/index.ts'
 import type { Zoom } from './field-layout.ts'
 import { nodeName, nodeHover } from './nodes.ts'
 
-/** 量不到地界时用的尺子：面板还没露面时也画得出来，读数不至于算成 0。 */
+/** The ruler used when the viewport cannot be measured: the field still draws before the panel shows, and readings never come out as 0. */
 const FALLBACK_W = 1280
 const FALLBACK_H = 720
 
@@ -22,8 +23,9 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
   const [zoom, setZoom] = React.useState<Zoom>(0)
   const [focusId, setFocusId] = React.useState<string | null>(null)
   const [cut, setCut] = React.useState(false)
-  /* 双击由这两下 click 自己认：第一下点完地界会把那一格挪到眼前，第二下的落点常常已经换成邻居，
-     浏览器也就不发 dblclick 了；`detail` 是浏览器量过的连击数。 */
+  /* The double click is recognized from these two clicks themselves: after the first click the view
+     scrolls that cell into view, so the second click often lands on a different neighbor and the
+     browser never fires dblclick; `detail` is the browser's own click count. */
   const lastHit = React.useRef<string | null>(null)
 
   const measure = React.useCallback(() => {
@@ -33,7 +35,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
     setBox({ w: rect.width > 0 ? rect.width : FALLBACK_W, h: rect.height > 0 ? rect.height : FALLBACK_H })
   }, [])
 
-  /* 这一格露面那一趟量一次：藏在别的标签后面的时候没有版面可量。 */
+  /* Measure once when this view becomes visible: there is no layout to measure while hidden behind another tab. */
   React.useLayoutEffect(() => {
     if (props.active) measure()
   }, [props.active, measure])
@@ -51,8 +53,9 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
     [graph, nodes, box.w, box.h, zoom, focusId, cut],
   )
 
-  /* 选中一格或换一档之后把它挪到眼前：一个放大的画布，读者看的就是正中间那一块。
-     回到全景那一档时画布正好一屏，左上也跟着回到原点。 */
+  /* After a selection or a zoom change, scroll the target to the center: on a zoomed canvas what
+     the reader wants is the middle of the viewport. Back at the panoramic level the canvas is
+     exactly one screen, and the top-left corner returns to the origin too. */
   React.useEffect(() => {
     const field = fieldRef.current
     if (field === null) return
@@ -66,7 +69,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
     }
   }, [zoom, focusId, cut, scene])
 
-  /* 点阵那一档只有横向能挪：滚轮因此左右走，纵向仍是一屏。 */
+  /* At the dot level only the horizontal axis scrolls: the wheel therefore moves left/right; vertically it stays one screen. */
   React.useEffect(() => {
     const field = fieldRef.current
     if (field === null) return undefined
@@ -97,7 +100,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
     if (zoom === 0) setZoom(CARD_ZOOM)
   }
 
-  /* 一个节点都没有的那一份记录：这里没有东西可画。 */
+  /* A record with no nodes at all: nothing to draw here. */
   if (nodes.length === 0) return <div className="pf-page" />
 
   const centered = cut && scene.placed.width < box.w
@@ -214,11 +217,13 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
 }
 
 /**
- * 依赖那一栏的话，长在哪个看法都这一张脸：可开工，或者前置节点 N 个。
+ * The dependency line, wearing the same face in every view: ready to start, or N prerequisite nodes.
  *
- * 哪一句归这一格、词面是什么，都由读数说（`depsWord`）——这句话全仓只在 model 拼一处；这里
- * 把数字从那句话里穿出来，前后两段原样摆回，只给穿出来的数字套上它那身记号（等宽、亮一档）
- * ——那一身只有界面摆得出来。
+ * Which sentence belongs to a cell and what the wording is are both decided by the reading
+ * (`depsWord`) — the sentence is assembled in exactly one place in the repo, the model. Here the
+ * number is threaded out of that sentence, the surrounding segments are placed back verbatim, and
+ * only the threaded number gets its own mark styling (monospace, brighter) — styling is something
+ * only the UI can provide.
  */
 export function DepsChip(props: { readonly node: NodeReading }): React.ReactElement | null {
   const { node } = props
@@ -234,7 +239,7 @@ export function DepsChip(props: { readonly node: NodeReading }): React.ReactElem
   )
 }
 
-/** 卡片上那一行：它还等不等、等几件。落定的、进行中的、放下的那一格都不写。 */
+/** The line on a card: whether it still waits, and for how many. Settled, running, and shelved cells omit it. */
 function CardDeps(props: { readonly node: NodeReading }): React.ReactElement | null {
   if (depsWord(props.node) === null) return null
   return (
@@ -244,7 +249,7 @@ function CardDeps(props: { readonly node: NodeReading }): React.ReactElement | n
   )
 }
 
-/** 一个记号的画法：落定的实心、进行中的用链接色、没开动的空心、还欠前置的更淡。 */
+/** How one mark is drawn: filled when settled, link color while running, hollow before starting, fainter while blocked on prerequisites. */
 function stateClass(node: NodeReading): string {
   if (node.state === 'completed') return 'is-done'
   if (node.state === 'shelved') return 'is-shelved'
@@ -252,8 +257,8 @@ function stateClass(node: NodeReading): string {
   return node.ready ? 'is-todo' : 'is-wait'
 }
 
-/** 一个记号说的是什么：名字与八字把手（共用那副节点名），以及图形说不出来的那一件事——
- *  依赖上那句与卡片上那一行同一句话，都从读数那份措辞来。 */
+/** What one mark says: the name and 8-char handle (the shared node naming), plus the one thing the
+ *  graphic cannot show — the dependency sentence, the same one as on the card, from the reading's wording. */
 function hoverOf(node: NodeReading): string {
   const parts = [nodeHover(node)]
   if (node.state === 'completed') parts.push('已交付')

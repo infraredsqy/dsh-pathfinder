@@ -1,8 +1,10 @@
-/* 宿主半身搬会话笔记那一手：锁的是「那一层目录原样搬回去」。
+/* The host-half hand that carries session notes back: locks in "that directory comes back verbatim".
  *
- * 哪份算笔记、它属于哪一格、一格开过好几条时该看哪条——那些是读数判断，不在这层（模型层
- * 另有单测）。这一层要认的几件事：每份文件都原样搬回（不筛后缀、不剥文件名）、搬不动的那
- * 一份跳过、那层目录不在时交回空的一份。
+ * Which file counts as a note, which cell it belongs to, which session to look at when a cell
+ * opened several — those are reading-level judgments, not this layer's (the model layer has its
+ * own unit tests). What this layer must honor: every file comes back verbatim (no extension
+ * filtering, no name stripping), an unreadable one is skipped, and a missing directory yields an
+ * empty set.
  *
  *   node --test tests/
  */
@@ -12,7 +14,7 @@ import { NOT_FOUND } from '../src/host/records.ts'
 import { readSessionNotes } from '../src/host/sessions.ts'
 
 function fakePort(files, { absent = false, phantom = [] } = {}) {
-  /* 假口子按 records.ts 出口的那个码装「没有」：契约全仓一处，谁漂移了这里当场断。 */
+  /* The fake port fakes "absent" using the code exported by records.ts: the contract lives in one place repo-wide; if anyone drifts, it snaps here. */
   const missing = () => {
     const error = new Error('no entry here')
     error.code = NOT_FOUND
@@ -27,7 +29,7 @@ function fakePort(files, { absent = false, phantom = [] } = {}) {
           ...Object.keys(files)
             .filter((one) => one.startsWith(`${path}/`))
             .map((one) => ({ name: one.slice(path.length + 1), type: 'file' })),
-          /* 列得到、读不出来的那一份：搬的时候才现形。 */
+          /* Listed but unreadable: only shows up when carried over. */
           ...phantom.map((name) => ({ name, type: 'file' })),
           { name: 'notes', type: 'directory' },
         ],

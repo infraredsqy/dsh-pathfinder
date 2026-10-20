@@ -1,22 +1,24 @@
 /**
- * `@deepseek-ai/schemastery` 的最小声明。
+ * Minimal declarations for `@deepseek-ai/schemastery`.
  *
- * 那份包由宿主提供，本仓不装它、也不摆抄本：DSH 的设置服务拿它自己那份 schemastery 去重建
- * 我们交出去的 schema（两边流通的就是这一副 JSON 形状），这里只声明运行时用得上的那几手。
+ * The package is provided by the host; this repo neither installs it nor
+ * keeps a copy: DSH's settings service rebuilds the schema we hand over with
+ * its own schemastery (that JSON shape is what flows between the two sides),
+ * so only the runtime-relevant handful of methods are declared here.
  */
 declare module '@deepseek-ai/schemastery' {
   export interface Schema<T = unknown> {
-    /** 拿一个原始值过一遍这一份 schema。 */
+    /** Run a raw value through this schema. */
     (value: unknown): T
-    /** 节点种类；设置服务照它分对象与字段。 */
+    /** The node kind; the settings service branches objects and fields by it. */
     readonly type: string
-    /** 节点自己那点记号：`volatile` 说的就是「设置页里看不看得见这一条」。 */
+    /** The node's own markers: `volatile` means "whether this entry shows in the settings page". */
     readonly meta: { volatile?: boolean; default?: unknown }
-    /** 对象节点的字段表。 */
+    /** The field table of an object node. */
     readonly dict: Readonly<Record<string, Schema>> | undefined
-    /** 交给设置服务的那一副形状。 */
+    /** The shape handed to the settings service. */
     toJSON(): unknown
-    /** 标成可以在设置页里现改。 */
+    /** Mark as editable live in the settings page. */
     volatile(): Schema<T>
     default(value: T): Schema<T>
     min(value: number): Schema<T>
@@ -24,12 +26,12 @@ declare module '@deepseek-ai/schemastery' {
   }
 
   export interface Schemastery {
-    /** 照一份序列化过的形状重建一个节点。 */
+    /** Rebuild a node from a serialized shape. */
     <T>(json: unknown): Schema<T>
     object(dict: Readonly<Record<string, Schema>>): Schema<Record<string, unknown>>
     boolean(): Schema<boolean>
     number(): Schema<number>
-    /** 取值只在这几个词里。 */
+    /** The value must be one of these words. */
     union(values: readonly string[]): Schema<string>
   }
 

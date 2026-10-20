@@ -1,7 +1,7 @@
 {
-  // 宿主半身的编译面：src/host 出到 lib/types，再由 tsdown 捆成 lib/host/index.js。
-  // DSH 自己的插件包走的就是这条层次（源码 → lib/types → lib），发布面与源码面因此对得上。
-  // 记录原形的类型归模型层（src/model/records.ts），宿主的 contract 从它转手，这一份因此在列。
+  // Host half compile config: src/host compiles to lib/types, then tsdown bundles it into lib/host/index.js.
+  // DSH's own plugin packages follow this layout (source → lib/types → lib), so publish surface stays in step with source.
+  // Record-shape types belong to the model layer (src/model/records.ts); the host contract re-exports them, hence its inclusion.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "rootDir": "src",

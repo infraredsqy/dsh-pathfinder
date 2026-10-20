@@ -1,8 +1,9 @@
 /**
- * 浏览器半身这一个插件的入口：把面板装成一条服务 `ctx.pathfinderPanel`，再把设置里那一节与
- * 调度中心的侧栏项、中央栏那一格接上去。
+ * Entry of the browser-half plugin: mounts the panel as the service `ctx.pathfinderPanel`, then
+ * wires up the settings section, the dispatch-center sidebar items, and the center-column cell.
  *
- * 读数从口子上来，面板只负责画；面板自己那几个偏好从设置上来、也写回设置里去。
+ * Readings arrive through the port; the panel only draws. The panel's own preferences come from
+ * settings and are written back to settings.
  */
 import * as React from 'react'
 import { report } from './context.ts'
@@ -14,7 +15,7 @@ import { dropSettingsStyle, registerSettingsSection } from './settings.tsx'
 import { dropStyle, ensureStyle } from './styles.ts'
 import type { WorkspaceSource } from './workspaces.ts'
 
-/** 面板的身份：中央栏那一格用它作 key，侧栏那一排用它作 id。 */
+/** The panel's identity: used as key by the center-column cell and as id by the sidebar row. */
 export const PANEL_ID = 'pathfinder'
 
 export const PANEL_TITLE = '寻路'
@@ -22,12 +23,13 @@ export const PANEL_TITLE = '寻路'
 export const SERVICE_KEY = 'pathfinderPanel'
 
 /**
- * 面板那一份样式的正文。这里再交出一份是给自证夹具：`npm run check:panel` 要按面板 DOM 上解析
- * 出来的值量那些令牌，就得挂着产物里这一份，而不是另取一份样式。
+ * The body of the panel's stylesheet, re-exported for the self-check fixture: `npm run
+ * check:panel` measures tokens against values parsed from the panel DOM, so it must load this copy
+ * from the bundle rather than fetch some other stylesheet.
  */
 export { PANEL_CSS } from './styles.ts'
 
-/** 设置那一节的身份，供调用方与自证夹具对着读。 */
+/** The settings section's identity, for callers and the self-check fixture to read against. */
 export {
   SECTION_LABEL,
   SECTION_ORDER,
@@ -37,7 +39,7 @@ export {
   SettingsSection,
 } from './settings.tsx'
 
-/** 调度中心那两处的身份，供自证夹具对着读。 */
+/** The identities of the two dispatch-center spots, for the self-check fixture to read against. */
 export {
   createWorkspaceNav,
   currentSessionOf,
@@ -50,29 +52,29 @@ export {
 export { bucketOf, NO_WORKSPACES, workspacesAt } from './workspaces.ts'
 export type { WorkspaceChoice, WorkspaceSnapshot, WorkspaceSource } from './workspaces.ts'
 
-/** 两张注入的样式表在文档里的记号：卸载之后 document 里不该剩下它们。 */
+/** Markers of the two injected stylesheets in the document: neither should remain after unmount. */
 export { PANEL_STYLE_ID, SETTINGS_STYLE_ID } from './style-tags.ts'
 
 export interface PathfinderPanelApi {
   readonly id: string
   readonly title: string
-  /** 与宿主说话的那条口子：读四份记录，写归档 / 复原 / 删除与三个策略数。 */
+  /** The port for talking to the host: reads the four records, writes archive / restore / delete and the three policy numbers. */
   readonly port: PanelPort
-  /** 面板读设置、写设置的那条口子；设置页读的也是它。 */
+  /** The port the panel uses to read and write settings; the settings page reads it too. */
   readonly prefs: PrefsStore
-  /** 面板本体，直接交给 `slots.register` 的第二个参数。 */
+  /** The panel itself, passed directly as the second argument of `slots.register`. */
   readonly Panel: (props: PanelArgs) => React.ReactElement
 }
 
-/** 面板拿到的几样：口子在装配时就绑好，会话由座席那一侧递进来。 */
+/** What the panel receives: the port is bound at assembly time, sessions are passed in by the seat side. */
 export interface PanelArgs {
   readonly port: PanelPort
   readonly sessionId?: string | undefined
-  /** 面板自己的偏好住哪份设置文档；不给就按出厂那几条画。 */
+  /** Which settings document holds the panel's own preferences; factory defaults apply when absent. */
   readonly prefs?: PrefsStore | undefined
-  /** 卡上那一下的去处：DSH 那条导航口子。不给就点不动。 */
+  /** Where card clicks go: DSH's navigation gateway. Cards are inert without it. */
   readonly openSession?: ((target: string) => void) | undefined
-  /** DSH 那份工作区清单：面板顶上那枚选择器的候选。不给就一个都挑不了。 */
+  /** DSH's workspace list: candidates for the selector at the top of the panel. Nothing is pickable without it. */
   readonly workspaces?: WorkspaceSource | undefined
 }
 
@@ -93,7 +95,7 @@ export function apply(ctx: unknown): void {
     report('面板这一格没装上去', error)
   }
   registerSettingsSection(ctx, prefs)
-  /* 两处座席的卸载挂在 `mount.ts` 里那条 `effect` 上：这一行只负责把它们挂上去。 */
+  /* The two seats' unmount hangs on the `effect` in `mount.ts`: this line only registers them. */
   registerSeats(ctx, api, () => {
     dropStyle()
     dropSettingsStyle()
@@ -101,15 +103,16 @@ export function apply(ctx: unknown): void {
 }
 
 /**
- * 座席那一侧真正渲染的那个组件。
+ * The component actually rendered by the seat side.
  *
- * 它比 {@link PathfinderPanel} 多一件事：中央栏那一格是根作用域、不注入 `sessionId`，所以这一层
- * 从 `useSessions` 快照里挑当前那一条；座席要是自己递了 `sessionId`，那个说话。同一份快照还交出
- * 一份名册，面板拿它对记录里那条会话在不在本机。
+ * It adds one thing over {@link PathfinderPanel}: the center-column cell sits at the root scope and
+ * does not inject `sessionId`, so this layer picks the current one from the `useSessions` snapshot;
+ * when the seat passes a `sessionId` itself, that one wins. The same snapshot also yields a roster
+ * the panel uses to check whether a record's session exists on this machine.
  */
 function Entry(props: PanelArgs & { readonly useSessions?: unknown }): React.ReactElement {
   ensureStyle()
-  /* `useSessions` 是真 hook：快照无条件取回来，挑哪条会话才轮到 `??`。 */
+  /* `useSessions` is a real hook: the snapshot is fetched unconditionally; only picking the session falls to `??`. */
   const snapshot = sessionsSnapshotOf(props.useSessions)
   const sessionId = props.sessionId ?? currentSessionOf(snapshot)
   const knownSessions = React.useMemo(() => knownSessionsOf(snapshot), [snapshot])

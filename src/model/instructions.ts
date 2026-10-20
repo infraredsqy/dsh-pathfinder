@@ -1,20 +1,28 @@
 /**
- * 指令的可见性与登记簿的分堆：那一刻哪几句还算数、摆上页面时归哪一组。
+ * Instructions' visibility and the ledger's grouping: which sentences still
+ * count at that moment, and which group they land in on the page.
  *
- * 只从指令自己的字段算：`state` 说它还在不在生效中、`at` 与 `resolved_at` 说那一刻它有没有发生、
- * `scope` 说它管在谁头上、归哪一组，三样都得站得住。状态只有两个词：`live` 与 `withdrawn`，判据就是与
- * `live` 比一次；存量记录里那些工具不再认领的旧值不折算、一律按已归档读，读到旧值不许抛。
- * 量不着的东西一律算：绑上一条已经不在的线或一格、范围是不认识的写法，这些都按算数读。
+ * Everything is computed from the instruction's own fields: `state` says
+ * whether it is still in force, `at` and `resolved_at` say whether it had
+ * happened by that moment, `scope` says whose head it sits on and which group
+ * it belongs to — all three must hold. The state has only two words, `live`
+ * and `withdrawn`, judged by a single comparison against `live`; legacy
+ * values left over in existing records that the tool no longer claims are not
+ * folded and all
+ * read as archived, and reading one must never throw. What cannot be measured
+ * always counts: a binding to a cycle or node no longer present, or an
+ * unrecognized scope spelling, all read as in force.
  */
 import type { PathfinderInstruction } from './records.ts'
 import type { CycleReading, InstructionGroupReading, InstructionReading, NodeReading, ProjectReading } from './contract.ts'
 import { cutAt, text, toMoment } from './fields.ts'
 
 /**
- * 读那一刻的指令。
+ * Read the instructions at that moment.
  *
- * 那一刻还没说出口的那几句（`at` 没写、或者晚于那一刻）不在这份读数里：记录里没有那一刻，
- * 就没有这一句。算不算数只在说出口的那几句里判。
+ * Sentences not yet spoken by that moment (`at` unwritten, or later than it)
+ * are not in this reading: no moment in the record, no sentence. Whether one
+ * counts is judged only among the spoken ones.
  */
 export function readInstructions(
   source: readonly PathfinderInstruction[],
@@ -31,8 +39,7 @@ export function readInstructions(
     const scope = text(entry.scope)
     const cycleId = text(entry.cycle) ?? null
     const nodeId = text(entry.node) ?? null
-    /* 还站着 ＝ 词说的是 `live`，且没有一个已经到的那一刻把它收掉。记录里写的是别的词
-     * （含存量旧值）、或者这里根本读不出一个词，都算已归档：非 `live` 一律不生效。 */
+    /* Still standing = the word says `live` and no already-reached moment has collected it. A different word in the record (legacy values included), or no readable word at all, counts as archived: anything but `live` is never in force. */
     const standing = recordState === 'live' && closedAt === null
     const inScope = scope === 'cycle' && cycleId !== null
       ? (cycleById[cycleId]?.inService ?? true)
@@ -60,12 +67,15 @@ export function readInstructions(
 }
 
 /**
- * 把要摆上登记簿的那几条按范围分成组。
+ * Group the ledger's entries by scope.
  *
- * 范围那个词只在这里读这一遍：认不得的写法不另立词表——它的读法以范围读数为准（管得着），
- * 组里落在「这一格」。组内还算数的排在前头、新说的在前，读者先遇到此刻正管着他的那几句；
- * 空组不收。
- * @param entries - 这一刻真的要摆上页面的那几条；已归档的露不露面由调用方先筛过。
+ * The scope word is read exactly once, here: unrecognized spellings get no
+ * word list of their own — their reading defers to the scope reading (in
+ * scope), and they land in the "this node" group. Within a group,
+ * still-counting entries come first, newly spoken ones first, so the reader
+ * meets the sentences currently governing them first; empty groups are not
+ * collected.
+ * @param entries - The entries that truly go on the page at this moment; whether archived ones show is the caller's prior filter.
  */
 export function groupInstructions(
   project: ProjectReading,

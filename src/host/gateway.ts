@@ -1,11 +1,14 @@
 /**
- * 宿主半身的远端口：面板要的读数与每一次落笔，都从这里出这一层。
+ * The host half's remote surface: every reading the panel wants and every
+ * write leaves this layer through here.
  *
- * 端点记号按函数调用的形式写在构造函数里，而不是写成装饰器语法：这份源码要能被 Node 直接
- * 加载（`node --test` 就是这么读 `.ts` 的），而类型剥离不认 `@Remote(...)`。
+ * Endpoint markers are applied as function calls in the constructor rather
+ * than decorator syntax: this source must load directly under Node
+ * (`node --test` reads `.ts` that way) and type stripping does not accept
+ * `@Remote(...)`.
  */
 import type { Context } from '@deepseek-ai/cordis'
-/* 三样服务的声明合并住在各自的包入口上：只引 `…/types` 子路径拿不到那一段。 */
+/* The declaration merges for the three services live on each package entry; importing only the `…/types` subpath misses that part. */
 import type {} from '@deepseek-ai/dsh-api-workspace-files'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-session'
@@ -19,23 +22,23 @@ import { readReading } from './records.ts'
 import { readSessionNotes, type PathfinderSessionsReading } from './sessions.ts'
 import { runPf, type PfOutcome } from './write.ts'
 
-/** 一条线自己那三个策略数里能写的那几个键。 */
+/** The writable keys among a cycle's three policy numbers. */
 export type CyclePolicyKey = 'parallel' | 'test_seconds_limit' | 'issue_pool_weight_limit'
 
-/** 指令能绑的三个范围：全局 / 说给某条线 / 说给某一格。 */
+/** The three scopes an instruction can bind to: global / a cycle / a node. */
 export type InstructionScope = 'global' | 'cycle' | 'node'
 
-/** 这一类落笔认得的三个范围，与工具那边的写法逐字相同。 */
+/** The three scopes this write path accepts, verbatim as the tool spells them. */
 export const INSTRUCTION_SCOPES: readonly InstructionScope[] = ['global', 'cycle', 'node']
 
-/** 这一类落笔认得的那几个键，与工具那边的写法逐字相同。 */
+/** The keys this write path accepts, verbatim as the tool spells them. */
 export const CYCLE_POLICY_KEYS: readonly CyclePolicyKey[] = [
   'parallel',
   'test_seconds_limit',
   'issue_pool_weight_limit',
 ]
 
-/** 端点表：类上这些方法各挂一个与方法同名的端点；谁在类上而不在这张表里，构造时当场报错。 */
+/** Endpoint table: each method listed here gets an endpoint of the same name; a method on the class missing from this table fails construction on the spot. */
 const REMOTE_METHODS: readonly string[] = [
   'read',
   'addInstruction',
@@ -49,18 +52,22 @@ const REMOTE_METHODS: readonly string[] = [
 ]
 
 /**
- * 调用方没递信号来时端点用的那一条：永不取消。
+ * The signal endpoints use when the caller passes none: never cancelled.
  *
- * 「永不取消」是这一层的既定取舍（这几手都是小份读写，等得起），但这个写法全模块只立这一处；
- * 四个用它的地方都从这条常量取。
+ * "Never cancelled" is this layer's standing trade-off (these are all small
+ * reads and writes, worth waiting for), but the idiom is declared exactly
+ * once in this module; the four places that use it all take it from this
+ * constant.
  */
 const NEVER_ABORT = new AbortController().signal
 
 /**
- * 给一个实例上的方法挂上端点记号。
+ * Attach an endpoint marker to a method on an instance.
  *
- * 标准装饰器把记号交给构造期的一段初始化回调去落；这里直接把那段回调叫一次，`this` 给的是
- * 这个实例，于是记号落在它原型上的同一个位置——网关读记号的那一路分不出这两者。
+ * A standard decorator hands the marker to a construction-phase initializer
+ * callback; here that callback is invoked directly with `this` set to the
+ * instance, so the marker lands in the same spot on its prototype — the
+ * gateway's marker-reading path cannot tell the two apart.
  */
 function markRemote(instance: object, method: string, endpoint: string): void {
   const implementation: unknown = Reflect.get(instance, method)
@@ -75,20 +82,21 @@ function markRemote(instance: object, method: string, endpoint: string): void {
 }
 
 /**
- * 宿主半身对浏览器半身的那一张脸。
+ * The face the host half shows the browser half.
  *
- * 它不继承 cordis 的 `Service`：这一格要的只是「把自己的名字与端点记号挂在自己
- * 身上」这一件事，`bindTypertRemote` 就够；少一层基类，测试里那份最小上下文也
- * 照旧装得上它。
+ * It does not extend cordis's `Service`: all this class needs is to attach its
+ * own name and endpoint markers to itself, which `bindTypertRemote` already
+ * covers; one less base class, and the minimal test context can still install
+ * it.
  */
 export class PathfinderRecordsGateway implements PathfinderRecords {
-  /** 网关按它现认端点的那个绑定；名字与 `ctx.provide` 的那把钥匙必须一致。 */
+  /** The binding the gateway recognizes endpoints by; its name must match the key given to `ctx.provide`. */
   readonly typertRemote: TypertGatewayBinding<this>
-  /** 这个半身拿宿主上下文的那条路——与 `Service` 那个基类同名，网关也从这里读。 */
+  /** How this half reaches the host context — same name as the `Service` base class field, and the gateway reads from here too. */
   readonly ctx: Context
 
   /**
-   * @param serviceKey - 服务键，也就是远程命名空间；平常不必给。
+   * @param serviceKey - The service key, i.e. the remote namespace; normally omitted.
    */
   constructor(ctx: Context, serviceKey = 'pathfinderRecords') {
     this.ctx = ctx
@@ -97,9 +105,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
       markRemote(this, method, method)
       registered.add(method)
     }
-    /* 漏登记不许静默：类上（含子类）叫得动却没有端点记号的方法，浏览器半身永远看不到它，
-     * 而谁都不会因此报错——把这件事从静默变响动，构造时当场说破。真私有的 `#pf` 不在
-     * 原型上，扫描看不见它。 */
+    /* Unregistered methods must not fail silently: a callable method on the class (subclasses included) without an endpoint marker would be invisible to the browser half, and nothing would error — turn that from silence into noise by failing construction on the spot. True privates like `#pf` are not on the prototype, so the scan cannot see them. */
     for (let proto = Object.getPrototypeOf(this); proto !== null && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
       for (const name of Object.getOwnPropertyNames(proto)) {
         if (name === 'constructor' || registered.has(name)) continue
@@ -111,12 +117,14 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * 把点名那个工作区里的四份记录读出来。
+   * Read the four records of the named workspace.
    *
-   * 参数表里不给默认值、末尾不留逗号：网关按方法源码认参数，那两种写法都会被它判成
-   * 「签名说不清」而整条端点叫不动。省掉最后那个取消信号跟传一个空对象是同一件事。
-   * @param sessionId - 会话身份；工作区文件口子按它认路径。
-   * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
+   * No default values in the parameter list and no trailing comma: the
+   * gateway parses parameters from the method source, and either pattern
+   * would be judged "unclear signature", disabling the whole endpoint.
+   * Omitting the final cancel signal is the same as passing an empty object.
+   * @param sessionId - Session identity; the workspace file gateway resolves paths by it.
+   * @param workspaceRoot - The workspace root to read; an empty string means this session's own root.
    */
   async read(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderReading> {
     const signal = options?.signal ?? NEVER_ABORT
@@ -125,17 +133,22 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * 记下一条指令：用户的原话照抄，范围点名。
+   * Record an instruction: the user's words are copied verbatim, with the
+   * scope named.
    *
-   * 这一条与另外三条走的路不同：原话不过参数闸（它可以是任意一句中文），所以整句作为一个
-   * 参数交给解释器，不经 cmd——见 `write.ts`。范围绑哪条线、哪一格面板说了算，点名就传，
-   * 不点名则由工具按记录里的状态自己认。
+   * This endpoint takes a different route from the other three: the words
+   * bypass the argument gate (they may be any free-form sentence), so the
+   * whole sentence is passed to the tool as one argument without going
+   * through cmd — see `write.ts`. Which cycle or node the scope binds to is
+   * the panel's call: pass it when named, otherwise the tool resolves it from
+   * the records.
    *
-   * 参数表写在一行里、末尾不留逗号：网关按方法源码切参数，理由与下面那条 `setCyclePolicy`
-   * 一样。
-   * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param cycle - 绑哪条线，给线身份；别的范围传空字符串。
-   * @param node - 绑哪一格，给格身份；别的范围传空字符串。
+   * The parameter list stays on one line with no trailing comma: the gateway
+   * splits method parameters from source, same reason as `setCyclePolicy`
+   * below.
+   * @param workspaceRoot - The workspace root to write; an empty string means this session's own root.
+   * @param cycle - Which cycle to bind, by cycle id; pass an empty string for other scopes.
+   * @param node - Which node to bind, by node id; pass an empty string for other scopes.
    */
   async addInstruction(sessionId: SessionId, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<PfOutcome> {
     if (!INSTRUCTION_SCOPES.includes(scope)) return { ok: false, text: `无法识别的范围：${scope}` }
@@ -143,42 +156,45 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
     const args = ['instruction', 'add', '--scope', scope]
     if (scope === 'cycle' && cycle.length > 0) args.push('--cycle', cycle)
     if (scope === 'node' && node.length > 0) args.push('--node', node)
-    /* `--text` 站在最后一项：它后面那一项就是原话，别的开关排在它前面。 */
+    /* `--text` goes last: the item after it is the verbatim sentence, and all other switches come before it. */
     args.push('--text')
     return this.#pf(sessionId, workspaceRoot, args, text)
   }
 
   /**
-   * 归档一条指令：它从记录里还在生效的那一堆挪进归档，句子留在原处。
-   * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
+   * Archive an instruction: move it from the active pile in the records into
+   * the archive, leaving the sentence itself in place.
+   * @param workspaceRoot - The workspace root to write; an empty string means this session's own root.
    */
   async archiveInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
     return this.#pf(sessionId, workspaceRoot, ['instruction', 'resolve', id, '--state', 'withdrawn'])
   }
 
   /**
-   * 把一条归档的指令放回生效那一堆。
-   * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
+   * Move an archived instruction back into the active pile.
+   * @param workspaceRoot - The workspace root to write; an empty string means this session's own root.
    */
   async reviveInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
     return this.#pf(sessionId, workspaceRoot, ['instruction', 'revive', id])
   }
 
   /**
-   * 把一条指令连正文一起从记录里拿走；这一步退不回去。
-   * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
+   * Remove an instruction together with its sentence from the records; this cannot be undone.
+   * @param workspaceRoot - The workspace root to write; an empty string means this session's own root.
    */
   async removeInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
     return this.#pf(sessionId, workspaceRoot, ['instruction', 'rm', id])
   }
 
   /**
-   * 写一条线自己的一个策略数。
+   * Write one of a cycle's own policy numbers.
    *
-   * 参数表写在一行里、末尾不留逗号：网关按方法源码切参数，它先按逗号分段再逐段认
-   * 名字，末尾那一个逗号会切出一段空字符串，于是整条端点被它判成「签名说不清」。
-   * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
-   * @param value - 正整数；`off` 是「这条线没立这一条」。
+   * The parameter list stays on one line with no trailing comma: the gateway
+   * splits method parameters from source, first by comma then per segment by
+   * name — a trailing comma would split out an empty segment and the whole
+   * endpoint would be judged "unclear signature".
+   * @param workspaceRoot - The workspace root to write; an empty string means this session's own root.
+   * @param value - A positive integer; `off` means "this cycle sets no such limit".
    */
   async setCyclePolicy(sessionId: SessionId, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome> {
     if (!CYCLE_POLICY_KEYS.includes(key)) return { ok: false, text: `无法识别的策略键：${key}` }
@@ -186,14 +202,16 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * 把点名那个工作区的项目设置读出来。
+   * Read the project settings of the named workspace.
    *
-   * 读的是工具印的那四行：值住三层（出厂默认 / 全局 / 项目），全局那一层住在家目录里，工作区
-   * 文件口子看不进去，有效值与它来自哪一层都只有工具说得清，所以这一手起一条命令，而不是读
-   * 一份文件。
+   * What gets read is the four lines the tool prints: values live on three
+   * layers (factory defaults / global / project), the global layer lives in
+   * the home directory where the workspace file gateway cannot look, and only
+   * the tool can tell the effective value and which layer it came from — so
+   * this runs a command instead of reading a file.
    *
-   * 参数表写在一行里、末尾不留逗号，理由同 `read`。
-   * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
+   * The parameter list stays on one line with no trailing comma, same reason as `read`.
+   * @param workspaceRoot - The workspace root to read; an empty string means this session's own root.
    */
   async readConfig(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderConfigReading> {
     const project = await rootFor(this.ctx, sessionId, workspaceRoot)
@@ -207,31 +225,39 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * 写一条项目设置。改的永远是这个项目那一层：不带 `--global`，那一层跟着人走，而面板这一格
-   * 改的是这个工作区自己的事。
+   * Write one project setting. Always changes the project layer: no
+   * `--global`, since that layer follows the user, while this panel cell
+   * edits what belongs to this workspace.
    *
-   * 没有 `--project <根>` 这一手：命令就跑在工作区根上，`config set` 的 `--project` 默认是当前
-   * 目录，落点一处不差；而写面那条命令行里的路径一律不过参数闸，它只放行 `[A-Za-z0-9_.:+-]`，
-   * Windows 的路径带反斜杠，加引号又会被 cmd 认错。
+   * There is no `--project <root>`: the command runs on the workspace root
+   * and `config set`'s `--project` defaults to the current directory, so the
+   * landing spot is exact; besides, paths in write-side command lines never
+   * pass the argument gate — it only allows `[A-Za-z0-9_.:+-]`, while Windows
+   * paths carry backslashes and quoting them would confuse cmd.
    *
-   * 值合不合法由工具判：它那一条 `parse_value` 是唯一的判据，非零退出时什么都没落盘。键也是
-   * 同一个待遇：工具认得哪些键只有工具说得清，这里不立放行表，键与值一并照递——它对不认得的
-   * 键报错、非零退出、不落盘，那句话原样上浮。
-   * @param workspaceRoot - 要写的那个工作区根；空字符串＝这条会话自己那个根。
+   * Value validity is the tool's call: its `parse_value` is the only judge,
+   * and a non-zero exit means nothing was written. Keys get the same
+   * treatment: only the tool knows which keys it accepts, so no allow-list is
+   * kept here — key and value are passed through as-is; for an unknown key it
+   * errors, exits non-zero, writes nothing, and its message surfaces verbatim.
+   * @param workspaceRoot - The workspace root to write; an empty string means this session's own root.
    */
   async setConfig(sessionId: SessionId, workspaceRoot: string, key: string, value: string): Promise<PfOutcome> {
     return this.#pf(sessionId, workspaceRoot, ['config', 'set', key, value])
   }
 
   /**
-   * 把点名那个工作区里那一层的会话笔记原样搬回来。
+   * Bring back the session notes of the named workspace's layer, verbatim.
    *
-   * 读的是记录库里那一层按节点分的小份笔记：会话身份住在这台机器自己的笔记上，一条会话只在
-   * 开它的那台机器上活着。它与四份记录一样住在工作区里，所以走同一条只读口子；这一手只搬数，
-   * 「每一格该看哪条」由模型层读。
+   * What gets read is the layer of per-node note files in the record store:
+   * session identity lives on this machine's own notes, and a session exists
+   * only on the machine that opened it. Like the four records, this lives in
+   * the workspace, so it goes through the same read-only gateway; this only
+   * moves the data — which note each node should show is the model layer's
+   * call.
    *
-   * 参数表写在一行里、末尾不留逗号，理由同 `read`。
-   * @param workspaceRoot - 要读的那个工作区根；空字符串＝这条会话自己那个根。
+   * The parameter list stays on one line with no trailing comma, same reason as `read`.
+   * @param workspaceRoot - The workspace root to read; an empty string means this session's own root.
    */
   async readSessions(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderSessionsReading> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
@@ -239,8 +265,8 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * 六条写端点合用的那一条起命令的路；真私有的 `#pf` 不在原型上，端点表的漏登记扫描看不见它。
-   * @param signal - 调用方取消；不给就用 {@link NEVER_ABORT} 那一条。
+   * The single command-running path shared by the six write endpoints; the true private `#pf` is not on the prototype, so the endpoint table's missing-registration scan cannot see it.
+   * @param signal - Caller cancellation; falls back to {@link NEVER_ABORT} when omitted.
    */
   async #pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[], said?: string, signal?: AbortSignal): Promise<PfOutcome> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
@@ -249,11 +275,13 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
 }
 
 /**
- * 这一次动的是哪个工作区根：调用方点名了就用它，没点名（空字符串，或这一格压根没带这个参数）
- * 才按会话身份解析。
+ * Which workspace root this operation touches: use the caller-named one when
+ * given; only when not named (empty string, or the parameter absent entirely)
+ * resolve it from the session identity.
  *
- * 点名优先是这一层的全部意义：那条会话此刻落在哪个工作区，与读者要看哪一个没有关系。
- * @param workspaceRoot - 点名的工作区根，绝对路径；空字符串＝没点名。
+ * Named-first is the whole point of this layer: which workspace the session
+ * currently sits in has nothing to do with which one the reader wants to see.
+ * @param workspaceRoot - The named workspace root, absolute; an empty string means not named.
  */
 export async function rootFor(ctx: Context, sessionId: SessionId, workspaceRoot: string): Promise<string> {
   if (typeof workspaceRoot === 'string' && workspaceRoot.length > 0) return workspaceRoot
@@ -261,9 +289,12 @@ export async function rootFor(ctx: Context, sessionId: SessionId, workspaceRoot:
 }
 
 /**
- * 按会话身份解析工作区根：先问活着的会话，有活着的会话头就不再问落盘的头；两处都没有 cwd
- * （含整条会话没人认得）时落到沙箱策略记的那个根。工作区文件口子自己那条解析用的也是这个
- * 次序，所以这里解析出来的根与它读文件时认的那个根是同一个。
+ * Resolve the workspace root from the session identity: ask the live session
+ * first, and only if there is no live session header consult the persisted
+ * one; when neither has a cwd (including a session nobody recognizes), fall
+ * back to the root recorded by the sandbox policy. The workspace file
+ * gateway's own resolution follows the same order, so the root resolved here
+ * is the same one it reads files from.
  */
 export async function workspaceRootOf(ctx: Context, sessionId: SessionId): Promise<string> {
   const live = ctx.sessions.get(sessionId)?.header

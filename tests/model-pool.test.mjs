@@ -1,5 +1,6 @@
-/* 问题池那一段：只锁不变量——重量表与策略线从哪里取、一条问题在哪一刻算在册、重量怎么加、
- * 四堆怎么排。不锁版面，也不锁快照。
+/* The issue pool segment: invariants only — where the weight table and policy line come from,
+ * at what moment an issue counts as on the books, how weights add up, how the four piles are
+ * ordered. No layout and no snapshots are locked.
  *
  *   node --test tests/
  */
@@ -21,7 +22,7 @@ function record(parts = {}) {
   return { nodes: {}, cycles: [], instructions: [], issues: {}, ...parts, at: parts.at ?? AT }
 }
 
-/** 写着重量表的那条维护活儿。 */
+/** The maintenance chore that carries the weight table. */
 const CARRIER = { title: '清理问题池', description: '各等级按 P3/P2/P1/P0 = 1/2/4/8 折算成重量。' }
 
 test('重量表：从记录里那条维护活儿自己的说明里取', () => {
@@ -51,7 +52,8 @@ test('池子的重量：按重量表把还欠着的那几条加起来，判成 e
 
   assert.equal(reading.line, 40)
   assert.deepEqual(reading.weights, { P3: 1, P2: 2, P1: 4, P0: 8 })
-  /* `a` 没判（按 unknown 算）、`d` 判 autofix：两条都照进和；`b` 判 external、`c` 放下了：都不进。 */
+  /* `a` is undecided (counts as unknown) and `d` is autofix: both still enter the sum; `b` is
+   * external and `c` is settled: neither enters. */
   assert.equal(reading.weight, 10, '8 + 1 + 1：判成 external 的与放下的那两条不进这个和')
   assert.equal(reading.rows.find((row) => row.id === 'b')?.payable, false, '判成 external 的那一条：读数自己就说不压线')
   assert.equal(reading.rows.find((row) => row.id === 'a')?.payable, true, '没判的那一条照旧压线')
@@ -100,7 +102,8 @@ test('记录自己那个词属于写它的那一刻：那一刻还没到就按�
 test('四个状态的词面只在模型层一份：空堆不进组，词照旧问得到', () => {
   assert.deepEqual(ISSUE_STATE_WORDS, { open: '未解决', acknowledged: '已承认', rejected: '已驳回', resolved: '已解决' })
 
-  /* 池子里只有一条还欠着的：放下那几堆是空堆，不进组，可它们的词还是这一份表上的词。 */
+  /* The pool holds one still-outstanding issue: the settled piles are empty piles and form no
+   * groups, yet their words still come from this one table. */
   const reading = readPool({}, [], { a: issue() }, AT)
 
   assert.deepEqual(reading.groups.map((group) => group.key), ['open'])

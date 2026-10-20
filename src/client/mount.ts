@@ -1,12 +1,16 @@
 /**
- * 调度中心在 DSH 自己那两处位置上的挂载点：侧栏面板图标列里的一项、中央栏那一格。
+ * The mount points of the dispatch center in DSH's own two spots: an item in the sidebar's panel
+ * icon column, and the center-column cell.
  *
- * 两个槽位都是别人已经声明过的（座席由 ui-layout / ui-sidebar 在运行时声明），往还没声明的
- * 槽里注册会在加载时直接抛，所以一律走 `slots.inject('<槽位>', …)`——它等的是声明，与两条
- * 插件谁先谁后无关。
+ * Both slots are already declared by others (the seats are declared at runtime by ui-layout /
+ * ui-sidebar), and registering into an undeclared slot throws straight at load time, so everything
+ * goes through `slots.inject('<slot>', …)` — it waits for the declaration, regardless of which of
+ * the two plugins loads first.
  *
- * 这一份刻意落在 `.ts` 上、组件用 `React.createElement` 写：Node 直接加载 `.tsx` 会
- * `ERR_UNKNOWN_FILE_EXTENSION`，单测就进不来，而这里的注册与那份会话身份正是要单测锁住的东西。
+ * This file deliberately stays `.ts` with components written via `React.createElement`: Node
+ * loading `.tsx` directly dies with `ERR_UNKNOWN_FILE_EXTENSION` and unit tests could not come in —
+ * and the registration and the session identity here are exactly what the unit tests must lock
+ * down.
  */
 import * as React from 'react'
 import type { PathfinderPanelApi } from './index.ts'
@@ -14,18 +18,18 @@ import { injectAt, report, serveOn, type SlotsService } from './context.ts'
 import { serviceAt } from './data.ts'
 import { NO_WORKSPACES, workspacesAt, type WorkspaceSource } from './workspaces.ts'
 
-/** 侧栏那一行的位置：「插件」是 0、「排期」是 10，这一档紧挨插件下面。 */
+/** The sidebar row's position: "plugins" is 0, "schedule" is 10; this tier sits right below plugins. */
 export const PANEL_ORDER = 1
 
-/** 侧栏那一行上的名字：界面叫调度中心，包与仓叫 `dsh-pathfinder`。 */
+/** The name on that sidebar row: the UI calls it dispatch center, the package and repo call it `dsh-pathfinder`. */
 export const SEAT_LABEL = '调度中心'
 
 /**
- * 座席标准 props 里那个 `useSessions` 快照。
+ * The `useSessions` snapshot from the seat's standard props.
  *
- * 它是一条带投影的 hook：整份快照要靠一次恒等投影取回来，不传投影等于把 `undefined` 当选择器
- * 调下去。
- * @param useSessions - 槽位递过来的那条 hook；不在这个部署上时什么都不是。
+ * It is a hook with a projection: the whole snapshot must be fetched through an identity projection,
+ * and passing none amounts to calling it with `undefined` as the selector.
+ * @param useSessions - The hook handed over by the slot; nothing when not on this deployment.
  */
 export function sessionsSnapshotOf(useSessions: unknown): unknown {
   if (typeof useSessions !== 'function') return undefined
@@ -34,17 +38,18 @@ export function sessionsSnapshotOf(useSessions: unknown): unknown {
 
 interface SessionInList {
   readonly id?: unknown
-  /** 谁还留着它：`mainView > 0` 的那一条就是当前会话。 */
+  /** Who still retains it: the entry with `mainView > 0` is the current session. */
   readonly retainedBy?: { readonly mainView?: unknown }
 }
 
 /**
- * 从会话清单那一刻的快照里挑当前那一条。
+ * Pick the current one out of the session list's snapshot at this moment.
  *
- * DSH 自己的口径是 `byId` 里 `retainedBy.mainView > 0` 的那一条——`ids` 是宿主清单次序，副会话
- * 也会进 `byId`，两头都不等于「当前打开的那条」。`selectedId` / `currentId` / `activeId` 那三个
- * 探针服务的是别的形状与替身，有就先用；三者都没有、也没人挂 `mainView` 时，才落到清单一头那条
- * 兜底。
+ * DSH's own standard is the entry in `byId` with `retainedBy.mainView > 0` — `ids` is the host
+ * list's order, and secondary sessions also enter `byId`, so neither equals "the one currently
+ * open". The `selectedId` / `currentId` / `activeId` probes serve other shapes and stand-ins, and
+ * are used first when present; only when all three are absent and nobody hangs `mainView` does it
+ * fall to the list's head as the last resort.
  */
 export function currentSessionOf(snapshot: unknown): string | undefined {
   if (typeof snapshot !== 'object' || snapshot === null) return undefined
@@ -74,10 +79,11 @@ export function currentSessionOf(snapshot: unknown): string | undefined {
 }
 
 /**
- * 会话清单那一刻的快照里，这台机器上有哪些会话。
+ * Which sessions this machine has, within the session list's snapshot at this moment.
  *
- * 两处都算数：`ids` 是宿主清单的次序，`byId` 是清单行加上本地留着的那些。面板拿这份名册比对
- * 记录里那条会话在不在本机上——两处都没有它，卡上那一下就没有去处。
+ * Both places count: `ids` is the host list's order, `byId` is the list rows plus those kept
+ * locally. The panel compares this roster against the record to see whether its session exists on
+ * this machine — absent from both, a card click has nowhere to go.
  */
 export function knownSessionsOf(snapshot: unknown): ReadonlySet<string> {
   const known = new Set<string>()
@@ -101,17 +107,20 @@ export interface SessionNav {
 }
 
 /**
- * 切会话那一手：DSH 现成的导航口子（`ctx.uiWorkspace.openSession`）的薄壳。
+ * The session-switching move: a thin shell over DSH's ready-made navigation gateway
+ * (`ctx.uiWorkspace.openSession`).
  *
- * 那个口子只管切，给不出结论——记录里那条会话在不在本机，由面板拿会话清单自己对出来。它到得比
- * 这一层晚时（插件先装好、工作区那一层后到）先什么都不做，等它到场再算；两处都只取一次。
- * @param ctx - 浏览器半身那一个插件上下文。
+ * That gateway only switches; it draws no conclusion — whether the record's session is on this
+ * machine is worked out by the panel against the session list itself. When it arrives later than
+ * this layer (plugin mounted first, workspace layer later) it does nothing at first and re-checks
+ * once it arrives; each of the two places is fetched only once.
+ * @param ctx - The browser-half plugin context.
  */
 export function createSessionNav(ctx: unknown): SessionNav {
   let face: NavigationFace | undefined
   const take = (owner: unknown): void => {
     const found = serviceAt(owner, 'uiWorkspace')
-    /* 取到的那一份是个代理：那一手上写得对不对，只有这一刻问得出来。 */
+    /* What was fetched is a proxy: whether that hand is written correctly can only be asked at this moment. */
     if (found !== undefined && typeof found.openSession === 'function') face = found as NavigationFace
   }
   take(ctx)
@@ -129,20 +138,25 @@ export function createSessionNav(ctx: unknown): SessionNav {
 }
 
 /**
- * 顶上那枚工作区选择器要的那份清单：DSH 的 `workspaces` 服务上那条只读口子。
+ * The list the workspace selector at the top wants: the read-only gateway on DSH's `workspaces`
+ * service.
  *
- * 它与切会话那一手同一路写法，只是多一层转发：那个服务到得比这一层晚时，面板顶上照旧不摆控件，
- * 等它到场再算。转发是必要的——`getSnapshot` 交给 React 之后必须每次给出同一个对象（清单没变
- * 时），所以不能临时拼一份空名单，得有一个稳定的空快照；清单换了人，也要叫一声让面板重画。
- * @param ctx - 浏览器半身那一个插件上下文。
+ * Written the same way as the session-switching move, with one more layer of forwarding: when that
+ * service arrives later than this layer, the top of the panel still shows no control and re-checks
+ * once it arrives. The forwarding is necessary — after `getSnapshot` is handed to React it must
+ * return the same object every time (while the list is unchanged), so an empty list cannot be
+ * assembled on the fly; there has to be one stable empty snapshot. And when the list changes hands,
+ * a shout must go out so the panel redraws.
+ * @param ctx - The browser-half plugin context.
  */
 export function createWorkspaceNav(ctx: unknown): WorkspaceSource {
   let face: WorkspaceSource | undefined
   let stopFace: (() => void) | undefined
   const listeners = new Set<() => void>()
   const announce = (): void => { for (const listener of [...listeners]) listener() }
-  /* 清单换了人：先前那一份退订，新那一份接上。没有听众时不订阅——面板卸载之后这一层不该还挂着
-   * 别人的订阅。 */
+  /* The list changed hands: unsubscribe the previous one, attach the new one. With no listeners,
+     do not subscribe — after the panel unmounts this layer must not keep someone else's
+     subscription hanging. */
   const adopt = (found: WorkspaceSource | undefined): void => {
     if (found === undefined || found === face) return
     stopFace?.()
@@ -172,8 +186,8 @@ export function createWorkspaceNav(ctx: unknown): WorkspaceSource {
 }
 
 /**
- * 侧栏那一项的图标：自画的内联 SVG。产物里只有 `react` 留在外面，DSH 那套图标包不在这个仓的
- * 模块表上，引不得。
+ * The sidebar item's icon: a hand-drawn inline SVG. Only `react` stays external in the bundle; DSH's
+ * icon package is not on this repo's module graph and cannot be imported.
  */
 function PanelIcon(props: { readonly size?: number }): React.ReactElement {
   const size = typeof props.size === 'number' && props.size > 0 ? props.size : 16
@@ -201,20 +215,23 @@ function PanelIcon(props: { readonly size?: number }): React.ReactElement {
 }
 
 /**
- * 把调度中心两处接到各自的槽位上。
+ * Wire the dispatch center's two spots onto their slots.
  *
- * 两条注册做在同一趟里，两个摘除器交给同一条 `effect` 的清理函数；清理那一趟的次序是先撤注册、
- * 再摘两张样式标签——组件随撤注册卸载，标签随后收走，反过来会让还在画的组件裸奔一瞬。
+ * The two registrations happen in one pass, and both withdrawers go to the same `effect`'s cleanup;
+ * the cleanup's order is: withdraw the registrations first, then take down the two style tags — the
+ * components unmount with the withdrawal, the tags are collected after; the reverse would leave
+ * still-drawing components stripped bare for a beat.
  *
- * 服务用动态的 `ctx.inject(['slots'], …)` 等：取不到 `slots` 就安静地不做，这一层从不把插件的
- * `apply` 弄挂。
+ * Services are awaited with dynamic `ctx.inject(['slots'], …)`: when `slots` cannot be fetched,
+ * quietly do nothing — this layer never breaks the plugin's `apply`.
  *
- * 卸载的归属分两种上下文：真 Cordis 的上下文都带 `effect`，清理挂在它上面，随插件卸载跑。没有
- * `effect` 的上下文只有替身长这样：那种上下文上 `ctx.inject` 的回调晚一个微任务才跑，调用点
- * 拿到的返回值必然是 `undefined`，所以这一层不往调用点交回什么。
- * @param ctx - 浏览器半身那一个插件上下文。
- * @param api - 同一次 `apply` 里装配好的面板：id、口子、偏好与面板本体。
- * @param dropStyles - 摘掉两张注入的样式表；由插件入口交进来，这一层不把两份表身拖进来。
+ * Unmount ownership splits by context kind: real Cordis contexts all carry `effect`, the cleanup
+ * hangs on it, and runs as the plugin unmounts. Contexts without `effect` are only ever stand-ins:
+ * on such a context the `ctx.inject` callback runs a microtask late, so the call site's return value
+ * is necessarily `undefined` — this layer therefore returns nothing to the call site.
+ * @param ctx - The browser-half plugin context.
+ * @param api - The panel assembled in the same `apply`: id, port, preferences, and the panel itself.
+ * @param dropStyles - Take down the two injected stylesheets; handed in by the plugin entry, so this layer never drags the two sheet bodies in.
  */
 export function registerSeats(
   ctx: unknown,
@@ -237,10 +254,12 @@ export function registerSeats(
 }
 
 /**
- * 两条注册，每条各挡在自己的 `try` 里。
+ * The two registrations, each contained in its own `try`.
  *
- * 一条挂不上（比如同一个 id 已经在册）不该把另外一条一起带走：那些位置照样是该露面的，而重复
- * 注册那一下会抛在槽位登记处的通知里，React 自己的订阅也在那条通知上——那个抛必须停在这一层。
+ * One failing to mount (say, the same id already registered) must not take the other down with it:
+ * those spots are meant to show up all the same, and a duplicate registration throws inside the slot
+ * registry's notification, where React's own subscription also sits — that throw must stop in this
+ * layer.
  */
 function contribute(
   slots: SlotsService,

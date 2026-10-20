@@ -1,8 +1,8 @@
 /**
- * client 各处共用的那几句话。
+ * Shared phrases used across the client.
  *
- * 同一句话只存一份：五个跟节点走的格子说的是同一件事，就摆同一个字面。
+ * Each phrase is stored once: the five node-following cells say the same thing, so they share one literal.
  */
 
-/** 这个工作区里还没有节点那一份记录时，五个跟节点走的格子各自摆的那一句。 */
+/** Shown in each of the five node-following cells when this workspace has no node record yet. */
 export const NOT_ENABLED = '当前工作区尚未启用 Pathfinder。'

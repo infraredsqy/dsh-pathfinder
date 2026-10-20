@@ -1,12 +1,16 @@
 /**
- * 会话笔记的读数：每一格该让读者去哪条会话。
+ * The session notes' reading: which session each node should send the reader
+ * to.
  *
- * 进去的是宿主半身原样搬回来的那一层笔记——文件名照旧、内容照旧。哪份文件算笔记、它属于
- * 哪一格（文件名本身就是节点身份）、一格开过好几条时该看哪条，都在这里判；解不动的那一份
- * 跳过那一格，其余照读——那一格在这台机器上就没有会话可去，面板照「没有」画。
+ * What comes in is the layer of notes the host half moved back verbatim —
+ * file names as-is, contents as-is. Which files count as notes, which node
+ * they belong to (the file name itself is the node id), and which one to show
+ * when a node has several sessions are all judged here; a file that cannot be
+ * parsed skips its node and the rest are read as usual — that node simply has
+ * no session to go to on this machine, and the panel draws "none".
  */
 
-/** 一份笔记的文件名后缀：文件名本身就是节点身份。 */
+/** The file-name suffix of a note: the file name itself is the node id. */
 const NOTE_SUFFIX = '.json'
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -20,11 +24,13 @@ function refsOf(note: Record<string, unknown>, kind: 'discussion' | 'run'): read
 }
 
 /**
- * 一份笔记里最近开过的那条会话。
+ * The most recently opened session in one note.
  *
- * 两类各按自己的时刻比：`at` 是记录自己写的那串时刻文本，两边同一种写法，直接按文本比。
- * 时刻一样（或两处都没写）时，跑这一格的那条压过讨论的那条：同一刻开的两条里，读者要
- * 找的是眼下这一格在做的那条。
+ * Each kind compares by its own moment: `at` is the record's own moment text,
+ * spelled the same way on both sides, so it compares directly as text. When
+ * the moments tie (or neither is written), the run entry beats the discussion
+ * entry: of two sessions opened at the same moment, the reader wants the one
+ * currently working this node.
  */
 export function latestSessionOf(note: unknown): string | undefined {
   const held = asRecord(note)
@@ -46,7 +52,8 @@ export function latestSessionOf(note: unknown): string | undefined {
 }
 
 /**
- * 一层笔记读成读数：键是节点身份，值是该看的那条会话。
+ * Read a layer of notes into a reading: keys are node ids, values the session
+ * to show.
  */
 export function readSessions(notes: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
   const out: Record<string, string> = {}

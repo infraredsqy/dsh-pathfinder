@@ -1,9 +1,11 @@
 /**
- * 面板自己在 DSH 设置里的那一节：一条导航行，加上它打开的那一页。
+ * The panel's own section inside DSH's settings: one navigation row plus the page it opens.
  *
- * 这一节住在 DSH 自己的设置面板里，跟主面板不在一棵树上，所以拿不到构建期收进 `.pf-page` 的那
- * 几张表——样式自己带一份，类名一律走 `pfset-` 前缀，颜色只走 DSH 的主题令牌。那一页里只有四行
- * 面板自己的显示偏好，它读的是与面板同一份设置表单，所以翻一行，面板当场跟着变。
+ * This section lives in DSH's own settings panel, not in the same tree as the main panel, so it
+ * cannot reach the sheets bundled into `.pf-page` at build time — it carries its own stylesheet,
+ * class names all use the `pfset-` prefix, and colors use only DSH's theme tokens. The page holds
+ * only four rows of the panel's own display preferences, and it reads the same settings form as the
+ * panel, so flipping a row changes the panel on the spot.
  */
 import * as React from 'react'
 import { INFO_LEVELS, PANEL_PREF_FIELDS, VIEW_IDS } from '../host/settings-fields.ts'
@@ -14,17 +16,20 @@ import { injectAt, report, serveOn, type SlotsService } from './context.ts'
 import { SETTINGS_STYLE_ID, dropStyleTag, ensureStyleTag } from './style-tags.ts'
 
 /**
- * 这一节占的设置槽位：一条注册既是导航行，也是它打开的那一页。
+ * The settings slot this section occupies: one registration is both the navigation row and the page
+ * it opens.
  *
- * 用官方的 Plugins 那一组会撞上官方设置页自己的规矩，所以走具名的 `settings.section`。
+ * The official Plugins set would collide with the official settings pages' own rules, so the named
+ * `settings.section` is used instead.
  */
 export const SECTION_SLOT = 'settings.section'
 
 /**
- * 设置命名空间，也就是 `cordis.patch.yml` 里那条 `- insert:` 的 id。
+ * The settings namespace, i.e. the id of that `- insert:` line in `cordis.patch.yml`.
  *
- * DSH 里一个设置命名空间就是一条插件行：宿主照那条 id 收命名空间，浏览器半身照它去要表单。这两处
- * 写的是同一个字，中间没有第二处校验——改这里的字，等于把这一页挪到一个没人服务的命名空间上。
+ * In DSH a settings namespace is one plugin line: the host collects the namespace by that id, and
+ * the browser half asks for the form by it. The two spots spell the same word with no second place
+ * validating in between — changing the word here moves this page onto a namespace nobody serves.
  */
 export const SETTINGS_NAMESPACE = 'pathfinder'
 
@@ -35,11 +40,13 @@ export const SECTION_LABEL = '寻路面板'
 const STYLE_ID = SETTINGS_STYLE_ID
 
 /**
- * 这一节的样式。
+ * This section's stylesheet.
  *
- * 行形态照蓝本那一页（名字 + 一句提示 + 右端控件），几何照 DSH 自己那份设置行。颜色一律只写
- * DSH 自己的别名令牌，兜底的字面颜色一个都不留——这一节只住在 DSH 自己的设置面板里，那儿的别名
- * 一定在；圆角与字体族那两条兜底留着，它们说的是几何，与令牌在不在无关。
+ * Row shape follows the blueprint page (name + one hint + the control at the right end), geometry
+ * follows DSH's own settings rows. Colors are written only as DSH's own alias tokens, with no
+ * fallback literal colors left — this section lives only inside DSH's own settings panel, where the
+ * aliases certainly exist. The two fallbacks for border-radius and font-family stay: they are about
+ * geometry, independent of whether the tokens exist.
  */
 const CSS = `
 .pfset-page{display:flex;flex-direction:column;padding:8px 0;max-width:760px;font-family:inherit;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary)}
@@ -74,11 +81,11 @@ export function dropSettingsStyle(): void {
 }
 
 export interface SettingsSectionProps {
-  /** 面板读设置、写设置的那条口子；不给就按出厂那几条画。 */
+  /** The port the panel uses to read and write settings; factory defaults apply when absent. */
   readonly source?: PrefsSource | undefined
 }
 
-/** 这一节表的正文，供自证夹具按同一份量。 */
+/** This section's stylesheet body, for the self-check fixture to measure against the same copy. */
 export const SETTINGS_CSS: string = CSS
 
 function Row(props: {
@@ -192,8 +199,10 @@ export function SettingsSection(props: SettingsSectionProps): React.ReactElement
           </p>
         )
         : null}
-      {/* 写回被拒时摆的就是这一行：`mutate` 只交回一个 `false`，面板那几处 `void …write(…)` 把
-          它丢掉，读者看到的就只剩控件弹回。这句话从那条口子的读数上来，设置页与面板共用。 */}
+      {/* This is the row shown when a write-back is refused: `mutate` returns only a `false`, the
+          panel's `void …write(…)` call sites drop it, and all the reader sees is the control
+          snapping back. This sentence comes from the port's reading, shared by the settings page
+          and the panel. */}
       {failure === null
         ? null
         : <p className="pfset-msg" role="status">{failure}</p>}
@@ -202,25 +211,31 @@ export function SettingsSection(props: SettingsSectionProps): React.ReactElement
 }
 
 /**
- * 把这一节接到设置上：先把面板那条口子接到 `configForms.get(SETTINGS_NAMESPACE)` 上（面板与
- * 设置页从此读同一份表单），再往 `settings.section` 里注册一条。两件事各挂在一条 `effect` 上，
- * 每一件都挡在自己的 `try` 里（装配共享件那一层挡），`slots` 取不到时头一件照旧接得上、也照旧
- * 还得回去。
+ * Wire this section onto settings: first attach the panel's port to
+ * `configForms.get(SETTINGS_NAMESPACE)` (panel and settings page read the same form from then on),
+ * then register one entry into `settings.section`. Each is hung on its own `effect`, and each is
+ * contained in its own `try` (the shared-assembly layer's containment); when `slots` is
+ * unreachable, the first still attaches and is still withdrawn.
  *
- * 服务用动态的 `ctx.inject` 等（`ctx.get` 在这个部署里会摸空，而且悄无声息），取不到
- * `slots` / `configForms` 就安静地不做——这一层从不把插件的 `apply` 弄挂。那一节不挂在
- * `configForms.whileServed` 那道闸门上：那道闸门在宿主没服务这个命名空间时把注册整个省掉，而省掉
- * 的时候哪儿都不报，设置里干脆没有这一页；一页站在这儿、自己说清它做不了什么，比一页悄悄不出现强。
+ * Services are awaited with dynamic `ctx.inject` (`ctx.get` comes up empty in this deployment, and
+ * silently); when `slots` / `configForms` cannot be fetched, quietly do nothing — this layer never
+ * breaks the plugin's `apply`. The section is deliberately not hung on the `configForms.whileServed`
+ * gate: that gate omits the registration entirely when the host does not serve this namespace, and
+ * the omission is reported nowhere — the settings simply lack this page. A page that stands there
+ * and states what it cannot do beats a page that silently never appears.
  *
- * 注册这一下尤其不能重复：`slots.register` 碰到同一个 id 已经在册会抛，而那个抛落在槽位登记处的
- * 通知里——React 自己的订阅也在那条通知上，于是页面还在、控件还亮着，对鼠标与键盘却全死了。
- * @param ctx - 浏览器半身那一个插件上下文。
- * @param store - 面板与设置页共读的那条设置口子。
+ * The registration must especially never repeat: `slots.register` throws when the same id is
+ * already registered, and that throw lands inside the slot registry's notification — React's own
+ * subscription sits on that same notification, so the page stays visible, the controls stay lit,
+ * and yet everything is dead to mouse and keyboard.
+ * @param ctx - The browser-half plugin context.
+ * @param store - The settings port read by both the panel and the settings page.
  */
 export function registerSettingsSection(ctx: unknown, store: PrefsStore): void {
   injectAt(ctx, ['slots', 'configForms'], '设置那一页没接上', (owner) => {
-    /* 交回的摘除器挂在它自己那条 `effect` 上：设置表单归 ui-settings 的服务，它比这条插件活
-     * 得久，接上去的每一个订阅者都得还回去，不然每次重载都在它上面多留一个。 */
+    /* The returned withdrawer hangs on its own `effect`: the settings form belongs to ui-settings'
+     * service, which outlives this plugin — every attached subscriber must be given back, or each
+     * reload leaves one more behind on it. */
     const attachForm = (): (() => void) => {
       const forms = serviceAt(owner, 'configForms')
       const getForm = forms?.get
@@ -246,7 +261,7 @@ export function registerSettingsSection(ctx: unknown, store: PrefsStore): void {
           id: SETTINGS_NAMESPACE,
           order: SECTION_ORDER,
           label: () => SECTION_LABEL,
-          /* 读数在槽位真的渲染时才绑：这一层不替它先读一遍。 */
+          /* The reading binds only when the slot actually renders: this layer does not read it early on the slot's behalf. */
           inject: () => ({ source: store }),
         }, SettingsSection))
       } catch (error) {

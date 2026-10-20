@@ -1,7 +1,10 @@
-/* 面板落到字面之前的两个判定：四份来源的结局、一条线的明细收哪些格。
+/* Two judgments the panel makes before it touches literals: the four sources' outcomes, and which
+ * cells a cycle's detail collects.
  *
- * 这两条原本住在画画的文件里，Node 进不来、单测锁不住；搬进模型层之后锁的是判据本身——
- * 空集不算「全都在」、走过它的与被它握着的都算、已交付按交付时刻新的在前。
+ * These two used to live in the rendering files, unreachable from Node and un-lockable by unit
+ * tests; after moving into the model layer, what is locked are the criteria themselves — an empty
+ * set does not count as "all present", both walked-by and held-by count, and the delivered section
+ * orders newest completion first.
  *
  *   node --test tests/
  */

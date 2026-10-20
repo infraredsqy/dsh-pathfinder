@@ -1,7 +1,9 @@
-/* 面板顶上那枚工作区选择器的候选名单：锁的是「清单从哪来」与「这条会话落在哪个桶里」。
+/* The workspace selector's candidate list at the top of the panel: locks in "where the list comes
+ * from" and "which bucket this session falls into".
  *
- * 清单从 DSH 的 `workspaces` 服务上那条只读口子来，形状不对的当没有；没有清单时那份空
- * 名单每次给出同一个对象——现拼一份新的，React 会当成一直在变。
+ * The list comes from the read-only face on DSH's `workspaces` service; malformed shapes count as
+ * absent. With no list, the empty list is the same object every time — a freshly built one would
+ * make React think it keeps changing.
  *
  *   node --test tests/
  */

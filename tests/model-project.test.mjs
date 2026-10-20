@@ -1,5 +1,6 @@
-/* 模型层读数那一段：只锁不变量——四个读数怎么算出来、边界上给什么读数、
- * 记录里没有那一刻的时候空着。样本改了断言跟着改，不锁版面，也不锁快照。
+/* The model layer's reading segment: invariants only — how the four readings are computed, what
+ * readings are given at the edges, and what stays blank when the record has no such moment.
+ * When a sample changes the assertions follow; no layout and no snapshots are locked.
  *
  *   node --test tests/
  */
@@ -113,8 +114,9 @@ test('同一节点先失败后成功：读成已交付，不读出局等人', ()
 })
 
 test('同一节点先失败、重跑那一步以 completed 落停、这一格还没有交付时刻：读作未开始', () => {
-  /* `updated_at` 晚于读到的那一刻，这个词当时还没写下来：状态只能按走过的步判，
-   * 而最后落停的那一步带回的是 completed。 */
+  /* `updated_at` is later than the moment of reading, so this word was not written yet at that
+   * time: status can only be judged from the steps walked, and the last step to settle brought
+   * back completed. */
   const reading = readProject(record({
     nodes: { n: node({ status: 'completed', updated_at: '2026-03-10T13:00:00.000Z' }) },
     cycles: [cycle({
@@ -149,7 +151,7 @@ test('老一版的持有关系写法：线路上那个单值 current_node / curr
   assert.deepEqual(old.cycleById.c1.holding, [{ nodeId: 'n1', since: new Date('2026-03-10T11:00:00.000Z') }])
   assert.deepEqual(ids(old.columns.running), ['n1'])
 
-  /* 那一刻还没拿起来：记录里那一刻写着在后头。 */
+  /* That moment has not been picked up yet: the record writes it later on. */
   const later = readProject(record({
     nodes: { n1: node() },
     cycles: [cycle({ current_node: 'n1', current_started_at: '2026-03-10T13:00:00.000Z' })],
@@ -194,7 +196,8 @@ test('人闸：一个词 + 那一刻，不要人的格没有这个词', () => {
     kind: 'shelved', word: '等待处理', since: new Date('2026-03-10T10:00:00.000Z'),
   })
 
-  /* 那一刻这个词还没写下来（它的最后改动晚于读到的那一刻）：按判决那一步读。 */
+  /* That word was not written yet at that moment (its last modification is later than the moment
+   * of reading): read from the verdict step. */
   const bySteps = readProject(record({
     nodes: { s: node({ updated_at: '2026-03-10T13:00:00.000Z' }) },
     cycles: [cycle({ path: [step('s', '2026-03-10T09:00:00.000Z', '2026-03-10T10:00:00.000Z', 'failed')] })],

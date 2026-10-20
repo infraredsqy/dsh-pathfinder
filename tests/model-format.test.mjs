@@ -1,4 +1,5 @@
-/* 格式化那一段：只锁不变量——时长与钟点的写法、没有那一刻的时候给什么。
+/* The formatting segment: invariants only — how durations and clock times are written, and what
+ * is given when there is no such moment.
  *
  *   node --test tests/
  */

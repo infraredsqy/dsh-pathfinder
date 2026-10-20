@@ -1,6 +1,8 @@
-/* 会话笔记的读数：哪份文件算笔记、它属于哪一格、一格开过好几条时该看哪条。
+/* The session notes reading: which file counts as a note, which cell it belongs to, and which
+ * session to look at when a cell opened several.
  *
- * 会话笔记是模型层的又一份输入：宿主半身把那一层目录原样搬回来，挑哪条给读者在这里判。
+ * Session notes are another input of the model layer: the host half carries that directory back
+ * verbatim, and which session to surface to the reader is judged here.
  *
  *   node --test tests/
  */

@@ -1,5 +1,5 @@
-// 面板的自证夹具：真记录 → 真宿主半身 → 真面板，三样都在这一趟里跑。
-// 每一项都印读数；控制台里出现 error 就是失败。
+// The panel's self-check fixture: real records → real host half → real panel, all three in one run.
+// Every item prints its reading; any error on the console is a failure.
 //
 //   node tools/panel-check.mjs
 import { execFile } from 'node:child_process'
@@ -8,25 +8,25 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { JSDOM } from 'jsdom'
 
-// React 在装载那一刻摸一次 window/document，摸不到就走它那条给 IE8/9 的老路（去叫
-// `attachEvent`，在这个环境里必炸），所以它要等 jsdom 立好才进来。
+// React touches window/document once at load time; without them it falls back to its IE8/9 path
+// (calling `attachEvent`, which would blow up here), so it must wait until jsdom is in place.
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const work = join(root, '.tmp', 'panel-check')
 const workspace = join(work, 'workspace')
 const record = join(workspace, '.pf')
 const sessionId = 'panel-check-session'
-/** 第二份工作区：空的，`.pf` 都不建——「当前工作区没有 pathfinder 的记录」那一档的实景。 */
+/** Second workspace: empty, no `.pf` at all — the "current workspace has no pathfinder records" case. */
 const emptyWorkspace = join(work, 'empty')
 const emptySessionId = 'panel-check-empty'
-/** 第三份工作区：`.pf` 与四份文件都在，但没有一份是可读的 JSON——「记录读不动」那一档的实景。 */
+/** Third workspace: `.pf` and its four files exist, but none is readable JSON — the "records unreadable" case. */
 const brokenWorkspace = join(work, 'broken')
 const brokenSessionId = 'panel-check-broken'
-/** 第四份工作区：管线三份都在、问题池那一份不在——问题那一格收成一句话那一档的实景。 */
+/** Fourth workspace: the three pipeline files exist, the issue pool file does not — the "issue pane collapses to one line" case. */
 const bareWorkspace = join(work, 'bare')
 const bareSessionId = 'panel-check-bare'
-/** 第五份工作区：只有问题池（`pf issue scan` 在一个自己还没有管线的仓里写下的就是这份），
- * 管线三份都不在——看板收成一句话那一档的实景。 */
+/** Fifth workspace: issue pool only (what `pf issue scan` writes in a repo with no pipeline yet),
+ * none of the three pipeline files — the "board collapses to one line" case. */
 const poorWorkspace = join(work, 'poor')
 const poorSessionId = 'panel-check-poor'
 
@@ -37,8 +37,8 @@ function check(what, ok, reading) {
   if (!ok) failures.push(what)
 }
 
-/* 取数那一趟的完成通知：每一次读都把那个 promise 交到这里，夹具等的是那些 promise 本身，
- * 不猜它多久回来。面板那一格也走这条口子。 */
+/* Completion notice for the read pass: every read hands its promise here, and the fixture awaits
+ * those promises themselves rather than guessing how long they take. The panel cell goes through the same gate. */
 const inFlight = []
 const track = (promise) => {
   inFlight.push(promise.catch(() => undefined))
@@ -57,8 +57,9 @@ function detailReadings(scope) {
 }
 
 /**
- * 指令那一格该长哪几组：拿那一刻的记录现算一遍，次序照蓝本那一格的读者次序——全局在前，
- * 然后记录里那几条线，再是没认出范围的，最后一格；空组不画。
+ * Which groups the instructions pane should show: recomputed from the record as of now, ordered by
+ * the mock pane's reader order — global first, then the record's cycles, then unrecognized scopes,
+ * then the last group; empty groups are not drawn.
  */
 function expectedNoteGroups(project, showArchived) {
   const groups = new Map()
@@ -71,7 +72,7 @@ function expectedNoteGroups(project, showArchived) {
   hold('cycle:', '未分组')
   hold('node', '这一格')
   for (const entry of project.instructions) {
-    /* 已归档的条目默认收起来：设置里那一行打开之后才回到各自的段里。 */
+    /* Archived entries stay hidden by default: they return to their groups only once the settings switch is on. */
     if (showArchived !== true && entry.standing !== true) continue
     const key = entry.scope === 'global'
       ? 'global'
@@ -94,8 +95,9 @@ function expectedNoteGroups(project, showArchived) {
 }
 
 /**
- * 产物那张表里最后落在某个元素上的声明，同一条属性按后到的胜：jsdom 不做级联，这里按 DOM
- * 逐个匹配再走一遍；带壳的规则（@media）往里走一层。
+ * The declarations that finally land on an element from the shipped sheet, last rule wins per
+ * property: jsdom does no cascading, so this re-walks DOM matching; rules wrapped in an at-rule
+ * (@media) are descended into.
  */
 function winningDeclarations(element, properties) {
   const won = {}
@@ -111,10 +113,10 @@ function winningDeclarations(element, properties) {
   return won
 }
 
-/* ---- 1. 一份可写的记录拷贝 ---------------------------------------------- */
+/* ---- 1. A writable copy of the record ----------------------------------- */
 
-/** 本仓那一份 `.pf` 的复制口。`.git` 一起搬：工具要认这个目录是它自己那一层记录库
- * （`pf` 会去核它）；`worktrees` 与各节点的 `temp` 是过程物，搬过来白费时间。 */
+/** Copies this repo's `.pf`. `.git` comes along: the tools must recognize the directory as their
+ * own record store (`pf` verifies it); `worktrees` and each node's `temp` are scratch, copying them wastes time. */
 function copyRecord(target) {
   cpSync(join(root, '.pf'), target, {
     recursive: true,
@@ -129,8 +131,8 @@ function copyRecord(target) {
 if (existsSync(work)) rmSync(work, { recursive: true, force: true })
 mkdirSync(workspace, { recursive: true })
 mkdirSync(emptyWorkspace, { recursive: true })
-/* 读不动那一档：四份来源的文件都在（`.pf` 与 `.pf/issues` 都列得到），内容一份都不是可读
- * 的 JSON——真宿主半身读下来四份全报 `unusable`。 */
+/* The unreadable case: all four source files exist (`.pf` and `.pf/issues` both listable) but none
+ * is readable JSON — the real host half reports `unusable` for all four. */
 mkdirSync(join(brokenWorkspace, '.pf', 'issues'), { recursive: true })
 for (const path of ['ideas.json', 'state.json', 'instructions.json', join('issues', 'issues.json')]) {
   writeFileSync(join(brokenWorkspace, '.pf', path), '这不是可读的 JSON 文本\n')
@@ -138,8 +140,8 @@ for (const path of ['ideas.json', 'state.json', 'instructions.json', join('issue
 copyRecord(record)
 check('记录拷贝就位', existsSync(join(record, 'instructions.json')), record.replace(root, '.'))
 
-/* 这两档为「记录在，只是某一份来源里一条都没有」造底：一处拿走问题池那一份，一处只留它。
- * 两档都不是「没有记录」——`.pf` 都列得到，所以面板照旧画六格。 */
+/* These two cases stage "record present, but one source holds no entries": one removes the issue
+ * pool file, the other keeps only it. Neither is "no record" — `.pf` still lists, so the panel still draws its six panes. */
 copyRecord(join(bareWorkspace, '.pf'))
 rmSync(join(bareWorkspace, '.pf', 'issues', 'issues.json'), { force: true })
 copyRecord(join(poorWorkspace, '.pf'))
@@ -147,7 +149,7 @@ for (const path of ['ideas.json', 'state.json', 'instructions.json']) {
   rmSync(join(poorWorkspace, '.pf', path), { force: true })
 }
 
-/** 一份记录当下的样子：两个新看法不落笔，靠它比一遍。 */
+/** What the record looks like right now: the two write-free views must leave it untouched, checked by comparing this. */
 function recordDigest() {
   const walk = (dir) => readdirSync(dir, { withFileTypes: true })
     .flatMap((entry) => (entry.isDirectory()
@@ -157,16 +159,17 @@ function recordDigest() {
   return walk(record).join('\n')
 }
 
-/* ---- 2. 真宿主半身，写面经 pf 那条 CLI --------------------------------- */
+/* ---- 2. The real host half; writes go through the pf CLI ---------------- */
 
 const { PathfinderRecordsGateway } = await import(pathToFileURL(join(root, 'src', 'host', 'index.ts')).href)
 const { runPf } = await import(pathToFileURL(join(root, 'src', 'host', 'write.ts')).href)
 const { readProject, readSessions } = await import(pathToFileURL(join(root, 'src', 'model', 'index.ts')).href)
 
-/** 起进程那一侧的最小替身：与宿主那份一样走 execFile，一样隐藏窗口。 */
+/** Minimal stand-in for the spawn side: execFile like the host's own, windows hidden the same way. */
 function spawner() {
-  /* 真部署里这条口子按名字解一次就记着；夹具这一趟要叫十几条命令，每条都去 `where`
-   * 一遍是白花的。名字各记各的：`pf` 之外还有带原话那一次要用的解释器。 */
+  /* In real deployment this gate resolves a name once and remembers it; this fixture runs a dozen
+   * commands, and re-running `where` for each would be wasted work. Names are cached individually:
+   * besides `pf` there is the interpreter needed for the quoted-command call. */
   const found = new Map()
   const whereIs = (command) => new Promise((resolve, reject) => {
     execFile('where', [command], { encoding: 'utf8', windowsHide: true }, (error, stdout) => {
@@ -175,7 +178,7 @@ function spawner() {
         return
       }
       const hits = String(stdout).split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0)
-      /* PATH 上那个同名的 sh 垫片排在 `.cmd` 前面，起得来的只有带可执行扩展名的那个。 */
+      /* A same-named sh shim on PATH sorts ahead of the `.cmd`; only the entry with an executable extension can actually spawn. */
       const runnable = hits.find((line) => /\.(cmd|exe|bat|com)$/iu.test(line))
       resolve(runnable ?? hits[0] ?? command)
     })
@@ -204,8 +207,8 @@ function spawner() {
   }
 }
 
-/** 工作区文件口子的最小替身：按行分页，读的就是那趟记录所在的那个根。
- * 真口子是按会话身份解析路径的，所以这里也认 `scope.workspaceRoot`——两份记录各指各的根。 */
+/** Minimal stand-in for the workspace-files gate: paged by line, reading from the root that pass's record lives in.
+ * The real gate resolves paths by session identity, so this one honors `scope.workspaceRoot` too — each record points at its own root. */
 function workspaceFiles(fallbackRoot) {
   const baseOf = (scope) => (typeof scope?.workspaceRoot === 'string' && scope.workspaceRoot.length > 0 ? scope.workspaceRoot : fallbackRoot)
   const absent = () => {
@@ -237,7 +240,7 @@ function workspaceFiles(fallbackRoot) {
 
 const hostProcesses = spawner()
 
-/* 会话身份与工作区的对应：真宿主由会话头里的 `cwd` 解析。 */
+/* Session-to-workspace mapping: the real host resolves it from the session header's `cwd`. */
 const sessionWorkspaces = new Map([
   [sessionId, workspace],
   [emptySessionId, emptyWorkspace],
@@ -252,15 +255,15 @@ const hostCtx = {
     get: (id) => (sessionWorkspaces.has(id) ? { header: { cwd: sessionWorkspaces.get(id) } } : undefined),
   },
   sandboxPolicy: { workspaceRoot: workspace },
-  /* 真宿主上这就是一条服务：同一个口子，每次问到的是同一份。 */
+  /* On the real host this is a service: one gate, the same instance every time. */
   get: (name) => (name === 'sessionPersistence' ? undefined : name === 'subprocess' ? hostProcesses : undefined),
   provide: () => undefined,
 }
 
 const gateway = new PathfinderRecordsGateway(hostCtx)
 
-/* 装好的远程命名空间长什么样：每一次调用回的都是 `{ ok, value }` 那一副脸——生成的
- * 远程客户端就是这么折的，面板那一侧读的也是这一副。 */
+/* What the wired remote namespace looks like: every call answers with the `{ ok, value }` face —
+ * that is how the generated remote client folds results, and the panel side reads the same face. */
 const wrapped = (run) => async (...values) => {
   try {
     return { ok: true, value: await run(...values) }
@@ -280,7 +283,7 @@ const remoteFace = {
   setConfig: wrapped((...values) => gateway.setConfig(...values)),
 }
 
-/* ---- 3. 浏览器半身挂进 jsdom ------------------------------------------- */
+/* ---- 3. The browser half mounted into jsdom ----------------------------- */
 
 const dom = new JSDOM('<!doctype html><html><head></head><body><div id="app"></div></body></html>', {
   url: 'http://127.0.0.1/',
@@ -290,7 +293,7 @@ const { window } = dom
 for (const name of ['window', 'document', 'HTMLElement', 'Node', 'Event', 'MouseEvent', 'KeyboardEvent', 'getComputedStyle', 'localStorage', 'SVGElement', 'requestAnimationFrame', 'cancelAnimationFrame']) {
   Object.defineProperty(globalThis, name, { value: window[name], configurable: true, writable: true })
 }
-/* `navigator` 在 Node 上是个只有取值的属性，单独拿描述符盖一次。 */
+/* `navigator` is a getter-only property on Node, so its descriptor is overwritten separately. */
 Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true, writable: true })
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -312,8 +315,8 @@ const client = loaded.factory((name) => {
 })
 check('浏览器半身导出了 apply', typeof client.apply === 'function', `exports=${Object.keys(client).join(',')}`)
 
-/* 面板那一份样式表平时由 `Entry` 在露面那一趟挂进文档（`ensureStyle`）；夹具不走 Entry，
- * 所以照同一条路把**产物里那一份**挂上——下面量令牌落点，读的就是这份产物自己的表。 */
+/* The panel's stylesheet is normally attached to the document by `Entry` on first show (`ensureStyle`);
+ * the fixture skips Entry, so it attaches **the shipped copy** the same way — the token landing checks below read this very sheet. */
 check('产物带着面板那一份样式表', typeof client.PANEL_CSS === 'string' && client.PANEL_CSS.length > 0, `css=${String(client.PANEL_CSS?.length ?? 0)} chars`)
 const styleNode = window.document.createElement('style')
 styleNode.textContent = client.PANEL_CSS
@@ -321,9 +324,10 @@ window.document.head.appendChild(styleNode)
 
 const provided = {}
 
-/* ---- 设置那一份文档：夹具自己造，形状与 `configForms` 交出来的那一份一致 ------------
- * 真部署里这一份由设置服务给；这里造一个同形状的替身，面板与设置页读的就是它，于是
- * 「翻一行、两边当场跟着变」这件事能在夹具里真的走一趟。 */
+/* ---- The settings document: built by the fixture itself, shaped like what `configForms` hands out ---
+ * In real deployment the settings service provides it; here a same-shaped stand-in is built, and
+ * both the panel and the settings page read it, so "flip one row, both sides follow at once"
+ * actually runs end to end in the fixture. */
 
 function fakeSettingsForm(initial) {
   let value = { ...initial }
@@ -333,21 +337,21 @@ function fakeSettingsForm(initial) {
   return {
     document: () => value,
     getSnapshot: () => ({ status: 'ready', value, base: undefined, user: undefined, revision, writable: true }),
-    /* 接在这份表单上的订阅者有几个：摘除器有没有被还回来，只看这个数。 */
+    /* How many subscribers are attached to this form: whether the disposer was returned is judged by this count alone. */
     watching: () => listeners.size,
     subscribe(listener) {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
     },
     mutate(ops, expected) {
-      /* 修订号对不上就是拒绝：与真控制器同一口径，写回去的那一条路径也照真那份拼。 */
+      /* A revision mismatch refuses the write: same contract as the real controller, and the write-back path assembles the same way. */
       if (refuse || (expected !== undefined && expected !== revision)) return Promise.resolve(false)
       for (const op of ops) if (op.op === 'set') value = { ...value, [op.path[0]]: op.value }
       revision += 1
       for (const listener of [...listeners]) listener()
       return Promise.resolve(true)
     },
-    /* 这份文档一律不收改动：「两笔都不作数时不许静默」那一条靠它。 */
+    /* This document refuses all writes: it backs the "no silence when both writes are voided" rule. */
     refuse: (on = true) => { refuse = on },
   }
 }
@@ -368,21 +372,22 @@ function makeConfigForms(seed) {
   }
 }
 
-/* ---- 那条导航口子的替身 ------------------------------------------------------ */
+/* ---- The navigation gate's stand-in -------------------------------------- */
 
-/** 真部署里面板点卡走的是 `ctx.uiWorkspace.openSession`：口子在册，卡片才有去处。 */
+/** In real deployment, clicking a card goes through `ctx.uiWorkspace.openSession`: with the gate registered, cards have somewhere to go. */
 const navigationFace = {
   openSession: () => undefined,
 }
 
 /**
- * 起一条浏览器半身：一个最小的插件上下文（`get` / `inject` / `effect` / `provide`）。
+ * Boot a browser half: a minimal plugin context (`get` / `inject` / `effect` / `provide`).
  *
- * `slots` 是按真协议写的替身：同一个 id 重复注册会抛，那正是要躲开的那一下。`reuse` 给的是
- * 同一份名册上再起一次——幂等那一条要两次注册落在同一本名册上才量得出来。
- * @param backend - 设置服务那一侧的替身。
- * @param into - `provide` 往哪个对象上落。
- * @param reuse - 可选的同一份名册与落点记录。
+ * `slots` is a stand-in written to the real protocol: registering the same id twice throws —
+ * exactly the accident to avoid. `reuse` boots again onto the same roster: idempotency is only
+ * measurable when both registrations land on the same roster.
+ * @param backend - Stand-in for the settings-service side.
+ * @param into - The object `provide` writes onto.
+ * @param reuse - Optional shared roster and call record.
  */
 function bootClient(backend, into, reuse) {
   const ledger = reuse?.ledger ?? new Map()
@@ -395,7 +400,7 @@ function bootClient(backend, into, reuse) {
       return typeof off === 'function' ? off : () => undefined
     },
     register(options, component) {
-      /* 单座与列表认 `id`，按 key 分派的那一格认 `key`——真协议就是这么认人的。 */
+      /* Single and list seats match by `id`; the keyed slot matches by `key` — that is how the real protocol identifies entries. */
       const id = `${options.name}:${options.id ?? options.key}`
       calls.push(`register/${id}`)
       if (ledger.has(id)) throw new Error(`list slot "${options.name}" already has an entry with id "${options.id ?? options.key}"`)
@@ -424,8 +429,8 @@ function bootClient(backend, into, reuse) {
   return { panel: into[client.SERVICE_KEY], ledger, calls, effects }
 }
 
-/* 先按旧版那四个键把本地存储塞满，再看接上设置表单那一刻有没有把它们扫掉——先塞这一步让
- * 「扫整个 `dsh-pathfinder.` 前缀」那条判据对存量 origin 也真的成立。 */
+/* Seed localStorage with the four legacy keys first, then check they were swept when the settings
+ * form attached — seeding first makes the "sweep the whole `dsh-pathfinder.` prefix" rule hold for pre-existing origins too. */
 const LEGACY_SEEDED = [
   'dsh-pathfinder.sideWidth',
   'dsh-pathfinder.infoLevel',
@@ -439,16 +444,17 @@ const booted = bootClient(backend, provided)
 const panel = booted.panel
 check('面板装成了一条服务', panel !== undefined && panel.id === 'pathfinder', `key=${client.SERVICE_KEY} id=${String(panel?.id)}`)
 
-/* 这一层登记三条：设置里那一节，加上调度中心那两处。中央栏那一格是 keyed：那本名册认
- * `key`，另外两条认 `id`。 */
+/* This layer registers three entries: the settings section plus the two dispatch-center seats.
+ * The central slot is keyed: its roster matches by `key`, the other two by `id`. */
 const SEAT_ENTRIES = [
   { key: `${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`, order: client.SECTION_ORDER, word: '设置里那一节' },
   { key: `sidebar.panellist:${client.PANEL_ID}`, order: client.PANEL_ORDER, word: '侧栏那一项' },
   { key: `main:${client.PANEL_ID}`, order: undefined, word: '中央栏那一格' },
 ]
 const rosterOf = (ledger) => [...ledger.entries()].map(([key, entry]) => ({ key, order: entry.options.order }))
-/** 按钥匙排好：这三条各落在**不同**的槽位，谁先登记在 DSH 里没有语义（`order` 只在同一个
- * list 槽内部才有意义），所以下面两份名册只比「哪几条在册、各自什么 order」，不锁先后。 */
+/** Sorted by key: the three entries sit in **different** slots, so registration order carries no
+ * meaning in DSH (`order` only matters inside one list slot); the two rosters below therefore
+ * compare "which entries are on it, each with what order" without pinning sequence. */
 const byKey = (roster) => [...roster].sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0))
 const sameRoster = (left, right) => JSON.stringify(byKey(left)) === JSON.stringify(byKey(right))
 const registeredIds = [...booted.ledger.keys()]
@@ -471,9 +477,10 @@ check(
   `label()=${String(booted.ledger.get(`sidebar.panellist:${client.PANEL_ID}`)?.options.label())} ｜ main key=${String(booted.ledger.get(`main:${client.PANEL_ID}`)?.options.key)}`,
 )
 
-/* 注册纪律那一节：同一本名册上再起一条插件（profile 重载、HMR 都会走到这里），注册必须是
- * 幂等的。`slots.register` 碰到同一个 id 已经在册会抛，而那个抛落在槽位登记处的通知里，
- * React 自己的订阅也在那条通知上——页面上看不出事，鼠标键盘却全死了。 */
+/* Registration discipline: booting the same plugin again onto the same roster (profile reload, HMR
+ * both land here) must be idempotent. `slots.register` throws when the same id is already on the
+ * roster, and that throw lands inside the slot registry's notification, where React's own
+ * subscription also sits — nothing shows on screen, but mouse and keyboard are all dead. */
 const reuse = { ledger: new Map(), calls: [], effects: [] }
 bootClient(backend, {}, reuse)
 bootClient(backend, {}, reuse)
@@ -485,8 +492,9 @@ check(
   `名册 ${String(reuse.ledger.size)} 条：${[...reuse.ledger.keys()].join(', ')} ｜ 试过注册 ${String(reuse.calls.filter((call) => call.startsWith('register/')).length)} 次`,
 )
 
-/* 同一条 effect 收掉再跑一遍（fiber 重入那一趟）：先撤上一次，再登记回来。收掉座席那一条，
- * 它自己那两条要跟着走、设置那一节要留着；收掉接设置表单那一条，接在上面的订阅者要还回去。 */
+/* The same effect is disposed and run again (the fiber re-entrancy pass): dispose the previous run,
+ * then re-register. Disposing the seats effect takes its two entries with it while the settings
+ * section stays; disposing the settings-form effect hands its subscribers back. */
 const sectionEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: settings page')
 const formEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: settings form')
 const seatsEffect = reuse.effects.find((one) => one.name === 'dsh-pathfinder: seats')
@@ -544,14 +552,14 @@ check(
   `订阅者=${String(sharedForm?.watching())}`,
 )
 
-/* ---- 4. 画出来，逐个看法点开 ------------------------------------------- */
+/* ---- 4. Draw it, open each view in turn ---------------------------------- */
 
 const container = window.document.getElementById('app')
 const reactRoot = createRoot(container)
 
-/* 写面被叫过几次：几个新看法一遍点下来，这一次数必须停在原地。 */
+/* How many times the write face was called: clicking through the views must leave this count frozen. */
 const writeCalls = []
-/** 面板向宿主问过哪些根：顶上那枚工作区选择器挑中的那一个就从这儿看得见。 */
+/** Which roots the panel asked the host for: what the top workspace picker selects is visible here. */
 const askedRoots = []
 const trackedPort = {
   ...panel.port,
@@ -582,7 +590,7 @@ const trackedPort = {
     return track(panel.port.setConfig(id, workspaceRoot, key, value))
   },
 }
-/** 等这一趟的面板动作走完：写完了它还会再读一次，所以一直等到没有在飞的东西。 */
+/** Wait out the panel's actions for this pass: after a write it reads once more, so wait until nothing is in flight. */
 const settle = async () => {
   for (let round = 0; round < 6; round++) {
     const pending = inFlight.splice(0)
@@ -607,20 +615,21 @@ for (const [index, label] of views.entries()) {
   check(`看法「${label}」渲染出内容`, pane !== null && pane.hidden === false, pane === null ? '没有这一格' : `pane-${pane.id}`)
 }
 
-/* 撑满跟着记号走：当前不撑满，明细那一格撑满。 */
+/* Fill follows the view: Now does not fill, the detail pane fills. */
 await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const frameNow = container.querySelector('#frame')
 check('当前那一格不撑满', frameNow.classList.contains('is-fill') === false, `class=${frameNow.className}`)
 await act(async () => { tabs[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 check('明细那一格撑满', container.querySelector('#frame').classList.contains('is-fill') === true, 'is-fill')
 
-/* 当前那一格的读数与记录对得上：四枚胶囊的数与三列卡片的张数，逐项跟那份记录现算出来的读数比。
- * 这里不能用「格子里有字」那类断言——#pane-now 里那三个静态列头就够让它成立，跟记录里的数无关。 */
+/* The Now pane's readings must match the record: the four pill counts and the three column card
+ * counts, each compared against values computed from the record. "The pane has text"-style asserts
+ * would not do — the three static column headers in #pane-now alone would satisfy them, regardless of the record. */
 await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const reading = await gateway.read(sessionId, '', {})
 const project = readProject({ nodes: reading.nodes, cycles: reading.cycles, instructions: reading.instructions, issues: reading.issues, at: new Date() })
 lines.push(`      记录里的读数：${JSON.stringify(reading.sources)}`)
-/* 这一趟没动过「每列几张卡」那一档：默认停在「展开」，每列最多三张。 */
+/* This pass never touched the cards-per-column setting: it stays on the default "expanded", at most three per column. */
 const infoCap = 3
 const expectedPills = [
   ...(project.columns.shelved.length > 0 ? [['等待处理', project.columns.shelved.length]] : []),
@@ -647,9 +656,10 @@ check(
   `记录现算 胶囊=${JSON.stringify(expectedPills)} 三列=${JSON.stringify(expectedCards)} ｜ 面板上 胶囊=${JSON.stringify(pillReadings)} 三列=${JSON.stringify(cardReadings)} 总卡=${String(sum(cardReadings))}`,
 )
 
-/* 会话笔记：宿主半身把那一层目录原样搬回来，「每一格该去哪条会话」由模型层对着它读。夹具对着
- * 拷来的那份记录自己现算一遍，跟「搬数 → 读数」这条链对账——键是文件名剥掉后缀，一格开过
- * 好几条时取时刻最新的那条，同时刻跑的那条压过讨论的那条。 */
+/* Session notes: the host half hauls that directory back as-is, and the model layer reads "which
+ * session each pane points to" against it. The fixture recomputes the mapping from the copied
+ * record itself to audit the haul → read chain — keys are file names minus the extension; when a
+ * pane has several, the latest timestamp wins, and a same-timestamp run beats a discussion. */
 const sessionsDir = join(record, 'meta', 'sessions')
 const wantSessions = {}
 for (const name of existsSync(sessionsDir) ? readdirSync(sessionsDir) : []) {
@@ -678,12 +688,14 @@ check(
   `夹具现算 ${String(Object.keys(wantSessions).length)} 格 ｜ 链上读出 ${String(Object.keys(gotSessions).length)} 格`,
 )
 
-/* ---- 3c. 调度中心那两处：真产物挂上去，各露一面 --------------------------
+/* ---- 3c. The two dispatch-center seats: the real product mounted, each shown once ----
  *
- * 侧栏那一项与中央栏那一格，两处注册的组件各按真形状渲染一遍——前者画一枚图标，后者就是
- * 面板本体（它向宿主问哪条会话，就画哪个工作区的记录）。座席标准 props 里的 `useSessions`
- * 是一条带投影的 hook：`ids` 是宿主清单次序（第一行是另一条会话）、`byId` 里当前会话那条挂
- * 着 `retainedBy.mainView`。两处座席挑会话挑对没有，`seatReads` 那一笔看得见。
+ * The sidebar item and the central slot render their registered components in their real shape —
+ * the former draws an icon, the latter is the panel body (it draws the record of whichever
+ * workspace's session it asks the host for). `useSessions` in the seat's standard props is a
+ * projected hook: `ids` is the host's list order (another session first), and the current session's
+ * entry in `byId` carries `retainedBy.mainView`. `seatReads` records whether the two seats picked
+ * the right session.
  */
 const otherSessionId = 'panel-check-other'
 const snapshotAt = (id) => ({
@@ -696,7 +708,7 @@ const snapshotAt = (id) => ({
   projectionsBySession: {},
 })
 const sessionsAt = (id) => (select) => select(snapshotAt(id))
-/** 两处座席交给宿主口子的会话身份，按次序记一笔。 */
+/** Session ids the two seats hand to the host gate, recorded in order. */
 const seatReads = []
 const seatPortRead = panel.port.read
 panel.port.read = (id, signal) => {
@@ -745,8 +757,9 @@ check(
     : `svg ${String(sideGlyph.getAttribute('width'))}×${String(sideGlyph.getAttribute('height'))} aria-hidden=${String(sideGlyph.getAttribute('aria-hidden'))} 子元素=${String(sideGlyph.children.length)} 枚`,
 )
 
-/* 空记录的工作区那一档：`.pf` 都不建，取数成功、四份来源全 `missing`。面板正文收成一句
- * 话，标签、右上那排计数与那六格一起收走（测试床那份合成工作区就是这种情形）。 */
+/* The empty-record workspace case: no `.pf` at all, the read succeeds and all four sources report
+ * `missing`. The panel body collapses to one line, and the tabs, the top-right counts and the six
+ * panes are withdrawn with it (the testbed's synthetic workspace is exactly this case). */
 const flat = (node) => (node?.textContent ?? '').replace(/\s+/gu, ' ').trim()
 const emptyHost = window.document.createElement('div')
 window.document.body.appendChild(emptyHost)
@@ -766,8 +779,8 @@ check(
   `工作区=${emptyWorkspace.replace(root, '.')}（没有 .pf） ｜ .pf-none p=${JSON.stringify(emptySaid)} ｜ 标签 ${String(emptyHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(emptyHost.querySelectorAll('.pf-count').length)} 处、六格 ${String(emptyHost.querySelectorAll('.pf-pane').length)} 处`,
 )
 
-/* 记录读不动那一档：`.pf` 在、四份文件也在，但没有一份解得出内容（四份来源全 `unusable`）。
- * 面板正文摆的是**另一句**——与上面那一档的「没有记录」不是同一件事。 */
+/* The unreadable-record case: `.pf` exists, all four files exist, but none parses (all four sources
+ * `unusable`). The panel body shows a **different sentence** — not the same thing as the "no record" case above. */
 const brokenHost = window.document.createElement('div')
 window.document.body.appendChild(brokenHost)
 const brokenRoot = createRoot(brokenHost)
@@ -787,8 +800,9 @@ check(
   `工作区=${brokenWorkspace.replace(root, '.')}（.pf 在、四份读不动） ｜ .pf-none p=${JSON.stringify(brokenSaid)} ｜ 标签 ${String(brokenHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(brokenHost.querySelectorAll('.pf-count').length)} 处、六格 ${String(brokenHost.querySelectorAll('.pf-pane').length)} 处`,
 )
 
-/* 管线在、问题池空那一档：五个跟节点走的格子照旧（看板有卡、设置那一格摆的是控件），问题那一格
- * 收成一句「当前工作区尚未启用 Pathfinder」——它只跟问题那一份走。 */
+/* Pipeline present, issue pool absent: the five node-following panes stay as usual (the board has
+ * cards, the settings pane shows controls), and the issue pane collapses to "Pathfinder is not
+ * enabled for this workspace" — it follows the issue file alone. */
 const bareHost = window.document.createElement('div')
 window.document.body.appendChild(bareHost)
 const bareRoot = createRoot(bareHost)
@@ -809,9 +823,9 @@ check(
   `工作区=${bareWorkspace.replace(root, '.')}（管线在、问题池那一份不在） ｜ 看板 ${String(bareHost.querySelectorAll('#pane-now .pf-card').length)} 张卡 ｜ 问题那一格说=${JSON.stringify(bareSaid)}`,
 )
 
-/* 只有问题池那一档（`pf issue scan` 在一个自己还没有管线的仓里写下的就是这份）：五个跟节点走的
- * 格子各自收成同一句话，页头那排计数也不再报三个 0；问题那一格特派——它照旧画那个池子，条目一
- * 条不少。 */
+/* The issue-pool-only case (what `pf issue scan` writes in a repo with no pipeline yet): each of
+ * the five node-following panes collapses to the same sentence, and the header counts stop
+ * reporting three zeros; the issue pane is the exception — it still draws the pool, every entry of it. */
 const poorHost = window.document.createElement('div')
 window.document.body.appendChild(poorHost)
 const poorRoot = createRoot(poorHost)
@@ -821,10 +835,12 @@ await act(async () => {
 await settle()
 const poorSaid = ['now', 'detail', 'wires', 'notes', 'config']
   .map((id) => flat(poorHost.querySelector(`#pane-${id} .pf-innone`)))
-/* 问题那一格画什么从池子读数现算，不假设登记簿里还有未解决的行：这份夹具是活数据，未解决
-   迟早清零——精简档（默认那档）画的就只是未解决那几条，清了就一条不画、登记簿照旧站着；
-   池子一条不剩时整格收成同一句话（pool.tsx 那条 `pool.rows.length === 0` 的早退）。行身份照
-   记录里未解决那堆的次序逐条比，落法同 4c 那趟折堆的一节。 */
+/* What the issue pane draws is computed from the pool's readings, not from an assumption that the
+   register still holds open rows: this fixture is live data and the open set will eventually empty —
+   the lean tier (the default) draws only the open rows, none once cleared, with the register itself
+   still standing; when the pool is empty the whole pane collapses to the same sentence (pool.tsx's
+   `pool.rows.length === 0` early exit). Row identity is compared entry by entry against the record's
+   open pile, in the same way as the 4c fold-pile section. */
 const poorOpenIds = project.pool.groups.find((group) => group.key === 'open')?.entries.map((entry) => entry.id) ?? []
 const poorRows = [...poorHost.querySelectorAll('#pane-issue .pf-row[data-issue]')]
 const poorIssueSaid = flat(poorHost.querySelector('#pane-issue .pf-innone'))
@@ -844,9 +860,11 @@ check(
   `工作区=${poorWorkspace.replace(root, '.')}（只有问题池） ｜ 五格=${JSON.stringify(poorSaid)} ｜ 页头计数 ${String(poorHost.querySelectorAll('#census').length)} 处、六格 ${String(poorHost.querySelectorAll('.pf-pane').length)} 格 ｜ 池子读数 共 ${String(project.pool.rows.length)} 条、未解决 ${String(poorOpenIds.length)} 条 ｜ 问题那一格 ${String(poorRows.length)} 行`,
 )
 
-/* 只剩一句话的那几格：模块撑满地界。不撑满时舞台把模块上下居中，那句话就漂在当中、还比页头那
- * 条左缘右一步（1400 宽的窗口里量过：左缘右 300px、标签线下 317px）；撑满之后它落在这一格自己
- * 的左上角，与另外五格同一处。jsdom 不排版，这里量的是那枚记号。 */
+/* The panes left with one sentence: the module fills its area. Unfilled, the stage centers the
+ * module vertically, so the sentence floats mid-pane one step right of the header's left edge
+ * (measured in a 1400-wide window: 300px from the left edge, 317px below the tabs); filled, it sits
+ * at this pane's own top-left, the same spot as the other five. jsdom does no layout, so what is
+ * measured here is the marker class. */
 const poorFrame = poorHost.querySelector('#frame')
 check(
   '只剩一句话的那几格：模块撑满地界（那句话因此落在这一格自己的左上角）',
@@ -854,7 +872,7 @@ check(
   `模块 class=${JSON.stringify(poorFrame?.className ?? null)}`,
 )
 
-/* 读得回来的那一份照旧：标签、计数与六格都在，正文里没有那句话。 */
+/* The readable record stays as usual: tabs, counts and six panes all present, no such sentence in the body. */
 check(
   '这一份记录读得回来：六格标签、右上那排计数与六格正文照旧画着，正文里没有那句话',
   tabs.length === 6 && container.querySelector('.pf-count') !== null
@@ -863,20 +881,22 @@ check(
   `标签 ${String(tabs.length)} 枚 ｜ 计数 ${String(container.querySelectorAll('.pf-count').length)} 处 ｜ 六格 ${String(container.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${container.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
 )
 
-/* ---- 3d. 顶上那枚工作区选择器：挑哪一个就读哪一个 ------------------------
+/* ---- 3d. The top workspace picker: whichever is picked is the one read ----
  *
- * 名单照 DSH 那份清单来（标题 + 末尾那一档「未分组」）、默认停在这条会话落在的那个桶、
- * 换一档就把那个根递给宿主，而那个根读出来的东西当场换到屏上。换的那几档递出去的是绝对
- * 路径（`askedRoots` 逐档比）；「未分组」不是哪个根，分两支（afb7ca0 定的契约）：会话
- * 落在某个桶里时一趟读数都不发，面板收成「未分组名下没有记录」那一句，选择器留着；
- * 会话谁的桶都不在时，它就归「未分组」那一堆，递空字符串照旧读它自己那个根。
+ * The list follows DSH's manifest (titles plus the trailing "Ungrouped" entry), the default stays
+ * on the bucket this session falls in, and switching entries hands that root to the host with the
+ * screen swapping to what that root reads. Switches hand over absolute paths (`askedRoots` compares
+ * per entry); "Ungrouped" is not a root, and splits in two (the afb7ca0 contract): when the session
+ * belongs to some bucket, no read is issued at all and the panel collapses to the "no records under
+ * Ungrouped" sentence with the picker kept; when the session belongs to no bucket, it counts as
+ * Ungrouped and an empty string is handed over, still reading its own root.
  */
 const spaceItems = [
   { workspaceId: 'w-main', path: workspace, title: '主工作区', sessionIds: [sessionId] },
   { workspaceId: 'w-empty', path: emptyWorkspace, title: '空工作区', sessionIds: [emptySessionId] },
   { workspaceId: 'w-broken', path: brokenWorkspace, title: '读不动的工作区', sessionIds: [brokenSessionId] },
 ]
-/* 快照必须是同一个对象：`getSnapshot` 每次现拼一份新的，React 会当成一直在变。 */
+/* The snapshot must be the same object: `getSnapshot` assembling a fresh one each call would look like constant change to React. */
 const spaceSnapshot = { items: spaceItems }
 const spaceSource = { getSnapshot: () => spaceSnapshot, subscribe: () => () => undefined }
 const spaceHost = window.document.createElement('div')
@@ -890,8 +910,9 @@ await act(async () => {
 })
 await settle()
 
-/* 这两条收在页头那一枚上：`.pf-pick` 不止一处（指令那一格那枚范围字段与它是同一个对象），
-   不收窄就会把那一枚的候选一起算进工作区名单里。 */
+/* These two scope to the one in the page header: `.pf-pick` appears more than once (the instructions
+   pane's scope field is the same class), and without narrowing, that one's options would be counted
+   into the workspace list. */
 const spaceSelect = () => spaceHost.querySelector('.pf-head .pf-pick select')
 const spaceOptions = () => [...spaceHost.querySelectorAll('.pf-head .pf-pick select option')]
 check(
@@ -945,8 +966,8 @@ check(
 
 await act(async () => { spaceRoot.unmount() })
 
-/* 真在所有工作区之外的会话那一支：同一份清单，只是哪个桶都不收这条会话——DSH 把它归到
- * 「未分组」，默认就停在那儿。afb7ca0 正文里「照旧读自己那个根」说的就是这一支。 */
+/* The session truly outside every workspace: the same manifest, only no bucket carries this session —
+ * DSH files it under "Ungrouped" and defaults there. afb7ca0's "still reads its own root" is this branch. */
 const loneSnapshot = { items: spaceItems.map((item) => ({ ...item, sessionIds: [] })) }
 const loneSource = { getSnapshot: () => loneSnapshot, subscribe: () => () => undefined }
 const loneHost = window.document.createElement('div')
@@ -969,8 +990,9 @@ check(
   `选中=${JSON.stringify(loneSelect()?.value)} ｜ 问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 六格 ${String(loneHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${loneHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
 )
 
-/* 拨去别处再拨回「未分组」也是同一支：pickedSpace 摆到 null 而这条会话没有归属，读数照发——
- * 收成一句话的那一支只落在有归属的会话上（上一趟）。 */
+/* Switching away and back to "Ungrouped" is the same branch: pickedSpace lands on null while the
+ * session has no bucket, so the read still goes out — the collapse-to-one-sentence branch only
+ * applies to sessions with a bucket (the previous pass). */
 await act(async () => {
   loneSelect().value = 'w-empty'
   loneSelect().dispatchEvent(new window.Event('change', { bubbles: true }))
@@ -992,12 +1014,13 @@ check(
 
 await act(async () => { loneRoot.unmount() })
 
-/* 产物那份 css 里九个 `--pf-*` 的声明点，按面板 DOM 上解析出来的值量：声明落在
- * `.pf-page body` / `.pf-page :root` 这类匹配不到任何元素的选择器上时，这里读出来就是空串
- * ——`var(--pf-ink-2)` 那几处没有兜底的读法会跟着作废。
+/* The nine `--pf-*` declaration points in the shipped css, measured by the values resolved on the
+ * panel's DOM: when a declaration lands on a selector matching nothing (`.pf-page body` /
+ * `.pf-page :root`), this reads an empty string — and the fallback-less `var(--pf-ink-2)` reads go
+ * void with it.
  *
- * 同一条尺子还管着 `mock/tokens.css` 那条 reset 的 `box-sizing`：它在蓝本里写在 `*` 上，
- * 收拢成 `.pf-page *` 时面板根自己就落空了，代价是底下多出 24px。 */
+ * The same ruler covers the `box-sizing` reset from `mock/tokens.css`: written on `*` in the mock,
+ * scoping it to `.pf-page *` would miss the panel root itself, at the cost of 24px extra below. */
 const TOKEN_VALUES = {
   '--pf-mark-floor': '3',
   '--pf-mark-floor-dense': '1.5',
@@ -1024,8 +1047,9 @@ check(
   `${tokenReadings.join(' ')} ｜ box-sizing=${rootWon['box-sizing'] === undefined ? '（没有规则落在它身上）' : `"${rootWon['box-sizing']}"`}`,
 )
 
-/* 蓝本那一页末位的 settings.css 不进包，但它里面与设置页版面无关的两条（舞台与框）在蓝本上
- * 是生效的：这里按 DOM 匹配走一遍，看落在 `.pf-stage` / `.pf-frame` 上的最后一条声明是哪一份。 */
+/* The mock's last-linked settings.css does not ship, but two of its rules unrelated to the settings
+ * page layout (stage and frame) do apply on the mock: this walks DOM matching to see whose
+ * declaration finally lands on `.pf-stage` / `.pf-frame`. */
 const stageWon = winningDeclarations(container.querySelector('.pf-stage'), ['padding', 'align-items', 'height'])
 const frameWon = winningDeclarations(container.querySelector('.pf-frame'), ['width', 'max-height', 'min-height'])
 const carriedOk = stageWon.padding === '20px 0' && stageWon['align-items'] === 'center' && stageWon.height === '100%'
@@ -1036,15 +1060,17 @@ check(
   `stage padding=${JSON.stringify(stageWon.padding)} align-items=${JSON.stringify(stageWon['align-items'])} height=${JSON.stringify(stageWon.height)} ｜ frame width=${JSON.stringify(frameWon.width)} max-height=${JSON.stringify(frameWon['max-height'])} min-height=${JSON.stringify(frameWon['min-height'])}`,
 )
 
-/* ---- 3b. 产物与 mock/ 的等价性：逐表逐条对一遍 ---------------------------
- * 上面两条读数是点状的，点不到「某一组规则整条不见了」。这里补一条整体尺子：进包的 css 是
- * `mock/` 那几张表的机械改写（只重写选择器，声明一个字节不动），所以逐表逐条比得出来——
- * 套着它的那几层 at-rule、选择器、声明正文三样都要对得上；差额只允许是明写取进来的
- * `CARRIED` 那几条。
+/* ---- 3b. Product vs mock/ equivalence: sheet by sheet, rule by rule ------
+ * The two readings above are point probes; they cannot catch "a whole group of rules went missing".
+ * Here is a whole-sheet ruler: the shipped css is a mechanical rewrite of the `mock/` sheets
+ * (selectors rewritten, declarations byte-identical), so sheet-by-sheet comparison works — wrapping
+ * at-rules, selectors and declaration bodies must all match; the only allowed difference is the
+ * explicitly listed `CARRIED` rules.
  *
- * 尺子自己写一份表清单与一份收拢映射，不 import 构建口那一份：拿被测方自己的算法算期望值，
- * 尺子就等于没量。规范化：两边都摘掉注释、把连续空白折成一个空格、去掉首尾空白；声明次序
- * 照原样比，不排序——CSS 里次序有意义。
+ * The ruler carries its own sheet list and scoping map instead of importing the build entry's:
+ * computing expectations with the code under test would make the ruler measure nothing.
+ * Normalization: strip comments, fold whitespace runs to one space, trim ends on both sides;
+ * declaration order is compared as-is, unsorted — order means something in CSS.
  */
 const SHEETS = [
   { sheet: 'tokens.css', scope: pageLayer('.pf-page') },
@@ -1053,9 +1079,11 @@ const SHEETS = [
   { sheet: 'styles/lines.css', scope: pageLayer('.pf-page') },
   { sheet: 'styles/detail.css', scope: pageLayer('.pf-page') },
   { sheet: 'styles/notes.css', scope: pageLayer('.pf-page') },
-  /* 依赖与问题那两张表在蓝本里各自是一份独立文档，靠 `.is-embed` 把页头与页边距让给宿主；
-     进面板之后各挂各的页记号（面板里那两格 `.pf-pane`）：前缀是这一格的页记号，表里那枚让位
-     记号连页记号一起带上——两处高低差都得留住，一处管顶上那一段，一处管与面板同名的那些规矩。 */
+  /* The wires and issue sheets are each a standalone document in the mock, yielding header and page
+     margins to the host via `.is-embed`; inside the panel each carries its own page marker (the two
+     `.pf-pane` cells): the prefix is that cell's page marker, and the sheet's yield marker brings
+     the page marker along — both specificity gaps must survive, one covering the top band, the
+     other the rules sharing names with the panel. */
   { sheet: 'styles/field.css', scope: embedLayer('.pf-wires') },
   { sheet: 'styles/register.css', scope: embedLayer('.pf-issue') },
 ]
@@ -1082,8 +1110,8 @@ function normalize(text) {
   return text.replace(/\/\*[\s\S]*?\*\//gu, ' ').replace(/\s+/gu, ' ').trim()
 }
 
-/** 把一份 css 拆成规则清单：每条记下套着它的那几层 at-rule、选择器、声明正文。
- * 带壳的（`@media` / `@supports` / `@layer`）往里走一层；`@keyframes` 这类整块算一条。 */
+/** Split one css sheet into a rule list: each entry records its wrapping at-rules, selector and declaration body.
+ * Wrapped ones (`@media` / `@supports` / `@layer`) descend a level; `@keyframes` and the like count as one entry. */
 function ruleEntries(css, wrap = []) {
   const out = []
   let i = 0
@@ -1103,7 +1131,7 @@ function ruleEntries(css, wrap = []) {
   return out
 }
 
-/** 「这一段已经收进那一层了」——切段之后逐段比，不看子串（`.pf-pagewrap` 不算）。 */
+/** "This segment is already scoped into the layer" — compared per token, not by substring (`.pf-pagewrap` does not count). */
 function alreadyScoped(part, className) {
   return part
     .split(/[\s>+~]+/u)
@@ -1111,11 +1139,11 @@ function alreadyScoped(part, className) {
     .some((token) => token === className)
 }
 
-/** 这一段选择器进包之后该长成哪几段——这张表与构建口各写一份，不 import 它那一份。 */
+/** What this selector segment should become in the product — this sheet and the build entry each carry their own copy; nothing is imported. */
 function expectedPart(part, scope) {
   const low = part.toLowerCase()
-  /* 表里自己写着「嵌入」那枚记号的：换成「这一枚 + 这一格的页记号」，把它比基础规则高的一档
-     一起带上，同时只落在这一格上。 */
+  /* Segments carrying the sheet's own "embed" marker: rewritten to "this marker + this cell's page
+     marker", restoring the notch it holds above the base rule while landing only on this cell. */
   if (scope.marker !== undefined && alreadyScoped(part, scope.marker)) {
     return [part.replace(new RegExp(`\\.${scope.marker}(?![\\w-])`, 'gu'), `.${scope.marker}${scope.root}`)]
   }
@@ -1126,10 +1154,10 @@ function expectedPart(part, scope) {
   return [`${scope.add} ${part}`]
 }
 
-/** 主面板那一层：只加前缀。 */
+/** The main panel layer: prefix only. */
 function pageLayer(root) { return { root, add: root } }
 
-/** 嵌入那两格那一层：前缀是这一格的页记号，表里的嵌入记号连它一起带上（高一档）。 */
+/** The two embedded cells' layer: the prefix is the cell's page marker, and the sheet's embed marker brings it along (one notch up). */
 function embedLayer(root) { return { root, add: root, marker: 'is-embed' } }
 
 function expectedPrelude(prelude, scope) {
@@ -1141,7 +1169,7 @@ function expectedPrelude(prelude, scope) {
   return [...new Set(parts)].join(', ')
 }
 
-/** 蓝本那一侧算出来的期望样子：`@keyframes` 这类整块原样带走。 */
+/** The expected shape computed from the mock side: `@keyframes` blocks pass through as-is. */
 function expectedOf(entry, scope) {
   return {
     wrap: entry.wrap,
@@ -1205,25 +1233,29 @@ check(
 )
 lines.push(`      等价性：mock/ 那 ${String(SHEETS.length)} 张表 + CARRIED ${String(carriedWanted.length)} 条 → 产物 ${String(productEntries.length)} 条规则，逐条比选择器与声明正文（上面每张表一条读数）`)
 
-/* ---- 3c. 落点：同一批规矩在产物里谁赢，蓝本那一侧要一样 -------------------
- * 3b 比的是字面（选择器与声明一条不差），比不出「同一条属性的两条规矩谁赢」。蓝本那两张嵌入
- * 表里有两处高低差，收拢时动到哪一处，读出来的东西就换一个样子：
+/* ---- 3c. Landing: who wins in the product must match the mock side --------
+ * 3b compares text (selectors and declarations exact), which cannot tell "of two rules on the same
+ * property, who wins". The mock's two embedded sheets carry two specificity gaps; whichever one
+ * scoping disturbs changes what actually reads out:
  *
- * - 表里自己写的让位规矩（`.is-embed X`）比基础规则高一档——这一档丢了，顶上那一段留白回来；
- * - 这一页那份表与**面板那几张表**同名的那些元素（明细那一行的 `.pf-row`、主面板那个
- *   `.pf-head`），蓝本里各在各的文档、没有对手，进了面板靠「同档但排在后面」取胜——这一档
- *   被收拢改掉，问题池那一排的列宽就归明细那一行管。
+ * - The sheets' own yield rules (`.is-embed X`) sit one notch above the base rule — lose that notch
+ *   and the top band's padding returns;
+ * - Elements whose names this sheet shares with **the panel's own sheets** (the detail pane's
+ *   `.pf-row`, the main panel's `.pf-head`) have no rival in the mock — each lives in its own
+ *   document — and win inside the panel only by "same specificity, later in order"; disturb that
+ *   and the issue pool row's column width falls to the detail row.
  *
- * 所以这里量落点：把面板里那两格的子树原样搬进蓝本各自那份文档（页面根挂 `is-embed`、只挂它
- * 自己那一张表），同一条属性两边各走一遍级联，比最后谁赢。jsdom 不做级联、也不拆简写，两样
- * 都自己来。
+ * So this measures landing: the two panel cells' subtrees are moved verbatim into the mock's own
+ * documents (page root tagged `is-embed`, only that one sheet attached), the same property is run
+ * through the cascade on both sides, and the final winners are compared. jsdom does no cascading
+ * and no shorthand expansion; both are done by hand here.
  */
 const SHORTHAND = {
   padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
   margin: ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
 }
 
-/** 一条选择器的特异性：`::` 不算；`:where()` 里那一档记 0（产物里现在没有它，尺子留着这一条）。 */
+/** A selector's specificity: `::` excluded; anything inside `:where()` counts 0 (the product has none today; the ruler keeps the rule). */
 function specificityOf(selector) {
   const bare = selector.replace(/:where\((?:[^()]|\([^()]*\))*\)/gu, '').replace(/::[\w-]+/gu, '')
   const ids = (bare.match(/#[\w-]+/gu) ?? []).length
@@ -1234,7 +1266,7 @@ function specificityOf(selector) {
   return ids * 1e6 + (classes + attrs + pseudos) * 1e3 + tags
 }
 
-/** 一条声明拆成长写：cssom 把 `padding: 14px 0 16px` 原样留着，不替我们拆。 */
+/** Expand a shorthand declaration: cssom keeps `padding: 14px 0 16px` verbatim and does not expand it for us. */
 function longhandsOf(name, value) {
   const list = SHORTHAND[name]
   if (list === undefined) return [[name, value]]
@@ -1246,7 +1278,7 @@ function longhandsOf(name, value) {
   return four.length === 4 ? list.map((one, at) => [one, four[at]]) : [[name, value]]
 }
 
-/** 一份文档里落在某个元素上的最终声明：同一条属性按 (特异性, 次序) 取胜。 */
+/** The final declarations landing on an element in one document: per property, (specificity, order) wins. */
 function cascadeWinner(win, element, properties) {
   const won = {}
   if (element === null) return won
@@ -1275,21 +1307,22 @@ function cascadeWinner(win, element, properties) {
   return won
 }
 
-/** 蓝本那一侧：这一页的子树放进它自己那份文档——页面根挂 `is-embed`，只挂它那一张表。 */
+/** The mock side: this page's subtree goes into its own document — page root tagged `is-embed`, only its own sheet attached. */
 function blueprintWindow(pageRoot, sheet) {
   const css = readFileSync(join(root, 'mock', sheet), 'utf8')
   return new JSDOM(`<!doctype html><html class="is-embed"><head><style>${css}</style></head><body>${pageRoot.outerHTML}</body></html>`).window
 }
 
-/* 两档读数：顶上那一段（让位那两条压着基础规则）与页根那两条内边距（含两张表各管各的页）。 */
+/* Two probe groups: the top band (the yield rules pressing above the base rules) and the two page-root paddings (each sheet owning its own page). */
 const EMBED_PROBES = [
   { pane: '#pane-issue', sheet: 'styles/register.css', group: '顶上那一段', at: '.pf-band', properties: ['padding-top'] },
   { pane: '#pane-wires', sheet: 'styles/field.css', group: '顶上那一段', at: '.pf-bar', properties: ['margin-top'] },
   { pane: '#pane-issue', sheet: 'styles/register.css', group: '页根那两条内边距', at: '.pf-page', properties: SHORTHAND.padding },
   { pane: '#pane-wires', sheet: 'styles/field.css', group: '页根那两条内边距', at: '.pf-page', properties: SHORTHAND.padding },
-  /* 与面板那几张表同名的元素：蓝本里它们在各自的文档里没有对手，进了面板却要和明细那一行
-     （`detail.css` 的 `.pf-row`）、主面板那个组头（`main.css` 的 `.pf-head`）争——这一页那份表
-     靠「同档但排在后面」赢，这一档被收拢改掉，列宽与那道线就跟着换主人。 */
+  /* Elements sharing names with the panel's own sheets: in the mock they have no rival inside their
+     own documents, but in the panel they compete with the detail row (`detail.css`'s `.pf-row`) and
+     the main panel's group head (`main.css`'s `.pf-head`) — this sheet wins by "same specificity,
+     later in order"; disturb that notch and the column width and that line change hands. */
   { pane: '#pane-issue', sheet: 'styles/register.css', group: '同名规矩那一处', at: '.pf-register .pf-row', properties: ['grid-template-columns', 'column-gap', 'height', ...SHORTHAND.padding] },
   { pane: '#pane-issue', sheet: 'styles/register.css', group: '同名规矩那一处', at: '.pf-register .pf-head', properties: ['grid-template-columns', 'column-gap', 'align-items', 'padding-top'] },
 ]
@@ -1297,7 +1330,7 @@ const EMBED_PROBES = [
 const embedReadings = []
 for (const probe of EMBED_PROBES) {
   const pageRoot = container.querySelector(`${probe.pane} > .pf-page`)
-  /* 页根那一条量的是它自己：`querySelector` 只看后代，从它身上找不到它。 */
+  /* The page-root probe measures the root itself: `querySelector` only sees descendants and would never find it from itself. */
   const target = pageRoot === null ? null : (pageRoot.matches(probe.at) ? pageRoot : pageRoot.querySelector(probe.at))
   const blueprint = blueprintWindow(pageRoot ?? window.document.createElement('div'), probe.sheet)
   const product = cascadeWinner(window, target, probe.properties)
@@ -1323,9 +1356,10 @@ for (const [group, what] of [
   )
 }
 
-/* ---- 4a. 设置那一节：导航行 + 它打开的那一页，与面板读同一份设置表单 -----------
- * 这一节住在 DSH 自己的设置面板里，跟主面板不在一棵树上，所以这里把产物注册的那个组件单独
- * 挂进一份 DOM。判据是「翻一行，面板上对应的读数当场跟着变」。
+/* ---- 4a. The settings section: a navigation row + the page it opens, reading the same settings form as the panel ----
+ * This section lives in DSH's own settings panel, not in the main panel's tree, so the product's
+ * registered component is mounted into a DOM of its own here. The criterion: flip one row and the
+ * panel's corresponding reading follows at once.
  */
 
 const settingsForm = backend.form(client.SETTINGS_NAMESPACE)
@@ -1371,8 +1405,8 @@ const flipSwitch = async (label) => {
   await settle()
 }
 
-/* 默认信息量：三档里翻到「精简」，面板上每列最多一张卡。收尾翻回「展开」，后面的读数
-   与这一趟之前一致。 */
+/* Default info level: flipping to "lean" of the three tiers caps each column at one card. Flipped
+   back to "expanded" at the end, so later readings match this pass's starting point. */
 await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 await settle()
 const cardCounts = () => [...container.querySelectorAll('#cols .pf-col')]
@@ -1394,7 +1428,7 @@ check(
   `卡片=${JSON.stringify(cardCounts())} ｜ 文档里 infoLevel=${String(settingsDoc().infoLevel)}`,
 )
 
-/* 默认标签页：从设置里挑「指令」，面板当场换到那一格。 */
+/* Default tab: picking "Instructions" in settings switches the panel to that pane at once. */
 const pickOption = async (select, text) => {
   if (select === undefined || select === null) return
   const option = [...select.options].find((one) => one.textContent === text)
@@ -1419,8 +1453,8 @@ check(
   detailA.length > 0,
   detailA.map((group) => `${group.label}(${String(group.rows.length)})`).join('/'),
 )
-/* 明细就是读者点进来要看的那几行：记录里写着标题的格，行上印的是那段标题；而且这一格一露面
- * 每一组都摊开着——折起来那一手由读者按下去。 */
+/* The detail pane is exactly the rows a reader clicks in for: nodes with a title in the record print
+ * that title on their row; and the pane opens with every group expanded — folding is the reader's move. */
 const titledRows = detailA.flatMap((group) => group.rows).filter((row) => project.nodeById[row.id]?.title !== undefined)
 check(
   '明细每一行印的是记录里那段标题',
@@ -1434,7 +1468,7 @@ check(
     && [...container.querySelectorAll('#pane-detail .pf-rowhead')].every((head) => head.getAttribute('aria-expanded') === 'true'),
   `组=${detailA.map((group) => `${group.label}${group.folded ? '（折着）' : '（摊开）'}`).join('/')}`,
 )
-/* 折起来那一手还在读者手上：按一下组头，那一组收起来、右边报出它有几格；再按一下又摊开。 */
+/* Folding stays in the reader's hands: one press on a group head folds it and reports its row count at the right; another press unfolds. */
 const completedRowsWant = detailA.find((group) => group.label === '已交付')?.rows.length ?? 0
 const completedHead = [...container.querySelectorAll('#pane-detail .pf-rowhead')]
   .find((head) => head.querySelector('.pf-rowhead-key')?.textContent === '已交付')
@@ -1481,7 +1515,7 @@ if (live !== undefined) {
     await settle()
   }
 
-  /* 归档这一下从面板那一枚按钮按下去：写面从界面一路走到工具，再读回来。 */
+  /* The archive action is pressed from the panel's own button: the write face runs from UI all the way to the tool, then reads back. */
   const archiveKey = buttonOf(rowOf(), '归档')
   check('指令那一行上有归档这一枚', archiveKey !== undefined, live.text.slice(0, 24))
   if (archiveKey !== undefined) await click(archiveKey)
@@ -1493,7 +1527,7 @@ if (live !== undefined) {
     `notes 上找得到那一行=${String((notes()?.textContent ?? '').includes(live.text))} ｜ 文档里 showArchived=${String(settingsDoc().showArchived)}`,
   )
 
-  /* 翻设置里「指令里显示已归档的」：归档的条目回到各自的段里，右边那枚动作是「复原」。 */
+  /* Flip "show archived instructions" on: archived entries return to their groups, and the row's action becomes "Revive". */
   await flipSwitch('指令里显示已归档的')
   check(
     '翻设置里「指令里显示已归档的」：已归档的当场回到页面上，右边那枚是复原',
@@ -1504,14 +1538,14 @@ if (live !== undefined) {
     `那一行=${(rowOf()?.textContent ?? '（没有这一行）').slice(0, 48)} ｜ 文档里 showArchived=${String(settingsDoc().showArchived)}`,
   )
 
-  /* 复原也是从界面上按：那一行现在摆的是「复原」。 */
+  /* Revive is pressed from the UI too: the row now carries "Revive". */
   const reviveKey = buttonOf(rowOf(), '复原')
   check('归档之后那一行摆的是复原', reviveKey !== undefined, '复原')
   if (reviveKey !== undefined) await click(reviveKey)
   const revived = JSON.parse(readFileSync(join(record, 'instructions.json'), 'utf8')).instructions.find((entry) => entry.id === live.id)
   check('复原：它又回到 live', revived?.state === 'live', `state=${String(revived?.state)}`)
   check('复原之后面板上不再标已归档', (notes()?.textContent ?? '').includes('已归档') === false, '那一行回到了生效那一堆')
-  /* 收尾把这一行翻回关上：后面几条读数与这一趟开始时同一档。 */
+  /* Flip the row back off at the end: the later readings return to this pass's starting tier. */
   await flipSwitch('指令里显示已归档的')
   check(
     '翻回关上：归档的收起来，文档里那一格也回到关着',
@@ -1519,7 +1553,7 @@ if (live !== undefined) {
     `文档里 showArchived=${String(settingsDoc().showArchived)}`,
   )
 
-  /* 删除：先让人看清那条原话，点第二下才动手。 */
+  /* Delete: the original text is shown first; the second press does the deed. */
   const deleteKey = buttonOf(rowOf(), '删除')
   check('指令那一行上有删除这一枚', deleteKey !== undefined, '删除')
   if (deleteKey !== undefined) {
@@ -1537,8 +1571,9 @@ if (live !== undefined) {
   check('删除之后复原拿不回来', restore.ok === false, `revive=${restore.ok ? 'ok' : restore.text.split('\n')[0].slice(0, 60)}`)
 }
 
-/* 记下一条：从这一行里写一句进去——面板 → 宿主 → 工具 → 记录，再读回页面。
-   挑全局那一项：这一条量的是那条路通不通，绑哪条线的读数另有一条在管。 */
+/* Add a note: write one sentence through this row — panel → host → tool → record, read back onto
+   the page. The global scope is picked: this check is about the path working; scope-to-cycle
+   binding has its own check. */
 const said = '先看一眼记录再动手 & 别猜'
 const addRow = container.querySelector('#pane-notes .pf-add')
 check(
@@ -1574,7 +1609,7 @@ if (addRow !== null) {
   )
 }
 
-/* 策略数：从线路设置那枚模态里改一个，读数跟着变。 */
+/* Policy numbers: change one through the line-settings modal and the readings follow. */
 const cycles = JSON.parse(readFileSync(join(record, 'state.json'), 'utf8')).cycles
 const line = cycles[0]
 check('记录里有一条线可以写策略', line !== undefined, `id=${String(line?.id)}`)
@@ -1589,8 +1624,9 @@ if (line !== undefined) {
     const fields = () => [...container.querySelectorAll('.pf-setrow .pf-numin')]
     check('模态里三个数摆出来了', container.querySelectorAll('.pf-setrow').length === 3 && fields().length === 3, `rows=${String(container.querySelectorAll('.pf-setrow').length)}`)
     const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-    /* 三个策略数各写一次：同一个模态里那三行、同一条端点，成本就是三次回车。读数落在
-     * **记录文件**上（`state.json` 里那三个键），面板自己回读的那一份不作数。 */
+    /* Each of the three policy numbers is written once: three rows in the same modal, same endpoint,
+     * the cost being three Enters. The reading lands on the **record file** (the three keys in
+     * `state.json`); what the panel reads back on its own does not count. */
     const targets = [['parallel', 5], ['test_seconds_limit', 900], ['issue_pool_weight_limit', 7]]
     const wrote = []
     for (const [index, [key, target]] of targets.entries()) {
@@ -1600,7 +1636,7 @@ if (line !== undefined) {
         setValue.call(field, String(target))
         field.dispatchEvent(new window.Event('input', { bubbles: true }))
       })
-      /* 那个框失焦或回车都算改完了：这里走回车那一路。 */
+      /* Blur or Enter both commit the field; this goes the Enter route. */
       await act(async () => {
         field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       })
@@ -1614,9 +1650,9 @@ if (line !== undefined) {
   }
 }
 
-/* ---- 4b. 依赖那一格：层数、节点数、边数从记录里来；放大、抠出来看都真在动 -----
- * 这一份记录只有十几个格，所以这里管的是「读数对不对、看法动不动」；三位数那一档另有一趟
- * 探针（节点目录的 `temp/`）。 */
+/* ---- 4b. The wires pane: layer/node/edge counts come from the record; zoom and isolate really move ----
+ * This record has only a dozen-odd nodes, so this section covers "readings correct, views respond";
+ * the three-digit scale has its own probe pass (the node catalog's `temp/`). */
 
 const click = async (element) => {
   await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
@@ -1631,7 +1667,7 @@ const clickTimes = async (element, times) => {
 const zoomKey = (pane, label) => [...(pane?.querySelectorAll('.pf-zbtn') ?? [])]
   .find((button) => button.getAttribute('aria-label') === label)
 
-/** 这一节开动之前，写面被叫过几次、记录长什么样。 */
+/** Before this section starts: how often the write face was called, and what the record looked like. */
 const writesBefore = writeCalls.length
 const recordBefore = recordDigest()
 
@@ -1663,7 +1699,7 @@ check(
 await click(zoomKey(wiresPane, '放大'))
 const fullCards = [...(wiresPane?.querySelectorAll('.pf-zcard.is-full') ?? [])]
 
-/* 抠出来看：双击一格，只留它自己、它欠的、欠它的。 */
+/* Isolate: double-click a card, leaving only itself, what it owes, and what owes it. */
 const hub = project.graph.edges[0]?.from
 const litWant = hub === undefined ? [] : [
   hub,
@@ -1687,7 +1723,7 @@ check(
   `卡片 ${String(wiresPane?.querySelectorAll('.pf-zcard').length ?? 0)} 张`,
 )
 
-/* ---- 4c. 问题那一格：登记簿的行、重量条画不画、以及自带的主从 ---------------- */
+/* ---- 4c. The issue pane: register rows, whether the weight bar draws, and the built-in master-detail ---- */
 
 await act(async () => { tabs[4].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 await settle()
@@ -1728,8 +1764,9 @@ check(
     && settingsDoc().showOtherStates === true,
   `aria-pressed=${String(fullKey?.getAttribute('aria-pressed'))} 设置文档里=${String(settingsDoc().showOtherStates)}`,
 )
-/* 反方向：上一段量的是「面板→文档」这一趟，这一条从设置里那一行翻，量「文档→面板」——
-   翻到关，那一排当场回到「精简」、未解决之外的行从登记簿里退出去。 */
+/* The reverse direction: the previous section measured "panel → document"; this one flips the
+   settings row to measure "document → panel" — flipping off returns the row to "lean" at once and
+   withdraws the non-open rows from the register. */
 const issueRowIds = () => [...(issuePane?.querySelectorAll('button.pf-row[data-issue]') ?? [])]
   .map((row) => row.getAttribute('data-issue'))
 const segPressed = (label) => [...(issuePane?.querySelectorAll('.pf-segbtn') ?? [])]
@@ -1742,11 +1779,14 @@ check(
     && JSON.stringify(issueRowIds()) === JSON.stringify(openIds),
   `面板上那一档=精简(${String(segPressed('精简'))}) 完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 行=${JSON.stringify(issueRowIds())}`,
 )
-/* 再翻回来：非 open 的组按登记簿的既有设计折成堆（设计法「折叠不动版面」）。一堆折不折的
-   契约在 pool.tsx 的 foldOf：先看手点没点过（folds 表，组件 state——翻档不重置），没点过
-   再看选中落没落在这一堆，落入哪堆哪堆自动展开；选中的来源照 fallback 那半句：未解决的
-   首条，清空时放下的三堆按 已承认→已解决→已驳回 取首条。这份夹具是活数据，未解决迟早
-   清零，期望不许假设「完整档默认全折」——开合、行集合、条数全部从 project.pool 现算。 */
+/* Flip back on: the non-open groups fold into piles per the register's existing design (the design
+   rule "folding never shifts layout"). Whether a pile is open follows pool.tsx's foldOf: first
+   check for a manual click (the folds table, component state — tier flips do not reset it), then
+   whether the selection fell in that pile, which auto-expands; the selection's source follows the
+   fallback clause: the first open row, or when cleared, the first of the three laid-down piles in
+   acknowledged → resolved → rejected order. This fixture is live data and the open set will
+   eventually empty, so expectations must not assume "the full tier defaults to all folded" —
+   open/closed, row sets and counts are all computed from project.pool. */
 const stackedGroups = project.pool.groups.filter((group) => group.key !== 'open')
 const foldButtons = () => [...(issuePane?.querySelectorAll('.pf-register .pf-fold') ?? [])]
 const foldReadings = () => foldButtons().map((button) => [
@@ -1756,7 +1796,7 @@ const foldReadings = () => foldButtons().map((button) => [
 const headLabels = () => [...(issuePane?.querySelectorAll('.pf-register .pf-head-label') ?? [])]
   .map((node) => node.textContent ?? '')
 await flipSwitch('问题池里显示未解决之外的')
-/* 选中这一刻落在哪一堆（pool.tsx 的 fallback：open 首条，清空时才轮到放下的三堆）。 */
+/* Which pile the selection falls in right now (pool.tsx's fallback: the first open row; only when cleared do the three laid-down piles get their turn). */
 const pickedGroupKey = (openGroup?.entries.length ?? 0) > 0
   ? 'open'
   : settingsDoc().showOtherStates !== true
@@ -1764,7 +1804,7 @@ const pickedGroupKey = (openGroup?.entries.length ?? 0) > 0
     : ['acknowledged', 'resolved', 'rejected']
       .map((key) => stackedGroups.find((group) => group.key === key))
       .find((group) => (group?.entries.length ?? 0) > 0)?.key ?? null
-/** 一堆此刻该开着吗：folds 是夹具替组件记的那张手点桌（点一下翻一面，翻档不动它）。 */
+/** Should a pile be open right now: folds is the fixture's record of manual clicks on the component's behalf (one click flips it; tier flips leave it alone). */
 const foldIsOpen = (folds, group) => folds[group.key] ?? (pickedGroupKey !== null && pickedGroupKey === group.key)
 const expectedFoldReadings = (folds) => stackedGroups.map((group) => (foldIsOpen(folds, group)
   ? ['true', '收起']
@@ -1781,10 +1821,11 @@ check(
     && JSON.stringify(foldReadings()) === JSON.stringify(expectedFoldReadings({})),
   `面板上那一档=完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 选中落在=${String(pickedGroupKey ?? '（无处）')} ｜ 行数=${String(issueRowIds().length)}（契约现算 ${String(expectedRowIds({}).length)} 条） ｜ 展开钮=${JSON.stringify(foldReadings())}（记录里非 open 的堆：${stackedGroups.map((group) => `${group.label} ${String(group.entries.length)} 条`).join('、') || '（没有）'}）`,
 )
-/* 点其中一堆的折堆钮：这一堆翻到与先前相反的一面，行集合与各堆开合跟着契约走。未解决有
-   条目时那堆是折着的，这一下就是「点开」；未解决清了、选中落进放下的堆时，这一下点的就
-   是「收起」——两种形态走同一条派生，不跳过任何一种。再翻到关，堆整个退出去——展开中
-   的那堆也在内。 */
+/* Click one pile's fold button: that pile flips to the opposite of its previous state, with the row
+   set and each pile's openness following the contract. When open rows exist that pile starts
+   folded, so this click "opens" it; when the open set is clear and the selection fell into a
+   laid-down pile, this click "closes" it — both shapes go through the same derivation, neither is
+   skipped. Flipping off then withdraws the piles entirely — the expanded one included. */
 if (foldButtons()[0] !== undefined) {
   const clickedGroup = stackedGroups[0]
   const foldsAfterClick = { [clickedGroup.key]: !foldIsOpen({}, clickedGroup) }
@@ -1804,10 +1845,12 @@ if (foldButtons()[0] !== undefined) {
       && JSON.stringify(issueRowIds()) === JSON.stringify(openIds),
     `面板上那一档=精简(${String(segPressed('精简'))}) ｜ 展开钮剩 ${String(foldButtons().length)} 枚 ｜ 行数=${String(issueRowIds().length)}（未解决 ${String(openIds.length)} 条）`,
   )
-  /* 收尾还原：翻回「完整」，把点过的那一堆翻回去——面板回到进这一节时的样子。展开状态跨
-     翻档保留（folds 是组件 state，翻档不重置），还原那一下能收对靠的就是这条，这里钉住：
-     还原后的开合与行集合照同一张 folds 桌现算——当前夹具下就是每堆 aria-expanded=false
-     的全折样子；未解决清空的形态下则是选中那一堆照契约回到展开。 */
+  /* Restore at the end: flip back to "full" and flip the clicked pile back — the panel returns to
+     how it looked entering this section. Fold state survives tier flips (folds is component state,
+     tier flips do not reset it) and that is exactly what the restore depends on, so it is pinned
+     here: openness and row sets after the restore are recomputed from the same folds table — in
+     this fixture that means every pile at aria-expanded=false, all folded; in the emptied-open-set
+     shape, the selected pile returns to open per the contract. */
   await flipSwitch('问题池里显示未解决之外的')
   if (foldButtons()[0] !== undefined) await click(foldButtons()[0])
   const foldsAfterRestore = { ...foldsAfterClick, [clickedGroup.key]: !foldIsOpen(foldsAfterClick, clickedGroup) }
@@ -1825,19 +1868,21 @@ check(
   `写面调用 ${String(writeCalls.length - writesBefore)} 次 ｜ 记录 ${recordDigest() === recordBefore ? '一个字节没动' : '变了'}`,
 )
 
-/* ---- 4d. 设置那一格：这个工作区自己的项目设置，读出来、就在这里改 --------------
- * 四行、三种控件、行尾一枚层签，照蓝本。两侧读数：一边是面板上摆出来的，一边是真工具对着
- * 同一份工作区印的那四行。改一处写回这个项目那一层，改完重读一遍——读数落在那份记录文件
- * （`workspace/.pf/config.json`）上，面板自己回读的那一份不作数。
+/* ---- 4d. The settings pane: this workspace's own project settings, read here and edited here ----
+ * Four rows, three control kinds, a layer tag at each row's end, per the mock. Readings on both
+ * sides: what the panel shows, and the four lines the real tool prints against the same workspace.
+ * Each edit writes back to this project's layer and is read again — the reading lands on the record
+ * file (`workspace/.pf/config.json`); what the panel reads back on its own does not count.
  *
- * 非法值那两档：一个越界数字（数字框里真敲进去），一个不在候选表里的档位（下拉里塞一枚假的
- * 候选值再选它）。两趟都要落在「记录保持原值、界面回到原值」上。
+ * Two invalid-value cases: an out-of-range number (typed into the number box for real) and a tier
+ * not in the option list (a forged option injected into the dropdown, then picked). Both must land
+ * on "record keeps its original value, UI returns to it".
  */
 
 const { parseConfigList } = await import(pathToFileURL(join(root, 'src', 'host', 'project-config.ts')).href)
 const listed = await runPf(hostCtx, workspace, ['config', 'list'], new AbortController().signal)
 const truth = parseConfigList(listed.text)
-/** 记录里那三个层名读作面板上那三个词（蓝本给的那一份说法）。 */
+/** The record's three layer names as the panel's three words (the mock's wording). */
 const LAYER_WORD = { default: '默认', project: '本项目', global: '全局' }
 check(
   '设置那一格：真工具对着这份工作区印得出四行设置',
@@ -1883,8 +1928,9 @@ check(
   `行=${String(shownFirst.length)} 下拉=${String(configPane?.querySelectorAll('select').length)} 数字框=${String(configPane?.querySelectorAll('input.pf-numin').length)} 开-关=${String(configPane?.querySelectorAll('.pf-seg').length)} 层签=${String(configPane?.querySelectorAll('.pf-vlayer').length)} ｜ 名字=${shownFirst.map((row) => row.name).join('/')}`,
 )
 
-/* 每一行的控件各递一手：下拉与数字框走**原型上的 setter**（React 在节点自己身上记着上一次
- * 的值，直接写 `element.value` 会被它当成没变过），开-关那一枚点一下就行。 */
+/* Each row's control gets its own driver: dropdown and number box go through the **prototype
+ * setter** (React remembers the last value on the node itself; assigning `element.value` directly
+ * would read as unchanged), and the on-off toggle just needs a click. */
 const rowIn = (scope, key) => [...(scope?.querySelectorAll('#pane-config .pf-setrow') ?? [])]
   .find((row) => row.getAttribute('data-key') === key)
 const setSelect = async (row, value) => {
@@ -1956,7 +2002,7 @@ check(
 )
 lines.push(`      设置那一格四行各改一次：${wrote.join(' ｜ ')}`)
 
-/* 写完四行：四个值都住在这个项目那一层，层签跟着真住处一起翻。 */
+/* After writing all four rows: all four values live in this project's layer, and the layer tags flip with their real home. */
 const shownAfter = configReadings(container)
 const configNow = storedConfig()
 check(
@@ -1966,7 +2012,7 @@ check(
   `层签=${shownAfter.map((row) => `${row.key}=${row.layer}`).join(' ')} ｜ 面板上=${JSON.stringify(shownAfter.map((row) => row.value))} ｜ 记录里=${JSON.stringify(configNow)}`,
 )
 
-/* 非法值 1：越界数字。记录保持原值，框里回到原值，工具那句话落在面板底下那条提示行上。 */
+/* Invalid value 1: out-of-range number. The record keeps its value, the box returns to it, and the tool's message lands on the panel's note line. */
 const beforeIllegal = storedConfig()
 await typeNumber(rowIn(container, 'max_agents'), '0')
 check(
@@ -1977,7 +2023,7 @@ check(
   `记的是 0 ｜ 记录里=${String(storedConfig().max_agents)} 框里=${rowIn(container, 'max_agents').querySelector('input').value} 提示行=${noteLine() === '' ? '（空）' : noteLine()}`,
 )
 
-/* 非法值 2：不在候选表里的档位。下拉里塞一枚假的候选值再选它——真面板上点不出这一手。 */
+/* Invalid value 2: a tier not in the option list. A forged option is injected into the dropdown and picked — impossible to do on the real panel. */
 const forgedRow = rowIn(container, 'test_tier')
 const forgedSelect = forgedRow.querySelector('select')
 const forged = window.document.createElement('option')
@@ -1994,7 +2040,7 @@ check(
   `记的是 partial ｜ 记录里=${String(storedConfig().test_tier)} 下拉里=${rowIn(container, 'test_tier').querySelector('select').value} 提示行=${noteLine() === '' ? '（空）' : noteLine()}`,
 )
 
-/* 那一列的两枚把手：左右各一枚贴着列缘，拖一下改列宽，双击回默认。 */
+/* The column's two grips: one per edge, dragging changes the column width, double-click restores the default. */
 const wrap = configPane?.querySelector('.pf-configwrap')
 const configWidth = () => wrap?.style.getPropertyValue('--pf-config-w') ?? ''
 const grips = () => [...(configPane?.querySelectorAll('.pf-grip') ?? [])]
@@ -2025,7 +2071,7 @@ check(
     && afterClamp === '960px' && configWidth() === '720px',
   `默认 720px → 右一步 ${afterStep} → shift 一步 ${afterBig} → 左扳手往左 ${afterLeft} → 顶到头 ${afterClamp} → 双击 ${configWidth()}`,
 )
-/* 真拖一下：jsdom 没有指针捕获那三个方法，先补上桩（与明细那道缝同一套量法）。 */
+/* A real drag: jsdom lacks the three pointer-capture methods, so stubs are patched in first (same measurement as the detail split). */
 const dragged = grips()[1]
 const configCaptured = new Set()
 dragged.setPointerCapture = (id) => { configCaptured.add(id) }
@@ -2049,7 +2095,7 @@ check(
 )
 await act(async () => { grips()[1].dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })) })
 
-/* 重开一份面板（同一份记录、同一条会话）：四行的读数与刚才那四个值还对得上。 */
+/* Reopen a panel (same record, same session): the four rows' readings still match the four values just written. */
 const reopenHost = window.document.createElement('div')
 window.document.body.appendChild(reopenHost)
 const reopenRoot = createRoot(reopenHost)
@@ -2071,15 +2117,17 @@ check(
 await act(async () => { reopenRoot.unmount() })
 lines.push(`      设置那一格收尾时记录里那四个值：${JSON.stringify(storedAfter)}`)
 
-/* ---- 5. 明细那道缝：真有入口，真拖得动，重开之后还在 -------------------- */
+/* ---- 5. The detail split: really present, really draggable, still there after reopening ---- */
 
 await act(async () => { tabs[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const grip = container.querySelector('#detail-split')
 check('明细有那道可拖的缝', grip !== null, `aria-valuenow=${String(grip?.getAttribute('aria-valuenow'))}`)
 
-/* 判据 3 头一句是「拖得动」，先问那道缝在不在屏上：明细自带高度下限，它一露面 `#frame`
- * 就挂上 `is-fill`；进包那条规则若还按 `.pf-grip` 收，撑满时它连这道缝一起 `display:
- * none` 掉——那道缝只在明细露面时有用，等于一次也露不了面。这里读计算值。 */
+/* Criterion 3's first clause is "draggable", so first ask whether the split is on screen at all:
+ * the detail pane carries a min-height, and the moment it shows, `#frame` gains `is-fill`; if the
+ * shipped rule still scoped to bare `.pf-grip`, filling would put the split itself under
+ * `display: none` too — the split is only useful while detail is showing, so it would never show.
+ * The computed value is read here. */
 const splitShown = grip === null ? '（没有这道缝）' : window.getComputedStyle(grip).display
 const splitWon = grip === null ? {} : winningDeclarations(grip, ['display'])
 check(
@@ -2088,8 +2136,9 @@ check(
   `display="${splitShown}" ｜ 最后落在它身上的规则=${splitWon.display === undefined ? '（没有规则设 display）' : `display: ${splitWon.display}`}`,
 )
 
-/* 再真的拖一下：jsdom 没有指针捕获那三个方法，先给这道缝补上桩，再 pointerdown →
- * pointermove → pointerup。读数落两处——缝上的 aria-valuenow 与设置文档，手写文档不算数。 */
+/* Then a real drag: jsdom lacks the three pointer-capture methods, so the split gets stubs first,
+ * then pointerdown → pointermove → pointerup. Readings land in two places — the split's
+ * aria-valuenow and the settings document; a hand-written document does not count. */
 const captured = new Set()
 const widthBefore = Number.parseInt(grip?.getAttribute('aria-valuenow') ?? '', 10)
 let widthDragged = widthBefore
@@ -2127,10 +2176,11 @@ check(
 )
 await act(async () => { again.unmount() })
 
-/* ---- 6a-2. 写回被拒：控件不许静默弹回，那一节现有的提示行要说得出来 --------------
- * 手里那个修订号已经过期，宿主把这一笔拒掉，交回来的只是一个 `false`（理由吞在它自己
- * 那里），面板那几处 `void …write(…)` 又把它丢掉。这一条让这份文档一律拒收，再翻一次开关：
- * 两笔都不作数时那条提示行（`.pfset-msg`）上要摆出一句话。
+/* ---- 6a-2. Rejected writes: controls must not silently bounce back; the section's existing note line must speak ----
+ * The caller's revision is stale, the host refuses the write and returns a bare `false` (swallowing
+ * the reason on its side), and the panel's several `void …write(…)` calls drop it. This check makes
+ * the document refuse everything, then flips the switch once more: with both writes voided, the
+ * note line (`.pfset-msg`) must carry a sentence.
  */
 
 const failureLine = () => [...settingsHost.querySelectorAll('.pfset-msg')]
@@ -2147,9 +2197,11 @@ check(
   `拒收前提示行=${failureBefore === '' ? '（空）' : failureBefore} ｜ 拒收后=${failureAfter === '' ? '（空）' : failureAfter} ｜ 文档里 showArchived=${String(settingsDoc().showArchived)}`,
 )
 
-/* 面板上那几样走的是同一条写回（`panel.tsx` 的 `keep`）：拒收时它现有的那条提示行也要说
- * 得出来，控件不许静默弹回。这一趟 `container` 上那一份已经收掉了，另起一份，读的还是同一
- * 份设置表单；按的是面板上真看得见的那一枚（标签那一排），台下的控件不按。 */
+/* The panel's own controls share the same write-back (`panel.tsx`'s `keep`): on refusal its
+ * existing note line must speak too, and controls must not silently bounce back. The copy mounted
+ * on `container` was unmounted earlier, so a fresh one is mounted here, still reading the same
+ * settings form; the press lands on the genuinely visible switch (the labeled row), not the
+ * off-stage control. */
 const refuseHost = window.document.createElement('div')
 window.document.body.appendChild(refuseHost)
 const refuseRoot = createRoot(refuseHost)
@@ -2160,7 +2212,7 @@ await settle()
 const tabBefore = settingsDoc().defaultTab
 await act(async () => { refuseHost.querySelector('#tab-notes')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 await settle()
-/* `.pf-innone` 那一类还兼着几处空态字幕，所以按那句话找，不按下标取。 */
+/* The `.pf-innone` class also serves other empty-state captions, so the sentence is searched for rather than taken by index. */
 const panelSaid = [...refuseHost.querySelectorAll('.pf-innone')]
   .map((node) => node.textContent ?? '')
   .find((text) => text.includes('保存失败')) ?? ''
@@ -2181,10 +2233,11 @@ check(
   `落定那一笔之后 showArchived=${String(landed)} ｜ 收尾=${String(settingsDoc().showArchived)} ｜ 提示行=${failureLine() === '' ? '（空）' : failureLine()}`,
 )
 
-/* ---- 6b. 同一份设置文档再挂一次：值还在，读数与刚才一致 --------------------
- * 真部署里「重启第二个实例」是另一个进程照同一份 `$DSH_HOME` 配置重新读一遍。夹具这一趟能
- * 到的最远处是：把刚才那份文档原样当作下一份文档的起点，重新走一遍 `apply`（新的上下文、
- * 新的注册名册、新的设置口子），再看新挂上来的面板与设置页读出来的是不是那几个值。
+/* ---- 6b. The same settings document mounted again: values survive, readings match ----
+ * In real deployment "restarting a second instance" means another process re-reading the same
+ * `$DSH_HOME` config. The farthest this fixture can go: take the previous document verbatim as the
+ * next one's starting point and run `apply` again (new context, new roster, new settings gate),
+ * then check the freshly mounted panel and settings page read those same values.
  */
 
 const keptPrefs = { ...settingsDoc() }
@@ -2248,7 +2301,7 @@ check(
   `下拉=${String(secondRow('默认标签页')?.querySelector('.pfset-select')?.value)} 已归档=${String(secondSwitch('指令里显示已归档的'))} 未解决之外=${String(secondSwitch('问题池里显示未解决之外的'))}`,
 )
 
-/* ---- 6c. 浏览器本地存储：面板自己的键一个都没有 --------------------------- */
+/* ---- 6c. Browser localStorage: not one panel-owned key ------------------- */
 
 const localKeys = []
 try {
@@ -2257,7 +2310,7 @@ try {
     if (key !== null) localKeys.push(key)
   }
 } catch (error) {
-  /* 读不出来就是空的：这一条判的是「有没有面板自己的键」，读不出来也一样没有。 */
+  /* Unreadable means empty: this check asks "any panel-owned keys?", and unreadable has none either way. */
 }
 const mine = localKeys.filter((key) => key.startsWith('dsh-pathfinder.'))
 const seededLeft = localKeys.filter((key) => LEGACY_SEEDED.includes(key)).length
@@ -2267,12 +2320,14 @@ check(
   `本地存储 ${String(localKeys.length)} 个键${localKeys.length === 0 ? '' : `：${localKeys.join(', ')}`} ｜ 面板自己的 ${String(mine.length)} 个 ｜ 夹具先塞的 ${String(LEGACY_SEEDED.length)} 个旧键剩 ${String(seededLeft)} 个`,
 )
 
-/* ---- 6d. 卸载那一趟：停插件之后，两处都不留东西 --------------------------
- * 另起一条插件（新名册、新落点、自己的 effect），把两处经真代码渲染一遍——两张样式表由
- * 渲染那条路挂上，再把它那几条 effect 全收掉：名册清空，两张标签从文档里摘干净。
+/* ---- 6d. The unload pass: after stopping the plugin, nothing left in either place ----
+ * Boot the plugin again (new roster, new target, its own effects), render both seats through the
+ * real code — the two stylesheets attach via the render path — then dispose all of its effects:
+ * the roster empties and both style tags come off the document cleanly.
  *
- * 清理那一趟的次序（先撤注册再摘样式）写在 `mount.ts` 的清理那一段里；这里与单测都只量
- * 终局——判定 2 要的是「都不留东西」，没有一条要求次序。 */
+ * The cleanup order (deregister first, then strip styles) lives in `mount.ts`'s cleanup section;
+ * this and the unit tests measure only the end state — judgment 2 asks "nothing left", nothing
+ * requires an order. */
 
 const unload = { ledger: new Map(), calls: [], effects: [] }
 const unloaded = bootClient(backend, {}, unload)
@@ -2325,14 +2380,16 @@ check(
   `面板那一张=${String(tagOf(client.PANEL_STYLE_ID))} 设置那一张=${String(tagOf(client.SETTINGS_STYLE_ID))}`,
 )
 
-/* ---- 6e. 热更新那一趟：装 → 卸 → 再装，三处清场点逐处给正面读数 -----------
- * 6d 量的是终局；这一节把「侧栏项 / 中央栏那一格 / 两张注入的样式标签」这三处逐处摆出正面
- * 读数，并多走一趟热更新：卸干净之后再装回来，三处各回到原样、且没有重复登记。
+/* ---- 6e. The hot-reload pass: mount → unmount → mount again, positive readings at all three clear points ----
+ * 6d measured the end state; this section puts a positive reading on each of the three clear points
+ * ("sidebar item / central slot / the two injected style tags") and adds a hot-reload pass: after a
+ * clean unmount, mount again and all three return to their original shape with no duplicate registration.
  *
- * 座席那一面不走真 slots 渲染器（那个住在 DSH 外壳里）；这里用一个最小的渲染器代替，它只做
- * 真渲染器做的那一件事——照名册当下有什么就画什么。于是「注册撤了，屏上就没东西」这件事
- * 有读数。两处座席都指空工作区那条会话：那一档面板正文摆着那句话，画得出来就是一行
- * `.pf-page`。 */
+ * The seats do not go through the real slots renderer (it lives inside the DSH shell); a minimal
+ * renderer stands in, doing the one thing the real one does — draw whatever the roster holds now.
+ * That gives "registration gone, nothing on screen" a reading. Both seats point at the empty
+ * workspace's session: in that case the panel body carries that one sentence, so a successful draw
+ * is one `.pf-page`. */
 
 const CLEAR_POINTS = [
   { word: '侧栏项', key: `sidebar.panellist:${client.PANEL_ID}`, probe: (host) => host.querySelector('svg') },
@@ -2344,14 +2401,14 @@ const hotBoot = bootClient(backend, {}, hot)
 const hotBoardHost = window.document.createElement('div')
 window.document.body.appendChild(hotBoardHost)
 const hotBoardRoot = createRoot(hotBoardHost)
-/** 照名册当下有什么就画什么：真渲染器那一条读法的最小替身。 */
+/** Draw whatever the roster holds now: a minimal stand-in for the real renderer's reading. */
 const paintSeats = async () => {
   const seats = []
   for (const { key } of CLEAR_POINTS) {
     const entry = hot.ledger.get(key)
     if (entry === undefined) continue
     const given = typeof entry.options.inject === 'function' ? entry.options.inject() : {}
-    /* 中央栏那一格那条取数口子换成夹具追踪过的那一份：`settle()` 等得到它。 */
+    /* The central slot's read gate is swapped for the fixture-tracked one: `settle()` can wait on it. */
     const port = given.port === undefined ? {} : { port: trackedPort }
     seats.push(React.createElement(entry.component, {
       ...given, ...port, size: 16, wide: true, useSessions: sessionsAt(emptySessionId),
@@ -2360,7 +2417,7 @@ const paintSeats = async () => {
   await act(async () => { hotBoardRoot.render(React.createElement(React.Fragment, null, ...seats)) })
   await settle()
 }
-/** 两处座席当下的样子：名册里在不在 + 屏上画没画出来，逐处一笔。 */
+/** Both seats' current state: on the roster or not + drawn on screen or not, recorded per seat. */
 const seatState = () => CLEAR_POINTS
   .map(({ word, key, probe }) => ({ word, registered: hot.ledger.has(key), drawn: probe(hotBoardHost) !== null }))
 const seatReport = (state) => state.map(({ word, registered, drawn }) => `${word}=${registered ? '在册' : '不在册'}·${drawn ? '屏上有' : '屏上无'}`).join(' ')
@@ -2374,7 +2431,7 @@ let hotPanelRoot = createRoot(hotPanelHost)
 let hotSectionHost = window.document.createElement('div')
 window.document.body.appendChild(hotSectionHost)
 let hotSectionRoot = createRoot(hotSectionHost)
-/** 露一次面：面板本体（`Entry`，两张样式表由它那一路挂上）与设置里那一页。 */
+/** Show once: the panel body (`Entry`, which attaches the two stylesheets on its path) and the settings page. */
 const showPanel = async () => {
   const section = hot.ledger.get(`${client.SECTION_SLOT}:${client.SETTINGS_NAMESPACE}`)
   await act(async () => {
@@ -2384,7 +2441,7 @@ const showPanel = async () => {
   await settle()
 }
 
-/* 装：三条在册，三处清场点各就各位。 */
+/* Mount: three entries on the roster, all three clear points in place. */
 await showPanel()
 await paintSeats()
 const hotLoaded = seatState()
@@ -2395,7 +2452,7 @@ check(
   `名册 ${String(hot.ledger.size)} 条 ｜ ${seatReport(hotLoaded)} ｜ ${styleReport()}`,
 )
 
-/* 卸：两处座席从名册上撤下来，渲染器那一头跟着画不出东西；两张标签从文档里摘掉。 */
+/* Unmount: the two seats come off the roster so the renderer draws nothing; both tags come off the document. */
 await act(async () => { hotPanelRoot.unmount(); hotSectionRoot.unmount() })
 for (const one of hot.effects) one.off()
 await paintSeats()
@@ -2406,8 +2463,8 @@ check(
   `名册 ${String(hot.ledger.size)} 条 ｜ ${seatReport(hotUnloaded)} ｜ ${styleReport()}`,
 )
 
-/* 再装（热更新）：同一条插件再走一遍，落在**同一本名册**上——三条回来、没有重复，
- * 三处清场点各回到原样。 */
+/* Mount again (hot reload): the same plugin runs once more onto the **same roster** — the three
+ * entries return with no duplicates, and the three clear points return to their original shape. */
 hotPanelHost = window.document.createElement('div')
 window.document.body.appendChild(hotPanelHost)
 hotPanelRoot = createRoot(hotPanelHost)
@@ -2425,11 +2482,11 @@ check(
   `名册 ${String(hot.ledger.size)} 条 ｜ ${seatReport(hotReloaded)} ｜ ${styleReport()}`,
 )
 
-/* ---- 7. 控制台 ---------------------------------------------------------- */
+/* ---- 7. Console ---------------------------------------------------------- */
 
 check('控制台没有 error', consoleErrors.length === 0, consoleErrors.length === 0 ? '0 条' : consoleErrors.join(' | '))
 
-/* ---- 读数落文件 --------------------------------------------------------- */
+/* ---- Readings to file ---------------------------------------------------- */
 
 const report = lines.join('\n')
 writeFileSync(join(work, 'panel-check.txt'), `${report}\n`)

@@ -1,8 +1,9 @@
 /**
- * 面板自己的那几张样式表。
+ * The panel's own stylesheets.
  *
- * 表身由构建期从 `mock/` 那几份模块表里取进来，蓝本那一份是唯一来源，这里不摆第二份抄本；DSH
- * 主题值那一份不进来，真面板里那些别名由外壳给。
+ * The sheet body is pulled in at build time from the module sheets in `mock/`; the blueprint copy is
+ * the single source, so no second copy lives here. DSH theme values are not bundled: the real
+ * panel's aliases are provided by the shell.
  */
 import css from 'virtual:pf-styles'
 import { PANEL_STYLE_ID, dropStyleTag, ensureStyleTag } from './style-tags.ts'

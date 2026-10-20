@@ -1,7 +1,9 @@
 {
-  // 模型层的编译面：纯逻辑一份。这里的源码不 import 任何运行时依赖，类型检查因此只用得上
-  // 编译器自己（宿主那一半的依赖类型不进来）。
-  // 它只检查、不出产物：模型层的类型由这一条命令把关，产物那一侧归 tsconfig.host.json。
+  // The model layer's compile face: pure logic, one tsconfig. Source here imports no runtime
+  // dependencies, so type checking needs only the compiler itself (the host half's dependency
+  // types stay out).
+  // Check-only, no output: the model layer's types are gated by this one command; the build side
+  // belongs to tsconfig.host.json.
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "composite": false,

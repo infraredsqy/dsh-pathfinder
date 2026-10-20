@@ -1,9 +1,11 @@
 /**
- * 主面板第二格：明细。左边一条线路侧栏（每条线一枚挑选钮、一枚「设置」），正文是选中那条线的
- * 节点清单，按五组分；侧栏与正文之间有一道可挪的缝。
+ * The second pane of the main panel: detail. A line sidebar on the left (each line with a pick
+ * button and a "Settings" button), and the body is the picked line's node list grouped into five
+ * sections; a movable split sits between sidebar and body.
  *
- * 挑哪条线、开哪一枚设置、缝挪到哪，都递回外壳（`onPickLine` / `onOpenSettings` /
- * `onSideWidth` / `onSideCommit`）；写回设置文档那一手在外壳。
+ * Picking a line, opening a line's settings, and moving the split are all handed back to the shell
+ * (`onPickLine` / `onOpenSettings` / `onSideWidth` / `onSideCommit`); writing back to the settings
+ * document is the shell's job.
  */
 import * as React from 'react'
 import type { CycleReading, DetailGroupKey, NodeReading, ProjectReading } from '../model/index.ts'
@@ -15,7 +17,7 @@ import { Grip } from './widgets.tsx'
 import { gateTitle, StateMark } from './marks.tsx'
 import { DepsChip } from './field.tsx'
 
-/** 明细那五组，顺序就是读者遇到它们的顺序。 */
+/** The five detail sections, in the order readers meet them. */
 interface Group {
   readonly key: DetailGroupKey
   readonly label: string
@@ -23,8 +25,8 @@ interface Group {
   readonly deps: boolean
 }
 
-/* 五组一律摊开：这一格叫明细，读者点进来要看的就是那几行。折起来那一手还留着，
- * 由读者按下去。 */
+/* The five sections always start expanded: this pane is called detail, and the rows are what the
+ * reader came to see. The folding move survives, triggered by the reader. */
 const GROUPS: readonly Group[] = [
   { key: 'shelved', label: '等待处理', cls: 'is-shelved', deps: false },
   { key: 'run', label: '进行中', cls: 'is-running', deps: false },
@@ -33,13 +35,14 @@ const GROUPS: readonly Group[] = [
   { key: 'done', label: '已交付', cls: 'is-done', deps: false },
 ]
 
-/** 键盘挪明细那道缝时一步走多远；按住 shift 走两步。 */
+/** How far one keyboard move of the detail split travels; Shift takes two steps. */
 const SPLIT_STEP = 16
 
 /**
- * 明细那一格的整格版面：线路侧栏、那道缝与正文。
- * @param props - 露不露面、这一格收不收成一句话、记录里那几条线与挑中的那条、那一刻的读数、
- *   缝的宽窄与它的两下去处，以及挑线与开设置那两下的去处。
+ * The full layout of the detail pane: the line sidebar, the split, and the body.
+ * @param props - Visibility, whether to collapse to one sentence, the record's lines with the
+ *   picked one, the reading at this moment, the split width with its two write-backs, and where
+ *   the pick-line and open-settings actions go.
  */
 export function DetailPane(props: {
   readonly active: boolean
@@ -88,7 +91,7 @@ export function DetailPane(props: {
             </div>
           ))}
         </div>
-        {/* 侧栏与正文之间那道缝：单边挪 Δ，量的是这一列的宽度。 */}
+        {/* The split between sidebar and body: one edge moving Δ measures this column's width. */}
         <Grip
           id="detail-split"
           label="调整线路侧栏的宽度"
@@ -112,7 +115,7 @@ export function DetailPane(props: {
   )
 }
 
-/** 一条线的记号：停着空着，跑着转圈，名下有人等着的画成阻塞。 */
+/** A line's mark: parked and idle when stopped, spinning while running, drawn as blocked when it owes waiting nodes. */
 function LineMark(props: { readonly cycle: CycleReading }): React.ReactElement {
   const { cycle } = props
   const cls = cycle.parked.length > 0 ? 'is-blocked' : cycle.inService ? 'is-run' : ''
@@ -124,7 +127,7 @@ function stateWord(cycle: CycleReading): string {
   return cycle.inService ? '运行中' : '停止'
 }
 
-/** 明细：选中那条线的节点清单，按五组分。 */
+/** Detail: the picked line's node list, grouped into five sections. */
 function DetailList(props: { readonly cycle: CycleReading; readonly project: ProjectReading }): React.ReactElement {
   const { cycle, project } = props
   const at = project.at
@@ -139,7 +142,7 @@ function DetailList(props: { readonly cycle: CycleReading; readonly project: Pro
   )
 }
 
-/** 一组的组头与它下面的行。 */
+/** A section's header and the rows under it. */
 function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[]; readonly at: Date }): React.ReactElement {
   const { group } = props
   const [folded, setFolded] = React.useState(false)

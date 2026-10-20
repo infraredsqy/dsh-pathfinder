@@ -1,7 +1,9 @@
-/* 设置那一格的两条端点：锁的是「工具印的那几行读成什么」与「写的那一条命令长什么样」。
+/* The two endpoints of the config section: locks in "what the tool's printed lines parse into"
+ * and "what the write command looks like".
  *
- * 这一格读是把 `pf config list` 印出来的几行读开；写是把一条 `config set` 递出去，键与值
- * 都不拦，一并交工具判（它对不认得的键报错、非零退出、不落盘），也不自己拼 `.pf` 底下的路径。
+ * Reading parses the lines printed by `pf config list`; writing hands a `config set` command
+ * outward — keys and values pass through unfiltered for the tool to judge (it errors on unknown
+ * keys, exits non-zero, writes nothing), and no path under `.pf` is assembled locally.
  *
  *   node --test tests/
  */
@@ -10,7 +12,7 @@ import assert from 'node:assert/strict'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 import { parseConfigList } from '../src/host/project-config.ts'
 
-/** 本机 `pf config list` 印的那四行，原样。 */
+/** The four lines printed by a local `pf config list`, verbatim. */
 const LISTED = [
   'max_agents    = 1（项目 .pf/config.json）',
   'test_tier     = full（项目 .pf/config.json）',
@@ -38,7 +40,7 @@ function fakeSubprocess({ executable = 'C:\\tools\\bin\\pf.cmd', exitCode = 0, s
   }
 }
 
-/** 一份够这一层用的最小宿主上下文：会话头指着哪个根，命令就跑在哪个根上。 */
+/** A minimal host context, enough for this layer: the command runs at whatever root the session header points to. */
 function fakeContext({ subprocess, workspaceRoot = 'C:\\workspace' } = {}) {
   return {
     workspaceFiles: {},
@@ -55,7 +57,7 @@ function wordsOf(spec) {
 test('工具印的四行：值与它住哪一层都读出来', () => {
   const entries = parseConfigList(LISTED)
 
-  /* 键就是工具印出来的那几个：这里不立清单，印出来什么就读什么。 */
+  /* The keys are whatever the tool printed: no list is maintained here — what's printed is what's parsed. */
   assert.deepEqual(Object.keys(entries).sort(), ['issue_repair', 'max_agents', 'test_tier', 'worktree_mode'])
   assert.deepEqual(entries['max_agents'], { value: '1', layer: 'project' })
   assert.deepEqual(entries['test_tier'], { value: 'full', layer: 'project' })
@@ -133,7 +135,7 @@ test('没登记的键照递：这一手不立放行表，键与值一并交工�
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const outcome = await gateway.setConfig('s1', '', 'spawner', 'dsh')
 
-  /* 命令照递，工具的那句报错原样上浮——仓内不再有「无法识别的设置键」这道闸。 */
+  /* The command is still forwarded and the tool's error surfaces verbatim — the repo no longer keeps an "unrecognized config key" gate. */
   assert.equal(outcome.ok, false)
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['config', 'set', 'spawner', 'dsh'])
   assert.match(outcome.text, /spawner/u)

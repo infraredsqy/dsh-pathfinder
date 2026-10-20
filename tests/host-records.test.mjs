@@ -1,7 +1,9 @@
-/* 宿主半身取数那一段：只锁不变量——读得对、缺文件不抛、页被拒时收小重取、只读。
+/* The host-half reading segment: invariants only — reads correctly, missing files do not throw,
+ * a refused page shrinks and retries, and the whole thing is read-only.
  *
- * 不锁快照：这里比的是「载荷里的条目与记录里那一份是不是同一件事」；记录长什么样由下面的
- * 样本说了算，样本改了断言跟着改，不是反过来。
+ * No snapshots: what is compared is "the entries in the payload are the same thing as the record's
+ * own copy". What a record looks like is decided by the samples below; when a sample changes the
+ * assertions follow — never the other way around.
  *
  *   node --test tests/
  */
@@ -12,23 +14,25 @@ import { readReading, readWholeFile } from '../src/host/records.ts'
 const scope = { sessionId: 'session-for-tests', workspaceRoot: 'C:\\workspace-for-tests' }
 const signal = new AbortController().signal
 
-/** 口子在目标不存在时给的那个码；只有它算「工作区里没有这一份」。 */
+/** The code the port gives when the target does not exist; only it counts as "not in the workspace". */
 function missing(path) {
   const error = new Error(`no entry at ${path}`)
   error.code = 'workspace-file/not-found'
   return error
 }
 
-/** 口子拒了这一页时给的两个码：页的字节数超上限，或请求的行数超过它那一档。 */
+/** The two codes the port gives when it refuses a page: the page's byte count over the cap, or the requested lines over its tier. */
 function refused(code) {
   const error = new Error(code)
   error.code = code
   return error
 }
 
-/** 一份替身口子：目录由文件名推出来，读按行分页，分页语义与真口子一致（行以 `\n` 结束；
- * 末尾那个 `\n` 结束最后一行，不再起一个空行；`maxLines` 卡一页的行数、`maxBytes` 卡一页的
- * 字节数，超了给真口子那两个码，都不截短）。它只长着 list 与 read 两个成员，想写回当场就报。 */
+/** A stand-in port: directories inferred from file names, reads paged by line, paging semantics
+ * matching the real port (lines end with `\n`; the trailing `\n` terminates the last line and does
+ * not start an empty one; `maxLines` caps a page's lines, `maxBytes` caps its bytes, breaches get
+ * the real port's two codes, nothing is truncated). It only has `list` and `read`; any write
+ * attempt fails on the spot. */
 function fakeWorkspace(files, { pageLines = 2, maxBytes = Infinity } = {}) {
   const calls = []
   const refusals = []
@@ -85,7 +89,7 @@ const NODES = {
     updated_at: '2026-01-03T00:00:00.000Z',
     dependencies: [],
   },
-  // 第二个节点故意不带 weight 与 dsh_session：记录里没有的，载荷里也要没有。
+  // The second node deliberately carries no weight and no dsh_session: absent in the record, absent in the payload.
   n2: {
     title: 'second',
     description: 'the second node',
@@ -239,7 +243,7 @@ test('一页的字节数超上限时把这一页收小重取：整份照样读�
   }
   const files = record()
   files['.pf/ideas.json'] = json({ nodes: many })
-  // 整份记录塞得进 500 行里，但那一页的字节数超了上限：撞的是字节那一面。
+  // The whole record fits within 500 lines, but a page's byte count breaches the cap: the byte side is what gets hit.
   const { port, calls, refusals } = fakeWorkspace(files, { pageLines: 500, maxBytes: 4096 })
   const reading = await readReading(port, scope, signal)
 
@@ -260,7 +264,7 @@ test('请求的行数超过口子那一档时也照样收小重取：整份照�
   }
   const files = record()
   files['.pf/ideas.json'] = json({ nodes: many })
-  // 一页只有 40 行、字节上限 8192：撞上限之后收小的档还得先落到 40 行以内。
+  // A page holds only 40 lines and the byte cap is 8192: after the cap is hit, the shrunk tier must first fit within 40 lines.
   const { port, refusals } = fakeWorkspace(files, { pageLines: 40, maxBytes: 8192 })
   const reading = await readReading(port, scope, signal)
 
@@ -278,7 +282,7 @@ test('单行本身就超上限时，这一份才是真的读不动', async () =>
   const { port } = fakeWorkspace(files, { pageLines: 500, maxBytes: 4096 })
   const reading = await readReading(port, scope, signal)
 
-  // 那一行单独成页也过不去，收小页救不回来。
+  // That line cannot pass even as a page of its own; shrinking pages cannot save it.
   assert.deepEqual(reading.sources, { nodes: 'unusable', cycles: 'read', instructions: 'read', issues: 'read' })
   assert.deepEqual(reading.nodes, {})
 })

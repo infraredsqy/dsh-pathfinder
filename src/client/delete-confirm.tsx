@@ -1,11 +1,12 @@
 /**
- * 删除确认模态：指令的原话照抄摆出来，点第二下才动手。动不动手由外壳说，这里只出那两下。
+ * Delete confirmation modal: the instruction's original words are shown verbatim, and a second
+ * click is required to act. The shell decides whether to act; this only renders those two buttons.
  */
 import * as React from 'react'
 import type { InstructionReading } from '../model/index.ts'
 import { ModalShell } from './widgets.tsx'
 
-/** 删一条：原话照抄，点第二下才动手。 */
+/** Delete one entry: verbatim quote, second click to act. */
 export function DeleteConfirm(props: {
   readonly instruction: InstructionReading
   readonly said: string

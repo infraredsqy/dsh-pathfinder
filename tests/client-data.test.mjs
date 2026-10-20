@@ -1,11 +1,13 @@
-/* 浏览器半身那条通路的数据面：锁的是「从哪一层接上、递出去的是哪一条端点」。
+/* Data plane of the browser-half pathway: locks in which layer is connected to and which endpoint each call reaches.
  *
- * 面板不自己取数：它把「哪条会话、哪个工作区」交给这一层，这一层按装好的远程命名空间、
- * 或者载体那一层，叫到同一个端点上。锁的就是两条路的名字与参数形状：命名空间一改、端点名
- * 一改、参数次序一改，这几条就红。
+ * The panel does not fetch data itself: it hands "which session, which workspace" to this layer,
+ * which calls the same endpoint either through the installed remote namespace or through the
+ * carrier layer. What is locked is the naming and argument shape of both routes: a renamed
+ * namespace, a renamed endpoint, or a reordered argument turns these red.
  *
- * 面板顶上那枚工作区选择器挑中的那个根是第二个参数、次序就在会话身份后面：参数是按位置
- * 递出去的，挪一个位置就会把路径当成 id 递给工具，所以每一处都写死它。
+ * The root picked by the workspace selector at the top of the panel is the second argument, right
+ * after the session identity: arguments are passed positionally, so shifting one slot would hand
+ * the path to the tool as an id — that is why every call pins it explicitly.
  *
  *   node --test tests/
  */

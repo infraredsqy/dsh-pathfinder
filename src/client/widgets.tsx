@@ -1,45 +1,50 @@
 /**
- * client 各格共用的那几枚构件：一道可挪的缝、一枚计数小签、一枚模态外壳、一只提交式数字框。
+ * The widgets shared by the client's panes: a movable split, a count pill, a modal shell, and a
+ * commit-style number input.
  *
- * 每一枚只长一份：拖缝的量法三处各有各的，可拖、可键盘、可双击回默认那一套行为只有一种写法；
- * 模态的遮罩、Escape 与聚焦同出一处，各格只交出自己的正文。
+ * Each exists only once: the drag measurement differs in three places, but draggable + keyboard +
+ * double-click-to-default is written down in one way; the modal's overlay, Escape, and focus all
+ * come from one place, with each pane contributing only its body.
  */
 import * as React from 'react'
 
 /**
- * 一道可挪的缝：指针拖动、键盘步进、双击回默认与 aria 值都在这一份里，三处（明细侧栏、
- * 设置那一列、问题池那道缝）只交出自己的量法与边界。
+ * A movable split: pointer dragging, keyboard stepping, double-click-to-default, and the aria value
+ * all live in this one file; the three call sites (detail sidebar, settings column, issue-pool
+ * split) contribute only their own measurement and bounds.
  *
- * 量法收在两个增益与一把尺子里：指针挪一个像素值变多少（`dragGain`）、方向键走一步值变多少
- * （`keyGain`，带符号——挪的是哪一侧的缘由它说），算出来的数再过调用方那把 `clamp` 落到边界上。
- * 键盘是 ArrowLeft / ArrowRight 一步、按住 shift 走大步，Home / End 顶到两头。
+ * Measurement is captured in two gains and one clamp: how much one pointer pixel changes the value
+ * (`dragGain`), how much one arrow-key step changes it (`keyGain`, signed — it says which side's
+ * edge is being moved); the computed number then passes through the caller's `clamp` onto the
+ * bounds. Keyboard is ArrowLeft / ArrowRight for one step, Shift for a big step, Home / End for the
+ * two ends.
  */
 export function Grip(props: {
   readonly label: string
   readonly value: number
-  /** aria 上报的两头；键盘 Home / End 也落在这里。 */
+  /** The two ends reported over aria; keyboard Home / End also lands here. */
   readonly min: number
   readonly max: number
-  /** 边界：算出来的值落到哪——四舍五入与上下限都在这一手里。 */
+  /** The bounds: where the computed value lands — rounding and limits both happen in this hand. */
   readonly clamp: (px: number) => number
   readonly step: number
-  /** 指针挪一个像素、值变多少；默认 1。设置列那一对是 ±2：单侧挪 Δ、宽窄变 2Δ、中心不动。 */
+  /** How much the value changes per pointer pixel; default 1. The settings pair is ±2: one edge moving Δ changes the width by 2Δ with the center fixed. */
   readonly dragGain?: number
-  /** 方向键走一步、值变多少；默认 1。 */
+  /** How much one arrow-key step changes the value; default 1. */
   readonly keyGain?: number
-  /** 按住 shift 走的大步；不给就是两步。 */
+  /** The big step while Shift is held; two steps when absent. */
   readonly bigStep?: number
   readonly onChange: (px: number) => void
-  /** 松手与双击那一下的落定；不给就只改不落。 */
+  /** The commit on release and double-click; changes only, no commit, when absent. */
   readonly onCommit?: (px: number) => void
-  /** 双击回到的那一个值；不给就没有双击这一手。 */
+  /** The value a double-click returns to; no double-click move when absent. */
   readonly resetTo?: number
-  /** 拖动那口气的记号；问题池拿它给整页挂 is-dragging。 */
+  /** The marker for the drag breath; the issue pool uses it to hang is-dragging on the page. */
   readonly onDragging?: (dragging: boolean) => void
   readonly className?: string
   readonly id?: string
   readonly gripRef?: React.Ref<HTMLDivElement>
-  /** 各处自己的记号：设置列的 data-side / data-width 走这里。 */
+  /** Each site's own markers: the settings column's data-side / data-width go here. */
   readonly attributes?: Readonly<Record<string, string>>
 }): React.ReactElement {
   const { value, clamp, onChange } = props
@@ -61,7 +66,7 @@ export function Grip(props: {
       onPointerDown={(event) => {
         from.current = event.clientX
         base.current = value
-        /* 合成事件里没有真的 pointer，抓不住也不算错：那一下本来就没在拖。 */
+        /* Synthetic events carry no real pointer: failing to capture is not an error — that gesture was never a drag. */
         try {
           event.currentTarget.setPointerCapture(event.pointerId)
         } catch (error) {
@@ -106,7 +111,7 @@ export function Grip(props: {
   )
 }
 
-/** 一枚计数小签：哪个状态几条。没有状态的合算那一枚，身上不挂空状态类。 */
+/** A count pill: which state, how many. The combined one for uncategorized states carries no empty-state class. */
 export function Pill(props: { readonly cls: string; readonly n: number; readonly label: string }): React.ReactElement {
   return (
     <span className="pf-pill" title={props.label}>
@@ -117,16 +122,18 @@ export function Pill(props: { readonly cls: string; readonly n: number; readonly
 }
 
 /**
- * 一枚模态外壳：遮罩点一下收掉、Escape 收掉、挂载那一拍把焦点交给外壳。
+ * A modal shell: one click on the overlay closes it, Escape closes it, and focus moves to the
+ * shell on the mount beat.
  *
- * 监听的依赖收敛到 `onClose` 那一个值，不再整包 props 每渲染重挂一遍。
+ * The listener's dependencies are narrowed to the single `onClose` value, instead of re-mounting
+ * the whole props bundle on every render.
  */
 export function ModalShell(props: {
-  /** 标题那一行的 id：对话框靠它报自己的名字。 */
+  /** The title row's id: the dialog reports its name by it. */
   readonly labelId: string
-  /** 标题那一行的字。 */
+  /** The title row's text. */
   readonly name: string
-  /** 名字悬停时摆的那一句；不给就不挂悬停。 */
+  /** The sentence shown on name hover; no hover attached when absent. */
   readonly nameTitle?: string
   readonly onClose: () => void
   readonly children: React.ReactNode
@@ -153,21 +160,24 @@ export function ModalShell(props: {
 }
 
 /**
- * 一只提交式数字框：type=number、失焦与回车都算改完，敲下的字活在框里，读数来了才让位。
+ * A commit-style number input: type=number, both blur and Enter count as done; typed characters
+ * live in the box and yield only when a reading arrives.
  *
- * 框里那份字跨得过提交：失焦与回车常常接踵而至（提交那一拍焦点挪走是常事），把没被读数接过的
- * 字当空交出去，写面就会拿「没立过」顶替刚立的那一笔。读数里那个值变了（写完再读回来、或从
- * 别处改了），框里才换成读数那一份。提交规则由调用方给：这里只把修剪过的字交出去，写不写、
- * 写什么由它说。
+ * The box's text must survive a commit: blur and Enter often arrive back to back (focus moving away
+ * on the commit beat is routine), and handing over unaccepted characters as empty would make the
+ * write side replace a just-recorded entry with "not set". Only when the reading's value changes
+ * (written then read back, or changed elsewhere) does the box swap to the reading's copy. The commit
+ * rule is supplied by the caller: this file only hands over the trimmed text — whether to write,
+ * and what, is its call.
  */
 export function CommitNumberInput(props: {
-  /** 读数里那个值印出来的样子；框里那份字以它起头，也回到它。 */
+  /** How the reading's value prints; the box starts from it and returns to it. */
   readonly held: string
-  /** 读数里没有这个值：框上挂 is-unset，占位摆「未设置」。 */
+  /** The reading has no such value: the box wears is-unset and the placeholder says "unset". */
   readonly unset: boolean
   readonly label: string
   readonly describedBy: string
-  /** 读数的记号：它一翻，框里那份字就换成读数那一份。不给就只跟着 held 走。 */
+  /** The reading's marker: once it flips, the box swaps to the reading's copy. Without it the box follows `held` only. */
   readonly revision?: number
   readonly title?: string
   readonly onCommit: (text: string) => void

@@ -1,10 +1,13 @@
-/* 宿主半身那条远端口：锁的是「DSH 的网关认不认得出这几个端点」。
+/* The host-half remote port: locks in "whether DSH's gateway recognizes these endpoints".
  *
- * 判官在网关那一侧，它按类上那几枚记号认端点、参数是拿方法源码切出来的，于是几件看起来
- * 无关的小事会让整条端点在真部署里叫不动（参数带默认值、参数表末尾多一个逗号）——这类毛病
- * 本地一跑就过、上了真网关才现形，所以它值得一条用例守着。
+ * The judge sits on the gateway side: endpoints are recognized via the class's markers and
+ * parameter names are sliced out of method source code. So a few seemingly unrelated details can
+ * make an endpoint uncallsable in a real deployment (a parameter with a default value, a trailing
+ * comma in the parameter list) — defects that pass locally and only surface on a real gateway.
+ * That is why they deserve a test case standing guard.
  *
- * 网关与注册表是可选开发依赖：没装就跳过，装了就把端点逐个叫一遍。
+ * The gateway and registry are optional dev dependencies: skip when absent, call every endpoint
+ * one by one when present.
  *
  *   node --test tests/
  */
@@ -15,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 
-/** 九个端点，与 `gateway.ts` 里那张表同一份口径。 */
+/** The nine endpoints, matching the table in `gateway.ts`. */
 const ENDPOINTS = [
   'read',
   'addInstruction',
@@ -34,7 +37,7 @@ const wired = await Promise.all([
   import('@deepseek-ai/dsh-typert-registry').then(() => true, () => false),
 ]).then((flags) => flags.every(Boolean))
 
-/** 造一份最小的记录：四份里各有一点东西，够读数认出来；另造一格会话笔记。 */
+/** Build a minimal record: a little content in each of the four files, enough for a reading to pick up; plus one session note. */
 function syntheticWorkspace({ note = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'pf-gateway-'))
   mkdirSync(join(root, '.pf', 'issues'), { recursive: true })
@@ -61,7 +64,7 @@ function syntheticWorkspace({ note = true } = {}) {
   return root
 }
 
-/** 一个装上真 cordis 上下文、真网关与真注册表的场子。 */
+/** A live rig with a real cordis context, the real gateway, and the real registry. */
 async function liveGateway(root) {
   const { Context } = await import('@deepseek-ai/cordis')
   const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
@@ -201,8 +204,9 @@ test('会话笔记那一条：这一层目录不在时交回空的一份，不�
 })
 
 test('readSessions 认 options 上的取消信号：调用方递的那一条原样到口子', async () => {
-  /* options 是线上参数，信号过不了网关的边界校验；options.signal 与 read 的一样只在进程内可达，
-   * 所以这一条照 read 的进程内口径量：直调方法，看口子收到的信号是谁的那一条。 */
+  /* options is a wire-level parameter, so the signal cannot pass the gateway's boundary validation;
+   * options.signal, like read's, is reachable only in-process. So this case measures it the in-process
+   * way read does: call the method directly and see whose signal reaches the port. */
   const seen = []
   const gateway = new PathfinderRecordsGateway({
     workspaceFiles: {
@@ -227,7 +231,7 @@ test('readSessions 认 options 上的取消信号：调用方递的那一条原�
 })
 
 test('端点表漏登记在构造时当场报错：类上有而表里没有的方法不再静默', () => {
-  /* 同一座子先量基类：装得上——后面报的是漏登记，不是构造这件事本身。 */
+  /* The same rig measures the base class first: it constructs fine — the later error is about the unlisted method, not construction itself. */
   assert.doesNotThrow(() => new PathfinderRecordsGateway({}))
   class LeakyGateway extends PathfinderRecordsGateway {
     sneak() {

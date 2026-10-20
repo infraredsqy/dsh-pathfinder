@@ -1,19 +1,25 @@
 /**
- * 面板落到字面之前要的两个判定：四份来源是不是都落在同一个结局上，一条线的明细收哪些格。
+ * Two judgments the panel needs before it can put words on the screen: whether
+ * the four sources all landed on the same outcome, and which nodes a cycle's
+ * detail section collects.
  *
- * 判读归这一层，画的那一层只取着用：这两条只吃读数、不碰 DOM，在这一层才量得出、锁得住。
+ * Judging belongs to this layer; the drawing layer only consumes the results:
+ * these two take readings only and touch no DOM, so they can be measured and
+ * pinned down here and nowhere else.
  */
 import type { PathfinderReading, PathfinderSourceState } from './records.ts'
 import type { CycleReading, NodeReading, ProjectReading } from './contract.ts'
 
-/** 明细那五组的钥匙：等待处理、进行中、可开工、未开始、已交付。 */
+/** The keys of the detail's five groups: shelved, running, ready, not started, completed. */
 export type DetailGroupKey = 'shelved' | 'run' | 'ready' | 'wait' | 'done'
 
 /**
- * 四份来源是不是都落在同一个结局上。
+ * Whether all four sources landed on the same outcome.
  *
- * 一份来源都没有（这份读数还没列到任何一份）时不算：空集与「全都在」是两件事——前者还
- * 没读，后者才是读出来的结论。
+ * When there is not a single source (this reading has not listed any yet), it
+ * does not count: the empty set and "all of them are" are two different
+ * things — the former has not been read, the latter is the conclusion drawn
+ * from reading.
  */
 export function everySourceIs(reading: PathfinderReading, state: PathfinderSourceState): boolean {
   const states = Object.values(reading.sources)
@@ -21,9 +27,11 @@ export function everySourceIs(reading: PathfinderReading, state: PathfinderSourc
 }
 
 /**
- * 一条线自己那一段明细收哪些格：走过它的算，它此刻正握着的也算。
+ * Which nodes a cycle's own detail section collects: those it walked through,
+ * and those it is holding right now.
  *
- * 已交付那段按交付时刻新的在前——读者从上往下，是刚做完的到早做完的。
+ * The completed section sorts newest completion first — reading top to
+ * bottom, the reader goes from just-finished to finished long ago.
  */
 export function nodesOf(key: DetailGroupKey, cycle: CycleReading, project: ProjectReading): readonly NodeReading[] {
   const mine = (list: readonly NodeReading[]): readonly NodeReading[] =>

@@ -1,4 +1,5 @@
-/* 指令可见性那一段：只锁不变量——哪几句还算数由哪几个字段说了算。
+/* The instruction visibility segment: invariants only — which fields decide whether a sentence
+ * still counts.
  *
  *   node --test tests/
  */
@@ -8,7 +9,7 @@ import { groupInstructions, readProject } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
-/** 一条指令；默认取记录里最常见的那种：说出口了、还在生效。 */
+/** An instruction; defaults to the most common kind in a record: spoken and still in force. */
 function instruction(fields = {}) {
   return { id: 'i1', text: '一句话', scope: 'global', target: 'stage', at: '2026-03-10T09:00:00.000Z', state: 'live', ...fields }
 }

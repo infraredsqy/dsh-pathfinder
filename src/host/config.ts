@@ -1,8 +1,9 @@
 /**
- * 这一行插件行自己的设置 schema。
+ * The settings schema for this plugin line.
  *
- * schemastery 由宿主提供，取法走动态 import：本机没摆那份包时整个模块照样装得上，
- * 只是 DSH 不会把这一行暴露成设置命名空间，读面与面板都在。
+ * schemastery is provided by the host and loaded via dynamic import: when the
+ * package is absent the module still loads — DSH just won't expose this line
+ * as a settings namespace, while the reading side and the panel remain.
  */
 import type { Schema, Schemastery } from '@deepseek-ai/schemastery'
 import {
@@ -14,20 +15,23 @@ import {
   VIEW_IDS,
 } from './settings-fields.ts'
 
-/** 宿主提供的那份 schemastery；本机没摆它时是 `null`。 */
+/** The schemastery provided by the host; `null` when the package is absent. */
 const schemastery: Schemastery | null = await import('@deepseek-ai/schemastery').then(
   (module) => module.default,
   () => null,
 )
 
 /**
- * 照那一份字段表建出这一行的设置 schema。拆成一个函数是为了能单独量：真正跑起来时进来的
- * 就是宿主提供的那份 schemastery。
+ * Build this line's settings schema from the field table. Split into a
+ * function so it can be tested in isolation: at runtime the schemastery
+ * passed in is the one the host provides.
  *
- * 每个字段都标 volatile：设置服务只投影 volatile 字段，一个都没有的条目在设置里干脆
- * 看不见，而多标一个不犯错。老副本（3.18.1 那一档）没有 `.volatile()`，在它上面调用会把
- * 模块的求值过程整个打断、连读面一起带走，所以先探一次——探不到就把字段原样交出去，
- * 代价只是设置页里看不见。
+ * Every field is marked volatile: the settings service only projects volatile
+ * fields — an entry with none would vanish from settings entirely, while
+ * marking extra ones is harmless. Older builds (3.18.1 era) lack
+ * `.volatile()`, and calling it there would break module evaluation and take
+ * the reading side down with it, so probe first — if the probe fails, hand
+ * the fields through unchanged, at the cost of them not showing in settings.
  */
 export function buildConfig(z: Schemastery): Schema<Record<string, unknown>> {
   const canMark = typeof z.boolean().volatile === 'function'
@@ -52,12 +56,13 @@ export function buildConfig(z: Schemastery): Schema<Record<string, unknown>> {
 }
 
 /**
- * 这一行的设置 schema：字段名与出厂默认都从 {@link PANEL_PREF_FIELDS} /
- * {@link PANEL_PREF_DEFAULTS} 来，所以设置页里的行、写回时的路径、面板读回来的键处处
- * 对得上。
+ * This line's settings schema: field names and factory defaults come from
+ * {@link PANEL_PREF_FIELDS} / {@link PANEL_PREF_DEFAULTS}, so the rows in the
+ * settings page, the write-back paths, and the keys the panel reads all line
+ * up.
  *
- * 宿主没摆 schemastery 时它是 `undefined`——DSH 照这一条认出「没有表单」，这一行也就不
- * 占设置里的位置。
+ * When the host lacks schemastery this is `undefined` — DSH reads that as "no
+ * form" and this line takes no place in settings.
  */
 export const Config: Schema<Record<string, unknown>> | undefined = schemastery === null
   ? undefined

@@ -1,8 +1,10 @@
 /**
- * 模型层的入口：四份记录 + 一个时刻 → 那一刻的读数。
+ * The model layer's entry: four records + one moment → the reading at that
+ * moment.
  *
- * 它不取数（记录由数据桥那一格递进来）、不画界面、不碰 DOM，也没有全局状态：同一份输入给
- * 同一份输出。
+ * It fetches nothing (the records are handed in by the data bridge), draws no
+ * UI, touches no DOM, and holds no global state: the same input always gives
+ * the same output.
  */
 export type * from './records.ts'
 export type * from './contract.ts'

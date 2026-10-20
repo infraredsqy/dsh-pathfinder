@@ -1,9 +1,12 @@
 /**
- * 问题那一格：一份登记簿怎么读——左边是清单、右边是一案，中间那道缝读者可以挪。
+ * The issues pane: how a ledger reads — the list on the left, one case on the right, and the reader
+ * may move the split in between.
  *
- * 一页只回答一个问题：还欠着什么。所以它开在「未解决」上，「完整」把另外三个状态放回来。重量条
- * 是这份重量画出来的样子，不压线的那几条不占格——压不压由读数自己说，与加权和同一个口径。记录里
- * 没有重量表或者没有那条策略线，这一条就不画，不拿 0 顶上。
+ * One page answers one question: what is still owed. So it opens on "unresolved", and "full" puts
+ * the other three states back. The weight gauge is the drawing of these weights; entries below the
+ * line take no slots — whether one presses the line is said by the reading itself, the same
+ * standard as the weighted sum. When the record has no weight table or no policy line, the gauge is
+ * not drawn at all rather than standing in with a 0.
  */
 import * as React from 'react'
 import { ISSUE_STATE_WORDS } from '../model/index.ts'
@@ -11,21 +14,21 @@ import type { IssueGroupReading, IssueReading, PoolReading, ProjectReading } fro
 import { NOT_ENABLED } from './constants.ts'
 import { Grip, Pill } from './widgets.tsx'
 
-/** 一个重量单位占几像素，以及两个单位之间那道缝。 */
+/** How many pixels one weight unit occupies, and the gap between two units. */
 const SLOT = 6
 const SLOTS = 2
 
-/** 两半各自的宽度下限：一行是三列夹一句话，一案是一段话。 */
+/** Each half's minimum width: the left is three columns around a sentence, the right is one passage. */
 const POOL_MIN = 320
 const CASE_MIN = 360
-/** 键盘挪那道缝时一步走多远。 */
+/** How far one keyboard move of the split travels. */
 const BAR_STEP = 16
 
 function sevClass(severity: string | undefined): string {
   return `is-${severity ?? 'P3'}`
 }
 
-/** 记录里那三个不欠着的状态，一条一句：「完整」那枚钮与那枚合计章说的是同一件事。 */
+/** The record's three not-owed states, one sentence each: the "full" button and the combined pill say the same thing. */
 function otherStatesWord(pool: PoolReading): string {
   return (['acknowledged', 'rejected', 'resolved'] as const)
     .map((key) => `${ISSUE_STATE_WORDS[key]} ${String(pool.census[key])}`)
@@ -44,12 +47,13 @@ export function IssuePool(props: {
   const gutterRef = React.useRef<HTMLDivElement | null>(null)
   const [left, setLeft] = React.useState<number | null>(null)
   const [bar, setBar] = React.useState({ min: POOL_MIN, max: POOL_MIN, now: POOL_MIN })
-  /* 拖动那道缝的当口：这个状态挂在这一格自己身上（不是页面根），样式表那三条跟着它走。 */
+  /* The moment a drag is under way: this state hangs on the pane itself (not the page root), and three stylesheet rules follow it. */
   const [dragging, setDragging] = React.useState(false)
 
   const openGroup = pool.groups.find((group) => group.key === 'open')
   const closedGroups = pool.groups.filter((group) => group.key !== 'open')
-  /* 一露面就得是某一案：先看未解决，一个都没有的时候（记录里全结掉了）才看放下的那几堆。 */
+  /* One case must be selected as soon as the pane shows: open first; only when there is none (the
+     record settled everything) fall to the set-aside piles. */
   const fallback = openGroup?.entries[0]
     ?? (props.showOtherStates
       ? closedGroups.find((group) => group.key === 'acknowledged')?.entries[0]
@@ -59,7 +63,7 @@ export function IssuePool(props: {
   const selected = pool.rows.find((row) => row.id === picked
     && (row.status === 'open' || props.showOtherStates)) ?? fallback ?? null
 
-  /* 那两半谁占多少地方：读者挪之前按样式表自己那一份，挪过之后就固定在挪到的位置上。 */
+  /* How much room each half takes: the stylesheet's own copy until the reader moves it, then pinned at the moved position. */
   const barAt = React.useCallback(() => {
     const split = splitRef.current
     const gutter = gutterRef.current
@@ -77,8 +81,9 @@ export function IssuePool(props: {
     setBar({ min: POOL_MIN, max: at.max, now: left === null ? at.now : left })
   }, [barAt, left])
 
-  /* 那一排数只在量得出来的时候报得准：窗口换了大小、这一格刚露面，都重量一次。挪过的
-     那道缝要是被窗口挤出了范围，就把它收回来。 */
+  /* That row of numbers reports accurately only when measured: a window resize or the pane just
+     becoming visible both trigger a re-measure. If the moved split got squeezed out of range by the
+     window, pull it back. */
   React.useEffect(() => {
     const onResize = (): void => {
       const at = barAt()
@@ -90,13 +95,14 @@ export function IssuePool(props: {
     return () => window.removeEventListener('resize', onResize)
   }, [paintBar, barAt, left])
 
-  /* 那道缝的边界：算出来的位置落到哪——左半边的下限与这一格现量出来的上限都在这一手里。 */
+  /* The split's bounds: where the computed position lands — the left half's floor and the pane's
+     currently measured ceiling are both decided in this hand. */
   const clampBar = (to: number): number => {
     const at = barAt()
     return Math.max(POOL_MIN, Math.min(Math.round(to), at.max))
   }
 
-  /* 方向键挪到下一行；挑中的那一行就是右半边那一条。 */
+  /* Arrow keys move to the next row; the picked row is the one on the right half. */
   const select = (id: string): void => {
     setPicked(id)
   }
@@ -121,8 +127,10 @@ export function IssuePool(props: {
     folds[group.key] ?? (selected !== null && selected.status === group.key)
   )
 
-  /* 这一格只跟问题那一份走：它不在（或者里面一条都没有）时，这一格收成一句话，与那五个格子说的
-   * 是同一句。登记簿、两半之间那道缝与「一案」都是替记录说它没说的话——没有的东西不画。 */
+  /* This pane follows only the issues reading: when it is absent (or holds no entries), the pane
+   * collapses to one sentence — the same one the other five panes say. The ledger, the split between
+   * the halves, and the "case" all speak what the record does not say about itself — nothing is
+   * drawn for what does not exist. */
   if (pool.rows.length === 0) return <p className="pf-innone">{NOT_ENABLED}</p>
 
   const splitStyle = left === null ? undefined : ({ ['--pf-left' as string]: `${String(left)}px` } as React.CSSProperties)
@@ -224,8 +232,8 @@ export function IssuePool(props: {
           })}
         </div>
 
-        {/* 登记簿与一案之间那道缝：拖、键盘、aria 都在共用那枚 Grip 上，这里只给它
-            这一格现量出来的两头。 */}
+        {/* The split between ledger and case: drag, keyboard, and aria all live on the shared Grip;
+            here it is given only this pane's currently measured two ends. */}
         <Grip
           id="gutter"
           className="pf-gutter"
@@ -248,15 +256,16 @@ export function IssuePool(props: {
   )
 }
 
-/** 重量条：一个单位一格，填到还欠着的那几条，框就是那条策略线。 */
+/** The weight gauge: one unit per slot, filled up to what is still owed, framed by the policy line. */
 function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
   const { pool } = props
   const line = pool.line ?? 0
   const units = Math.max(line, pool.weight ?? 0)
   const blocks: { readonly severity: string | undefined; readonly carried: boolean; readonly title: string }[] = []
   for (const issue of pool.standing) {
-    /* 不压线的那几条不占这根条上的一格：压不压由读数自己说，与加权和同一个口径——
-       它们还在登记簿上，只是不压这条线。 */
+    /* Entries below the line take no slot on this bar: whether one presses the line is said by the
+       reading itself, the same standard as the weighted sum — they remain on the ledger, they just
+       do not press on this line. */
     if (!issue.payable) continue
     for (let at = 0; at < issue.weight && blocks.length < units; at += 1) {
       blocks.push({
@@ -267,8 +276,8 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
     }
   }
   const [filled, setFilled] = React.useState(false)
-  /* 池子填进自己那一份重量里，而不是一露面就是满的：这一趟重读留下的那道错开，说的就是
-     「同一份池子又被数了一遍」。 */
+  /* The pool fills into its own weight rather than appearing full: the stagger left by this re-read
+     says "the same pool was counted once more". */
   React.useEffect(() => {
     const frame = requestAnimationFrame(() => setFilled(true))
     return () => cancelAnimationFrame(frame)
@@ -301,7 +310,7 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
   )
 }
 
-/** 登记簿的一堆：几条在旁边的数里，多重在那根条上。 */
+/** A pile on the ledger: how many in the side number, how heavy on the bar. */
 function RegisterHead(props: { readonly group: IssueGroupReading }): React.ReactElement {
   return (
     <div className="pf-head">
@@ -363,7 +372,7 @@ function CaseFile(props: { readonly issue: IssueReading }): React.ReactElement {
   )
 }
 
-/** 一案里的一段：只有记录里真写着的那几段才站上版面。 */
+/** A section inside the case: only the sections the record truly carries take the page. */
 function CaseSection(props: { readonly label: string; readonly body: React.ReactNode }): React.ReactElement {
   return (
     <section className="pf-case-sec">
@@ -373,7 +382,7 @@ function CaseSection(props: { readonly label: string; readonly body: React.React
   )
 }
 
-/** 记录自己那句话里那两处记号：`**重点**` 与 `` `代码` ``；别的字一个都不动。 */
+/** The two marks inside the record's own prose: `**emphasis**` and `` `code` ``; every other character is untouched. */
 function prose(said: string): React.ReactNode {
   const pattern = /\*\*([^*]+)\*\*|`([^`]+)`/gu
   const out: React.ReactNode[] = []
@@ -391,7 +400,7 @@ function prose(said: string): React.ReactNode {
   return out
 }
 
-/** 一句话里的换行画成换行：记录里那几个字段是几行，这里就是几行。 */
+/** Newlines in a sentence draw as line breaks: as many lines in the record's field, as many here. */
 function proseLines(said: string): React.ReactNode[] {
   return said.split('\n').flatMap((line, at) => (at === 0 ? [line] : [<br key={`n${String(at)}`} />, line]))
 }

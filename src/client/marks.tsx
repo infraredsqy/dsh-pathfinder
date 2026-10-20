@@ -1,28 +1,29 @@
 /**
- * 看板、明细、指令簿三格共用的读法小构件：一枚状态标、一句闸的提示、一个时刻的印法。
+ * Reading widgets shared by the board, detail, and instruction-book cells: a state mark, a gate
+ * hint, and a moment formatter.
  *
- * 这些读法只此一份：卡上与明细行上的状态标是同一枚，闸的提示与时刻的印法也同一套——
- * 各格只递自己那一格与那一刻。
+ * These readings exist only once: the state mark on cards and detail rows is the same one, and the
+ * gate hint and time formatting are the same set — each cell just passes its own cell and moment.
  */
 import * as React from 'react'
 import type { DetailGroupKey, NodeReading } from '../model/index.ts'
 import { clock, dayLabel, duration } from '../model/index.ts'
 
-/** 一列卡的身份：状态标按它画。 */
+/** A card column's identity: the state mark is drawn by it. */
 export type CardKind = 'shelved' | 'run' | 'next' | 'done'
 
-/** 读数里那一刻到 moment 的样子；没有那一刻就是 `--`。 */
+/** The reading's moment rendered via moment; `--` when there is no moment. */
 export function timeOf(moment: Date | null, at: Date): string {
   return moment === null ? '--' : `${dayLabel(moment, at)} ${clock(moment)}`
 }
 
-/** 那一格的闸：哪一个词、哪一刻。 */
+/** The cell's gate: which word, since when. */
 export function gateTitle(node: NodeReading, at: Date): string {
   if (node.gate === null) return ''
   return node.gate.since === null ? node.gate.word : `${node.gate.word} · ${timeOf(node.gate.since, at)}`
 }
 
-/** 状态标：有闸的格一律是那枚暂停，其余按它在哪一列画。 */
+/** State mark: gated cells always show the pause mark, the rest is drawn by column. */
 export function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind | DetailGroupKey; readonly at: Date }): React.ReactElement {
   const { node } = props
   const loud = node.gate !== null && node.state !== 'todo'

@@ -1,8 +1,11 @@
 /**
- * 主面板第三格：指令簿。「记下一条」那一行（范围点名＋原话照抄）加按范围分组的登记簿。
+ * The third pane of the main panel: the instruction book. A "record one" row (scope picker plus
+ * verbatim text) plus a ledger grouped by scope.
  *
- * 写面在外壳：添一条、归档、复原都经这里的回调递上去，写成没有由回调的回值说；删除只把那一条
- * 递回外壳——确认模态归外壳摆。这一格自己不碰口子。
+ * The write side lives in the shell: adding, archiving, and reviving all go up through the
+ * callbacks here, and whether the write landed is said by the callback's return value; delete only
+ * hands the entry back to the shell — the confirm modal belongs to the shell. This pane never
+ * touches the gateway itself.
  */
 import * as React from 'react'
 import type { InstructionScope } from '../host/gateway.ts'
@@ -11,13 +14,14 @@ import { dayLabel, groupInstructions } from '../model/index.ts'
 import { NOT_ENABLED } from './constants.ts'
 import { timeOf } from './marks.tsx'
 
-/** 收起归档时，一组里最多露几行不算数的。 */
+/** With archived entries collapsed, how many non-standing rows a group may show at most. */
 const NOTES_ROWS = 5
 
 /**
- * 指令簿那一格的整格版面：「记下一条」那一行加登记簿。
- * @param props - 露不露面、这一格收不收成一句话、那一刻的读数与记录里那几条线、设置里
- *   「已归档也摆出来」那一个值，以及添、归档、复原、删除四下的去处。
+ * The full layout of the notes pane: the "record one" row plus the ledger.
+ * @param props - Visibility, whether to collapse to one sentence, the reading at this moment with
+ *   the record's lines, the settings value for "show archived too", and where the add, archive,
+ *   revive, and delete actions go.
  */
 export function NotesPane(props: {
   readonly active: boolean
@@ -65,7 +69,7 @@ export function NotesPane(props: {
   )
 }
 
-/** 范围那一枚挑出来的三样：范围词、绑哪条线、绑哪一格。 */
+/** The three things the scope picker needs per entry: the scope word, which line, which cell. */
 interface ScopeChoice {
   readonly value: string
   readonly label: string
@@ -74,14 +78,15 @@ interface ScopeChoice {
   readonly node: string
 }
 
-/** 全局那一项：范围表上的头一项，挑过的那条线不在了就退到它。 */
+/** The global entry: first on the scope table, the fallback when the previously picked line is gone. */
 const GLOBAL_CHOICE: ScopeChoice = { value: 'global', label: '全局', scope: 'global', cycle: '', node: '' }
 
 /**
- * 范围那一列摆哪几项：全局、记录里那几条线、此刻在手里的那一格。
+ * Which entries the scope column lists: global, the record's lines, and the cell currently in hand.
  *
- * 蓝本那一行也只摆这三样，只是它每回只点得到最上面那个在跑着的格；真面板里在手里的是哪
- * 一格由记录自己说，没有就是没有这一项。
+ * The blueprint's row lists the same three, only there the clickable running cell is always the top
+ * one; in the real panel which cell is in hand is said by the record itself, and when none, the
+ * entry is absent.
  */
 function scopeChoices(cycles: readonly CycleReading[], inHand: NodeReading | null): readonly ScopeChoice[] {
   const out: ScopeChoice[] = [GLOBAL_CHOICE]
@@ -97,9 +102,10 @@ function scopeChoices(cycles: readonly CycleReading[], inHand: NodeReading | nul
 }
 
 /**
- * 「记下一条」那一行：范围点名 + 原话照抄，站在这一格的最上头。
+ * The "record one" row: scope picker + verbatim text, standing at the top of the pane.
  *
- * 写成了才把那句话从框里收走：工具拒了的话，用户自己那句原话还留在原处等着改。
+ * The sentence is cleared from the box only once the write lands: if the tool refuses, the user's
+ * own words stay in place, ready to be revised.
  */
 function InstructionAdd(props: {
   readonly cycles: readonly CycleReading[]
@@ -149,7 +155,7 @@ function InstructionAdd(props: {
   )
 }
 
-/** 指令那一格：按范围分组的登记簿。 */
+/** The instructions cell: the ledger grouped by scope. */
 function InstructionBook(props: {
   readonly project: ProjectReading
   readonly showArchived: boolean
@@ -161,8 +167,9 @@ function InstructionBook(props: {
   const [folded, setFolded] = React.useState<Readonly<Record<string, boolean>>>({})
   const [open, setOpen] = React.useState<Readonly<Record<string, boolean>>>({})
 
-  /* 已归档的条目默认收起来：一屏里先看见现在还算数的。设置里那一行打开之后，它们回到各自的段
-   * 里，行右边那枚动作照旧可用。 */
+  /* Archived entries are collapsed by default: what still counts now is what a screen shows first.
+   * Once the settings row is turned on, they return to their sections, the actions at the row's
+   * right still usable. */
   const visible = props.showArchived
     ? project.instructions
     : project.instructions.filter((entry) => entry.standing)

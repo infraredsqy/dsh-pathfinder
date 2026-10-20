@@ -1,17 +1,17 @@
-﻿# testbed.ps1 —— 测试床入口：一条命令，三个动作。
+﻿# testbed.ps1 —— testbed entry: one command, three actions.
 #
-#   pwsh -File tools/testbed/testbed.ps1 -Action up      起测试床实例（隔离 home + 独立 profile + 合成工作区
-#                                                        + 本仓这一条面板装进那个 profile），留在那儿给人看
-#   pwsh -File tools/testbed/testbed.ps1 -Action check   跑完 spec「完成判定」1~5 全部五条，逐条印读数，失败时非零退出
-#   pwsh -File tools/testbed/testbed.ps1 -Action down    只收自己记下来的那个 PID（先核对命令行，不按进程名杀）
+#   pwsh -File tools/testbed/testbed.ps1 -Action up      start the testbed instance (isolated home + its own profile + synthetic
+#                                                        workspaces + this repo's panel installed into that profile), left running to inspect
+#   pwsh -File tools/testbed/testbed.ps1 -Action check   run all five spec completion criteria 1-5, printing each reading; non-zero exit on failure
+#   pwsh -File tools/testbed/testbed.ps1 -Action down    stop only the PID this script recorded (verify the command line first, never kill by process name)
 #
-# 运行实体一律落在 -Root 底下（默认 %LOCALAPPDATA%\dsh-pathfinder-testbed），不进版本库、不碰主 home。
-# 合成记录全部自撰；这个脚本只描述做了什么、限制是什么。
+# Everything it creates lives under -Root (default %LOCALAPPDATA%\dsh-pathfinder-testbed): not in the repo, never touches the main home.
+# Synthetic records are authored here; this script only describes what it does and what its limits are.
 #
-# 参数化：-Workspace 换工作区名，-SessionCount 造第二条会话，-EmptyWorkspace 造一份没有会话的工作区，
-# -Plugin 换要装进 profile 的那一条插件（默认就是本仓，相对路径按调用时的当前目录归一；给一个
-# npm pack 出来的 `.tgz` 就按包形态装），-SeedRecords 往合成工作区里放一份真记录（复制成 `.pf`，
-# 只在 up 动作里生效；不给就不碰工作区，默认那一趟只造一份工作区、一条会话。
+# Parameters: -Workspace renames the workspace, -SessionCount adds a second session, -EmptyWorkspace adds a session-less workspace,
+# -Plugin swaps the plugin installed into the profile (default is this repo; relative paths are resolved against the caller's current
+# directory; a `.tgz` from npm pack installs in package form), -SeedRecords drops a real record into a synthetic workspace (copied as `.pf`,
+# effective on the up action only; without it the workspace is untouched — the default run creates one workspace and one session.
 
 #Requires -Version 5.1
 [CmdletBinding()]
@@ -35,18 +35,20 @@ $ErrorActionPreference = 'Stop'
 
 if ($Root.Length -eq 0) { $Root = Join-Path $env:LOCALAPPDATA 'dsh-pathfinder-testbed' }
 if ($MainHome.Length -eq 0) { $MainHome = Join-Path $env:USERPROFILE '.dsh' }
-# 默认装的就是本仓这一条插件：`tools\testbed\` 往上两层就是项目根。
+# The default plugin is this repo: two levels up from `tools\testbed\` is the project root.
 if ($Plugin.Length -eq 0) { $Plugin = Join-Path $PSScriptRoot '..\..' }
-# 入口处就归一成绝对路径：产物预检与交给 `dsh plugin --profile … add` 的必须是同一个值。
-# 否则两处各按各的基准解相对路径——预检按调用者的当前目录（于是过了），dsh 按 profile 目录
-# （于是去装一个不存在的目录），报错还把人指到 profile 目录那边去。
+# Normalize to an absolute path at the entry: the artifact pre-check and what goes to
+# `dsh plugin --profile … add` must be the same value. Otherwise each resolves the relative path
+# against its own base — the pre-check against the caller's current directory (so it passes), dsh
+# against the profile directory (so it installs a nonexistent directory), and the error then points
+# at the profile directory.
 $Plugin = [System.IO.Path]::GetFullPath($Plugin)
 
-# 起进程用 Application 形态：Start-Process 不猜扩展名，也不去碰 npm 目录里那个没有扩展名的 POSIX 壳。
+# Spawn in Application form: Start-Process does not guess extensions and never touches the extensionless POSIX shim in the npm directory.
 $DshCmd = Resolve-ApplicationExecutable -Name $DshCmd
 $NodeExe = Resolve-ApplicationExecutable -Name $NodeExe
 
-# 读数文件里只留摘要：逐文件清单太长，原始读数在 check-report.txt 与 logs\raw 里。
+# Keep only summaries in the readings file: per-file lists are too long; raw readings live in check-report.txt and logs\raw.
 function Get-FingerprintSummary {
   param([Parameter(Mandatory = $true)]$Fingerprint)
   return [ordered]@{
@@ -60,7 +62,7 @@ function Get-FingerprintSummary {
   }
 }
 
-# 完成判定第 4 条的三个反证面：主 home 的会话库、工作区记录、凭据。
+# The three counter-evidence areas for completion criterion 4: the main home's session store, workspace records, credentials.
 function Get-MainHomeAreas {
   param([Parameter(Mandatory = $true)][string]$MainHome)
   return @(
@@ -79,7 +81,8 @@ function Get-MainHomeFingerprint {
   return $areas
 }
 
-# 见证集用的轻量观测：只取「相对路径 -> 长度|mtime」，不读内容（读数与全量指纹同构，判据真读的是后者）。
+# Lightweight scan for the witness set: takes only "relative path -> length|mtime", never reads
+# content (same shape as the full fingerprint's readings; the criteria read the full one).
 function Get-MainHomeMetaScan {
   param([Parameter(Mandatory = $true)][string]$MainHome)
   $areas = [ordered]@{}
@@ -89,7 +92,8 @@ function Get-MainHomeMetaScan {
   return $areas
 }
 
-# 印「一条命令把清单打出来」。只印 pwsh 这一种写法并写明是哪种；命令后面紧跟"什么样才算过"。
+# Print "one command that prints the session list". Only the pwsh form is printed, labeled as such;
+# the command is immediately followed by "what counts as passing".
 function Get-TestbedListCommandLines {
   param(
     [Parameter(Mandatory = $true)][int]$Port,
@@ -103,7 +107,7 @@ function Get-TestbedListCommandLines {
   return @($lines.ToArray())
 }
 
-# 删测试床根目录前的护栏：不许是盘根、不许在项目树里、不许和主 home 互相包含。
+# Guard before deleting the testbed root: never a drive root, never inside the project tree, never overlapping the main home in either direction.
 function Assert-SafeRoot {
   param([Parameter(Mandatory = $true)][string]$Root, [Parameter(Mandatory = $true)][string]$MainHome)
   $full = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
@@ -121,7 +125,7 @@ function Assert-SafeRoot {
   return $full
 }
 
-# 整份删掉再重建：就地幂等，上一轮留下的 home 不当成干净的。
+# Delete wholesale and rebuild: idempotent in place; a home left over from the previous round is not treated as clean.
 function Invoke-TestbedProvision {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
@@ -132,7 +136,7 @@ function Invoke-TestbedProvision {
     [Parameter(Mandatory = $true)][string]$DshCmd,
     [Parameter(Mandatory = $true)][string]$NodeExe
   )
-  # 重建前先收掉还在跑的那一个：它的 stdout/stderr 文件被自己持着，不收就删不掉。
+  # Stop the still-running instance before rebuilding: it holds its own stdout/stderr files open, and they cannot be deleted otherwise.
   $null = Stop-TestbedInstance -Root $Root -Profile $Profile
   if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
   New-Item -ItemType Directory -Force -Path (Join-Path $Root 'logs') | Out-Null
@@ -143,7 +147,7 @@ function Invoke-TestbedProvision {
   $manifest = New-TestbedFixture -Root $Root -Profile $Profile -WorkspaceName $Workspace `
     -SessionCount $SessionCount -EmptyWorkspaceName $EmptyWorkspace -NodeExe $NodeExe
 
-  # 先验头部，再看清单：头部不合法时那一条会话会静默消失，所以这里必须当场拦下。
+  # Validate the header first, then the manifest: an invalid header makes that session vanish silently, so it must be caught here.
   foreach ($session in $manifest.sessions) {
     $problems = Test-TestbedSessionFixture -Session $session
     if ($problems.Count -gt 0) { throw ("synthetic session header check failed: " + ($problems -join '; ')) }
@@ -163,7 +167,7 @@ function Invoke-TestbedProvision {
   return $manifest
 }
 
-# 一个实例周期里的读数：完成判定 1、2、5 都从这里取。
+# Readings from one instance cycle: completion criteria 1, 2 and 5 all draw from here.
 function Invoke-TestbedRun {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
@@ -216,7 +220,7 @@ function Invoke-TestbedRun {
     })
   }
 
-  # 空工作区（可选）也读一遍：它应当能被解析到、成员表为空。
+  # The optional empty workspace is read too: it should resolve, with an empty member list.
   $emptyReadings = New-Object System.Collections.Generic.List[object]
   foreach ($ws in $Manifest.workspaces) {
     if (-not $ws.empty) { continue }
@@ -262,8 +266,9 @@ function Test-RunCriteria {
   param([Parameter(Mandatory = $true)]$Run)
   $ok = $true
   foreach ($row in $Run.sessions) {
-    # 列表里在、归在工作区下（成员的两种读法都要求）、open 那两步都返回了 ok 结果。
-    # 页里记录数为 0 是正常的：合成会话按范围只造"能被列出、能被打开"，正文里没有消息事件。
+    # Listed, grouped under the workspace (both readings of membership require it), and both open
+    # steps returned ok results. Zero records in the page is normal: the synthetic session is built
+    # to be listable and openable only — its body carries no message events.
     if (-not $row.listed) { $ok = $false }
     if (-not $row.cwdMatches) { $ok = $false }
     if (-not $row.accounted) { $ok = $false }
@@ -275,7 +280,7 @@ function Test-RunCriteria {
 }
 
 # ---------------------------------------------------------------------------
-# 动作：down
+# Action: down
 # ---------------------------------------------------------------------------
 if ($Action -eq 'down') {
   $safeRoot = Assert-SafeRoot -Root $Root -MainHome $MainHome
@@ -286,26 +291,29 @@ if ($Action -eq 'down') {
 }
 
 # ---------------------------------------------------------------------------
-# 动作：up
+# Action: up
 # ---------------------------------------------------------------------------
 if ($Action -eq 'up') {
   $safeRoot = Assert-SafeRoot -Root $Root -MainHome $MainHome
   $manifest = Invoke-TestbedProvision -Root $safeRoot -Profile $Profile -Workspace $Workspace `
     -SessionCount $SessionCount -EmptyWorkspace $EmptyWorkspace -DshCmd $DshCmd -NodeExe $NodeExe
   $testbedHome = [string]$manifest.home
-  # 可选：往合成工作区里放一份真记录（面板读的是工作区里那层 `.pf`）。不给就不碰工作区——
-  # 默认那一趟与 check 那五条判据都不经过这里。
+  # Optional: drop a real record into a synthetic workspace (the panel reads the workspace-level
+  # `.pf`). Without it the workspace is untouched — the default run and check's five criteria never
+  # pass through here.
   $recordsReading = @()
   if ($SeedRecords.Length -gt 0) {
     $recordsReading = @(Add-TestbedRecords -Manifest $manifest -RecordsPath $SeedRecords)
   }
-  # 面板装进隔离 profile：这一格要交的那「一条命令」里，「面板已装、指着合成工作区」这一半
-  # 就落在这一步上。装不上就当场停，不起一条没有面板的实例。
+  # Install the panel into the isolated profile: of the "one command" this cell must hand over, the
+  # "panel installed and pointing at the synthetic workspace" half lands on this step. A failed
+  # install stops right here — never start an instance without the panel.
   $pluginReading = Install-TestbedPlugin -Root $safeRoot -TestbedHome $testbedHome -Profile $Profile `
     -PluginPath $Plugin -DshCmd $DshCmd
   $instancePid = Start-TestbedInstance -Root $safeRoot -TestbedHome $testbedHome -Profile $Profile -DshCmd $DshCmd -NodeExe $NodeExe
   $ready = Wait-TestbedReady -Root $safeRoot -ProcessId $instancePid -TimeoutSeconds $ReadyTimeoutSeconds
-  # 装上了要看得见：问那个正在跑的实例要两处读数（设置命名空间名册 + 交给浏览器的启动名册）。
+  # The install must be visible: ask the running instance for two readings (the settings namespace
+  # roster + the boot manifest handed to the browser).
   $rawDir = Join-Path $safeRoot 'logs\raw'
   if (-not (Test-Path -LiteralPath $rawDir)) { New-Item -ItemType Directory -Force -Path $rawDir | Out-Null }
   $mountReading = Get-TestbedPanelMount -Port $ready.port -Url $ready.url -PluginName $pluginReading.plugin `
@@ -339,7 +347,7 @@ if ($Action -eq 'up') {
 }
 
 # ---------------------------------------------------------------------------
-# 动作：check —— 逐条跑完成判定 1~5
+# Action: check —— run completion criteria 1-5 one by one
 # ---------------------------------------------------------------------------
 $safeRoot = Assert-SafeRoot -Root $Root -MainHome $MainHome
 $startedAt = Get-Date
@@ -366,15 +374,21 @@ Add-Report "isolated home: $(Join-Path $safeRoot 'home')"
 Add-Report "main home    : $MainHome"
 Add-Report ''
 
-# 主 home 的反证读数（判据 4 的口径）：
-#   * 见证集只在「测试床实例没在跑」的观测窗里取：先收掉自己的实例，取一枚轻量观测（只看长度与 mtime）
-#     再取一枚全量指纹，两枚之间动过的路径就是见证集；跑完（含重启那一趟）、实例收干净之后，
-#     再取一枚轻量观测和一枚全量指纹，同样得到一个观测窗。这是"确实有别的 live 会话在这台机器上写"
-#     的正面证据——测试床在这两段里没有进程在跑。
-#   * 跑完那枚全量指纹与跑前那枚比对：每条变化都要有正面归属证据才豁免，两条证据取并集——
-#     S1 结构性（project key 与本格派生的键都不同 + 编码后缀是本 profile 写不出的那一种，两条都要成立）、
-#     S2 见证集（「实例没在跑」的观测窗里确实动过的路径）。两条都没有的变化一律判失败；
-#     删除、带本格名字的路径、两处静区的任何变化是硬失败面，不参与豁免。豁免了几条、凭哪一条，读数里逐条印。
+# Counter-evidence readings for the main home (criterion 4's terms):
+#   * The witness set is taken only in observation windows when no testbed instance is running:
+#     stop our own instance first, take a lightweight scan (length and mtime only), then a full
+#     fingerprint; paths touched between the two are the witness set. After the run (including the
+#     restart pass), with the instance fully stopped, take another lightweight scan and another full
+#     fingerprint for a second window. This is positive evidence that "other live sessions really do
+#     write on this machine" — the testbed has no process running during either window.
+#   * The post-run full fingerprint is compared with the pre-run one: every change needs positive
+#     ownership evidence to be exempted, and the two kinds of evidence are unioned —
+#     S1 structural (project key differs from every key this fixture derives + the encoding suffix
+#     is one this profile cannot write; both must hold) and
+#     S2 witnessed (paths really touched in a "no instance running" window). Changes with neither
+#     kind fail outright; deletions, paths carrying a testbed-made name, and any change in the two
+#     quiet areas are hard failures and never exempt. How many were exempted and on what grounds is
+#     printed line by line in the readings.
 $null = Stop-TestbedInstance -Root $safeRoot -Profile $Profile
 $metaBeforeRun = Get-MainHomeMetaScan -MainHome $MainHome
 $fingerprintStart = Get-Date
@@ -397,7 +411,7 @@ try {
     -SessionCount $SessionCount -EmptyWorkspace $EmptyWorkspace -DshCmd $DshCmd -NodeExe $NodeExe
   $testbedHome = [string]$manifest.home
 
-  # 完成判定 5 的读数一：起实例之前，隔离 home 里没有任何凭据。
+  # Completion criterion 5, reading one: before the instance starts, the isolated home holds no credentials.
   $credentialsBeforeStart = Test-Path -LiteralPath (Join-Path $testbedHome '.credentials.yaml')
 
   $instancePid = Start-TestbedInstance -Root $safeRoot -TestbedHome $testbedHome -Profile $Profile -DshCmd $DshCmd -NodeExe $NodeExe
@@ -410,13 +424,14 @@ try {
   Write-TextFile -Path (Join-Path $safeRoot 'logs\raw\credentials-after-first-start.txt') -Text $credentialsAfterStart
   $null = Stop-TestbedInstance -Root $safeRoot -Profile $Profile
 
-  # 完成判定 3：重启第二个实例，前两条仍成立。
+  # Completion criterion 3: restart a second instance; the first two criteria still hold.
   $instancePid2 = Start-TestbedInstance -Root $safeRoot -TestbedHome $testbedHome -Profile $Profile -DshCmd $DshCmd -NodeExe $NodeExe
   $ready2 = Wait-TestbedReady -Root $safeRoot -ProcessId $instancePid2 -TimeoutSeconds $ReadyTimeoutSeconds
   $run2 = Invoke-TestbedRun -Root $safeRoot -Manifest $manifest -Ready $ready2
   $null = Stop-TestbedInstance -Root $safeRoot -Profile $Profile
 
-  # 实例收干净之后再开第二个观测窗（同样"没有测试床实例在跑"），见证集取两窗的并集。
+  # Open the second observation window only after the instance is fully stopped (again "no testbed
+  # instance running"); the witness set is the union of both windows.
   $metaAfterRun = Get-MainHomeMetaScan -MainHome $MainHome
   $fingerprintEnd = Get-MainHomeFingerprint -MainHome $MainHome
   $witnessAfterRun = [ordered]@{}
@@ -429,7 +444,7 @@ try {
     $witnessAfterRun[$name] = @($areaWitness.ToArray())
   }
 
-  # ---- 判据 1：一条命令把会话列表打出来；清单里有那条合成会话；打开它不报错 ----
+  # ---- Criterion 1: one command prints the session list; the synthetic session is in it; opening it raises no error ----
   $lines1 = New-Object System.Collections.Generic.List[string]
   foreach ($line in (Format-RunReadings -Run $run1)) { $lines1.Add($line) }
   $lines1.Add('command used (one command, prints the session list):')
@@ -437,7 +452,7 @@ try {
   Add-Criterion -Id '1' -Title 'session list contains the synthetic session and opening it returns a page' `
     -Passed (Test-RunCriteria -Run $run1) -Lines @($lines1.ToArray())
 
-  # ---- 判据 2：那条会话归在合成工作区下，不在未分组里 ----
+  # ---- Criterion 2: the session is grouped under the synthetic workspace, not ungrouped ----
   $lines2 = New-Object System.Collections.Generic.List[string]
   foreach ($row in $run1.sessions) {
     $lines2.Add("session $($row.sessionId) accounted by workspace.sessionIds: $($row.accounted)")
@@ -448,25 +463,32 @@ try {
   Add-Criterion -Id '2' -Title 'the session is grouped under the synthetic workspace, not ungrouped' `
     -Passed (Test-RunCriteria -Run $run1) -Lines @($lines2.ToArray())
 
-  # ---- 判据 3：重启第二个实例后，上面两条仍成立 ----
+  # ---- Criterion 3: after restarting a second instance, the two criteria above still hold ----
   $lines3 = New-Object System.Collections.Generic.List[string]
   $lines3.Add("restarted instance: port=$($run2.port) pid=$instancePid2")
   foreach ($line in (Format-RunReadings -Run $run2)) { $lines3.Add($line) }
   Add-Criterion -Id '3' -Title 'after restarting the instance, criteria 1 and 2 still hold' `
     -Passed (Test-RunCriteria -Run $run2) -Lines @($lines3.ToArray())
 
-  # ---- 判据 4：主 home 三处的文件计数与哈希，跑前跑后一致 ----
-  # 判定交给库里的 Get-MainHomeAreaVerdict：每条差异都要有正面归属证据（S1 结构性 / S2 见证集，
-  # 两条取并集），删除、带本格名字的路径与两处静区的任何变化一律失败。这里只把判定真读的读数逐条印出来。
-  # 四档（豁免／删除／带本格名字／未归属）互斥：每条变化只落一档、只印一行，入口另印一条自查读数，跟明细行逐条对得上。
+  # ---- Criterion 4: file counts and hashes in the main home's three areas identical before and after ----
+  # The verdict is delegated to the library's Get-MainHomeAreaVerdict: every difference needs
+  # positive ownership evidence (S1 structural / S2 witnessed, unioned); deletions, paths carrying
+  # a testbed-made name and any change in the two quiet areas fail outright. This section only
+  # prints, line by line, the readings the verdict actually reads.
+  # The four buckets (exempt / deletion / testbed-made name / unattributed) are mutually exclusive:
+  # each change lands in exactly one and prints one line, and an entry-point self-check line
+  # reconciles against the detail lines one by one.
   $lines4 = New-Object System.Collections.Generic.List[string]
   $pass4 = $true
-  # 泄漏签名：测试床自己造出来的名字。签名一律取「能在相对路径里连续出现的片段」——判定拿相对路径去比对，
-  # 一整条绝对路径（例如工作区路径）在里面连不成一片，那样的条目一条也认不出来，故由库里的
-  # Get-TestbedLeakSignatures 统一算：合成会话 id + 合成工作区目录名 + 测试床根目录叶子名。
+  # Leak signatures: names this testbed itself makes. Signatures are always fragments that can
+  # appear contiguously inside a relative path — the verdict matches against relative paths, where
+  # a whole absolute path (e.g. the workspace path) is never contiguous and such entries would not
+  # be recognized; the library's Get-TestbedLeakSignatures therefore computes them uniformly:
+  # synthetic session ids + synthetic workspace directory names + the testbed root's leaf name.
   $leakSignatures = @(Get-TestbedLeakSignatures -Root $safeRoot -Sessions @($manifest.sessions) -Workspaces @($manifest.workspaces))
-  # S1 的基准面：本格自己派生的 project key（合成工作区路径算出来的那几把）＋ 这套 profile 写得出的编码。
-  # 某个别的 project key 下多出一个明文 .jsonl，照样进不了 S1 —— 这条堵的是「名字不认识就放过」的退路。
+  # S1's baseline: the project keys this fixture itself derives (computed from the synthetic
+  # workspace paths) + the encodings this profile can write. A plaintext .jsonl appearing under some
+  # other project key still fails S1 — this closes the "unknown name, let it pass" escape hatch.
   $fixtureProjectKeys = New-Object System.Collections.Generic.List[string]
   foreach ($ws in $manifest.workspaces) {
     $key = Get-ProjectKey -Cwd ([string]$ws.path)
@@ -480,8 +502,9 @@ try {
   foreach ($name in $pass2.Keys) {
     $before = $pass2[$name]
     $after = $fingerprintEnd[$name]
-    # 会话库那一处本来就有别的 live harness 会话在追加（见证集里那些路径），工作区记录与凭据那两处没有别的写者，
-    # 所以静区只要动一下就算硬失败；会话库里则按"变了的那条路径归谁"分别判。
+    # The session store already has other live harness sessions appending to it (the witness-set
+    # paths); the workspace records and credentials areas have no other writer, so any touch there
+    # is a hard failure; in the session store, each changed path is judged by who owns it.
     $quietArea = ($name -ne 'sessions')
     $verdict = Get-MainHomeAreaVerdict -Name $name -Before $before -After $after -QuietArea $quietArea `
       -LiveWitness @($liveWitness) -LeakSignatures $leakSignatures `
@@ -496,16 +519,20 @@ try {
     $lines4.Add("$name : four buckets, mutually exclusive — every changed path is filed in exactly one, in this order: deletion -> a testbed-made name -> a quiet area -> exempt or unattributed | exempt=$($verdict.exempt.Count) (S1 structural=$($verdict.exemptStructural.Count), S2 witnessed live write=$($verdict.exemptWitnessed.Count)) | deletions (hard fail, never exempt)=$($verdict.deletions.Count) | carrying a testbed-made name (hard fail, never exempt)=$($verdict.leaks.Count) | unattributed (no positive evidence)=$($verdict.unattributed.Count)")
     $lines4.Add("$name : bucket self-check: changed=$($verdict.changed.Count) filed=$($verdict.filedCount) distinct=$($verdict.filedDistinctCount) partitionConsistent=$($verdict.partitionConsistent) (each changed path shows up in exactly one detail line below)")
     if (-not $verdict.partitionConsistent) { $pass4 = $false }
-    # 逐条明细全印：计数是全集，明细也只印全集（本轮量级小），PASS/FAIL 的每一条依据都看得见。
+    # Every detail line is printed: the counts cover the full set, so the details print the full set
+    # too (small scale this round); every basis for PASS/FAIL stays visible.
     foreach ($item in $verdict.exempt) { $lines4.Add("$name : exempt -> $item") }
     foreach ($item in $verdict.exempt) { $lines4.Add("$name :    why: $($verdict.exemptReasons[$item])") }
     foreach ($item in $verdict.deletions) { $lines4.Add("$name : DELETION, hard fail (never exempt) -> $item") }
     foreach ($item in $verdict.unattributed) { $lines4.Add("$name : UNATTRIBUTED change, no positive evidence -> $item") }
     foreach ($item in $verdict.leaks) { $lines4.Add("$name : LEAK SIGNATURE, hard fail (never exempt) -> $item") }
-    # 子集比对是支撑读数：它把被豁免的那几条从两侧各摘一遍，三项计数为 0 时它必然成立，当不了独立证据
-    # （判定的依据是上面那四个计数，外加 partitionConsistent 那条自查——读数与明细行相抵时这里当场红）。
-    # 豁免集为空时它才等于 spec 那句「三处的文件计数与哈希完全一致」的
-    # 字面读数；豁免集非空时它只是支撑；空面与空子集一律不印相等——空集合上没有东西可比。
+    # The subset comparison is a support reading: it carves the exempt paths out of both sides, and
+    # holds trivially when the three counts are 0, so it is no independent evidence (the verdict
+    # rests on the four counts above plus the partitionConsistent self-check — a mismatch between
+    # reading and detail lines turns red right here).
+    # Only with an empty exempt set does it equal the spec's literal wording "file counts and hashes
+    # of the three areas fully identical"; a non-empty exempt set demotes it to support; empty areas
+    # and empty subsets never claim equality — there is nothing to compare on an empty set.
     if ($before.fileCount -eq 0) { $lines4.Add("$name : this area holds no files (empty set: before=$($before.fileCount) after=$($after.fileCount)); its digest is the fixed empty-set sha256, so there is nothing to compare here") }
     elseif ($verdict.exempt.Count -eq 0) { $lines4.Add("$name : nothing was exempted here, so the whole-area reading above is the spec's literal one (no subset was carved out of it)") }
     elseif ($verdict.subsetBefore.fileCount -eq 0) { $lines4.Add("$name : support reading only, and it has nothing to compare: excluding exactly the $($verdict.exempt.Count) exempt path(s) leaves no file in the remainder (empty subset), so no equality is claimed") }
@@ -516,9 +543,11 @@ try {
   $lines4.Add("  window 1 before the run (lightweight scan -> full fingerprint): $(@($witnessBeforeRun.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum) path(s)")
   $lines4.Add("  window 2 after the run (lightweight scan -> full fingerprint, instance already stopped): $(@($witnessAfterRun.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum) path(s)")
   foreach ($item in (@($liveWitness) | Sort-Object)) { $lines4.Add("live witness -> $item") }
-  # 收尾后不该再有本测试床的监听者或进程：这条立起来，上面"外来变化"的说法才站得住。
-  # 残留进程按**身份**收：本格写下的启动器路径，或本次运行记下的实例 pid 的后代；
-  # 调用者自身与它的祖先链排除在外（跑 check 的 shell 与宿主，命令行里提过运行根也不影响读数）。
+  # After the final stop there must be no listener or process of this testbed left: this check is
+  # what makes the "foreign changes" claim above hold.
+  # Stray processes are collected by **identity**: this fixture's own launcher path, or descendants
+  # of the instance pids recorded this run; the caller itself and its ancestor chain are excluded
+  # (the shell and host running check are fine even if their command lines mention the run root).
   $strayProcesses = Get-StrayTestbedProcess -Root $safeRoot -Profile $Profile -InstancePids @($instancePid, $instancePid2)
   $listenerAlive = Test-TcpListener -Port $run2.port
   $lines4.Add("stray listener on the last instance port after the final stop: $listenerAlive")
@@ -529,8 +558,9 @@ try {
   if ($strayProcesses.Count -gt 0) { $pass4 = $false }
   Add-Criterion -Id '4' -Title 'main home: every changed path carries its own positive ownership evidence (S1 structural or S2 witness; deletions, testbed-made names and quiet-area changes never exempt), and this testbed left no listener and no process of its own identity behind' -Passed $pass4 -Lines @($lines4.ToArray())
 
-  # ---- 判据 5：隔离环境在没有凭据的情况下能起来 ----
-  # 起实例之前隔离 home 里没有任何凭据；起完之后只允许出现 web 应用自己签发的那一条浏览器会话记录。
+  # ---- Criterion 5: the isolated environment starts without credentials ----
+  # Before the instance starts, the isolated home holds no credentials; after it starts, only the
+  # browser-session record the web app issues itself may appear.
   $recordKeys = New-Object System.Collections.Generic.List[string]
   $inRecords = $false
   foreach ($line in ($credentialsAfterStart -split "`n")) {

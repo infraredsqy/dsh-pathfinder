@@ -1,9 +1,10 @@
 /**
- * 主面板第一格：看板。三列卡——进行中（等待处理的排上头）、刚完成、即将进线——加一排
- * 「每列几张卡」的分段钮。
+ * The first pane of the main panel: the board. Three columns of cards — running (gated ones on
+ * top), just completed, and entering next — plus a segmented row for "cards per column".
  *
- * 读数与那一刻从这里进来，卡的去处（`go`）由外壳备好；一列摆几张由外壳量好了递进来（`cap`），
- * 这一格自己不算读数、也不量地界。
+ * The reading and the moment come in from here; where a card goes (`go`) is prepared by the shell;
+ * how many cards a column holds is measured by the shell and passed in (`cap`). This pane computes
+ * no readings and measures no layout itself.
  */
 import * as React from 'react'
 import type { NodeReading, ProjectReading } from '../model/index.ts'
@@ -16,9 +17,10 @@ import { DepsChip } from './field.tsx'
 import { StateMark, timeOf, type CardKind } from './marks.tsx'
 
 /**
- * 看板那一格的整格版面：栏头、分段钮与三列。
- * @param props - 露不露面、这一格收不收成一句话、那一刻的读数、每列几张卡与它的档、
- *   卡的去处、三列那一排的挂点（外壳量铺满时往这看），以及分段钮那一下的去处。
+ * The full layout of the board pane: column heads, the segmented buttons, and the three columns.
+ * @param props - Visibility, whether to collapse to one sentence, the reading at this moment, cards
+ *   per column with its level, where cards go, the mount point of the three-column row (the shell
+ *   looks here when measuring the full mode), and where the segmented buttons go.
  */
 export function BoardPane(props: {
   readonly active: boolean
@@ -70,7 +72,7 @@ export function BoardPane(props: {
 }
 
 /**
- * 三列看板：进行中（等待处理的排在上头）、刚完成、即将进线。
+ * The three board columns: running (gated ones on top), just completed, and entering next.
  */
 function BoardColumns(props: { readonly project: ProjectReading; readonly cap: number; readonly go: CardGo | null }): React.ReactElement {
   const { columns } = props.project
@@ -85,7 +87,7 @@ function BoardColumns(props: { readonly project: ProjectReading; readonly cap: n
   )
 }
 
-/** 等人优先：有闸的格排到前面，其余的保持记录给的那个次序。顺手把每张卡的去处定下来。 */
+/** Waiters first: gated cells go to the front, the rest keep the record's order. Each card's destination is settled along the way. */
 function gatesFirst(list: readonly NodeReading[], kind: CardKind, go: CardGo | null): readonly Paired[] {
   return list
     .map((node) => ({ node, kind, target: go === null ? null : go.targetOf(node) }))
@@ -93,7 +95,7 @@ function gatesFirst(list: readonly NodeReading[], kind: CardKind, go: CardGo | n
     .sort((left, right) => (left.node.gate === null ? 1 : 0) - (right.node.gate === null ? 1 : 0))
 }
 
-/** 一张卡连同它此刻的读法：`target` 是点下去要去的那条会话，没有去处就是 `null`。 */
+/** One card together with its reading at this moment: `target` is the session a click goes to, `null` when there is nowhere to go. */
 interface Paired {
   readonly node: NodeReading
   readonly kind: CardKind
@@ -105,7 +107,7 @@ export interface CardGo {
   open(target: string): void
 }
 
-/** 一列卡片：一张卡都没有的列，底下什么也不印。 */
+/** A column of cards: a column without a single card prints nothing beneath it. */
 function Column(props: { readonly items: readonly Paired[]; readonly cap: number; readonly go: CardGo | null; readonly at: Date }): React.ReactElement {
   return (
     <section className="pf-col">
@@ -115,19 +117,21 @@ function Column(props: { readonly items: readonly Paired[]; readonly cap: number
 }
 
 /**
- * 一张卡。
+ * One card.
  *
- * 记录里记着这一格的会话、而那条会话此刻就在这台机器上时，点它切到那一格去：卡片上挂得住那两下
- * （指针是手、悬停与按住提一档描边），键盘上回车与空格按下去等于点一下。
+ * When the record carries this cell's session and that session is on this machine right now,
+ * clicking it switches to that session: the card carries the two affordances (pointer cursor,
+ * hover-and-hold raises the outline a step), and Enter / Space on the keyboard equal one click.
  *
- * 记录里没写会话、或那条会话不在这台机器上时，这一格在这台机器上没有去处：卡片照旧摆着，只是没
- * 有可点的样子。屏上不给一句解释——去处没了这件事，卡片自己说得出。
+ * When the record names no session, or that session is not on this machine, the cell has nowhere to
+ * go here: the card still sits there, just without a clickable look. No explanation is printed on
+ * screen — the card itself can say that its destination is gone.
  */
 function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date }): React.ReactElement {
   const { node, kind, target, go, at } = props
   const cls = kind === 'shelved' ? 'shelved' : kind === 'run' ? 'run' : kind === 'next' ? 'next' : 'done'
   const loud = node.gate !== null && node.state !== 'todo'
-  /* 去处分两截备好：没有去处时那个 `null` 让下面整批属性一个都不落。 */
+  /* The destination is prepared in two halves: when there is none, that `null` keeps the whole batch of attributes below from landing. */
   const jump = target === null || go === null ? null : { target, open: go.open }
   return (
     <article
@@ -136,8 +140,9 @@ function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date })
       {...(jump === null ? {} : {
         role: 'button',
         tabIndex: 0,
-        /* 名字带上这一格的身份：一屏十几张卡，同一句名字读屏用户分不出是哪一张；身份就是
-         * 悬停里那段八字的把手，这句话与卡片上那一行同源。 */
+        /* The name carries the cell's identity: with a dozen cards on one screen, screen-reader
+         * users cannot tell identical names apart; the identity is the 8-char handle from the
+         * hover text, sourced from the same sentence as the line on the card. */
         'aria-label': `${nodeHover(node)} 的会话`,
         onClick: () => jump.open(jump.target),
         onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {

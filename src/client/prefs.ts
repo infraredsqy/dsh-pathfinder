@@ -1,9 +1,11 @@
 /**
- * 面板自己的偏好：一份设置文档，与面板读的那几个值之间的那一层。
+ * The panel's own preferences: the layer between a settings document and the few values the panel
+ * reads.
  *
- * 面板记着的那几样都住在 Host 的设置文档里（那份 schema 在 `src/host/config.ts`）。这一份把那
- * 一节读成面板要的几个值，把一次改动写成设置服务认的那一个原子动作；读一次坏一次都当作没记过，
- * 面板照出厂那几条站着。
+ * Everything the panel remembers lives in the Host's settings document (schema in
+ * `src/host/config.ts`). This file reads that section into the values the panel wants and writes a
+ * change as the single atomic action the settings service accepts. A bad read is treated the same
+ * as no record: the panel stands on the factory defaults.
  */
 import {
   INFO_LEVELS,
@@ -19,17 +21,17 @@ import type { InfoLevel, ViewId } from '../host/settings-fields.ts'
 export type { InfoLevel, ViewId }
 export { INFO_LEVELS, PANEL_PREF_DEFAULTS, PANEL_PREF_FIELDS, SIDE_DEFAULT, SIDE_MAX, SIDE_MIN, VIEW_IDS }
 
-/** 面板要写回哪一个字段；名字就是设置文档里那几个键。 */
+/** Which settings-document field the panel writes back to; the names are the document's keys. */
 export type PrefField = (typeof PANEL_PREF_FIELDS)[keyof typeof PANEL_PREF_FIELDS]
 
-/** 三档信息量各自印什么字：设置页那一行与面板上那一排钮说的是同一件事。 */
+/** What each of the three info levels prints: the settings row and the panel's button row say the same thing. */
 export const INFO_LABELS: Readonly<Record<InfoLevel, string>> = {
   lean: '精简',
   three: '展开',
   full: '铺满',
 }
 
-/** 六个看法各自印什么字：标签那一排与设置页那个下拉说的是同一件事。 */
+/** What each of the six views prints: the tab row and the settings dropdown say the same thing. */
 export const VIEW_LABELS: Readonly<Record<ViewId, string>> = {
   now: '当前',
   detail: '明细',
@@ -40,15 +42,15 @@ export const VIEW_LABELS: Readonly<Record<ViewId, string>> = {
 }
 
 export interface PanelPrefs {
-  /** 明细左侧线路栏的宽度，像素。 */
+  /** Width of the line sidebar on the left of the detail view, in pixels. */
   readonly sideWidth: number
-  /** 每列几张卡。 */
+  /** How many cards per column. */
   readonly info: InfoLevel
-  /** 面板露面时停在哪个看法。 */
+  /** Which view the panel lands on when shown. */
   readonly tab: ViewId
-  /** 指令那一格要不要把已归档的条目放回各自的段里。 */
+  /** Whether the instructions view folds archived entries back into their sections. */
   readonly archived: boolean
-  /** 问题那一格要不要把已经处置过的那三个状态也放回页面上。 */
+  /** Whether the issues view also puts the three handled states back on the page. */
   readonly otherStates: boolean
 }
 
@@ -64,7 +66,7 @@ export function clampSide(px: number): number {
   return Math.round(Math.max(SIDE_MIN, Math.min(SIDE_MAX, px)))
 }
 
-/** 面板自己的旧键：存量的浏览器里可能还留着，接上设置表单那一刻扫掉它们。 */
+/** The panel's legacy keys: surviving browsers may still hold them; swept away the moment the settings form attaches. */
 export const LEGACY_PREF_KEYS: readonly string[] = [
   'dsh-pathfinder.sideWidth',
   'dsh-pathfinder.infoLevel',
@@ -72,17 +74,18 @@ export const LEGACY_PREF_KEYS: readonly string[] = [
   'dsh-pathfinder.showOtherStates',
 ]
 
-/** 本地存储那一手：这一层只用到删，读与写一条都不用。 */
+/** The local-storage handle: this layer only ever deletes; it uses neither read nor write. */
 export interface PrefStorage {
   removeItem(key: string): unknown
 }
 
 /**
- * 把旧版那几个键从本地存储里扫掉。只删不读：里面存的什么都不作数，值一律从设置文档来。
+ * Sweep the legacy keys out of local storage. Delete only, never read: whatever is stored there
+ * counts for nothing, values always come from the settings document.
  *
- * 本地存储不可用（这个环境里没有它、被策略挡住、`removeItem` 自己抛）时安静算了：偏好清理不该
- * 把面板弄坏。
- * @param storage - 本地存储；不给就问当前环境的 `localStorage`。
+ * When local storage is unusable (missing in this environment, blocked by policy, `removeItem`
+ * itself throws), quietly give up: preference cleanup must not break the panel.
+ * @param storage - Local storage; the current environment's `localStorage` is used when absent.
  */
 export function dropLegacyPrefs(storage?: PrefStorage | null): number {
   let held = storage
@@ -100,18 +103,19 @@ export function dropLegacyPrefs(storage?: PrefStorage | null): number {
       held.removeItem(key)
       dropped += 1
     } catch (error) {
-      /* 这一个删不掉就算了，别让它带倒其余的。 */
+      /* If this one cannot be deleted, let it go — it must not take the rest down with it. */
     }
   }
   return dropped
 }
 
 /**
- * 把设置文档的这一节读成面板要的那几个值。
+ * Read this section of the settings document into the values the panel wants.
  *
- * 一个字段读不懂就它自己退到出厂那一份，别的照读：设置文档是别处写进去的，里面可能留着旧版本
- * 写下的词，也可能什么都没有。
- * @param section - 那一节，形状不保证。
+ * A field that cannot be understood falls back to the factory default on its own; the rest read as
+ * usual. The settings document is written elsewhere: it may hold words left by older versions, or
+ * nothing at all.
+ * @param section - The section; its shape is not guaranteed.
  */
 export function prefsFromSection(section: unknown): PanelPrefs {
   const held = (typeof section === 'object' && section !== null ? section : {}) as Readonly<Record<string, unknown>>
@@ -127,7 +131,7 @@ export function prefsFromSection(section: unknown): PanelPrefs {
   }
 }
 
-/** 设置服务认的那一个原子动作：顶层路径上的一次 `set`。 */
+/** The single atomic action the settings service accepts: one `set` on a top-level path. */
 export interface PrefsWriteOp {
   readonly op: 'set'
   readonly path: readonly string[]
@@ -135,21 +139,22 @@ export interface PrefsWriteOp {
 }
 
 /**
- * 一次改动写成设置服务认的那一个原子动作。
+ * Write one change as the atomic action the settings service accepts.
  *
- * 路径只有一段，因为这一节里五个字段都摆在最外面——设置服务照路径判断这个字段认不认，多一段少
- * 一段都落不到地方。
+ * The path has a single segment, because all five fields in this section sit at the top level —
+ * the settings service decides by path whether a field is accepted, and one segment more or less
+ * lands nowhere.
  */
 export function prefsWriteOp(field: PrefField, value: unknown): PrefsWriteOp {
   return { op: 'set', path: [field], value }
 }
 
-/** 一份设置文档里这一节的读数；设置表单那一侧交出来的就是这一副脸。 */
+/** The reading of this section of a settings document; this is the shape the settings form hands over. */
 export interface PrefsFormSnapshot {
-  /** `loading` / `ready` / `unavailable`，设置表单自己那几个词。 */
+  /** `loading` / `ready` / `unavailable`, the settings form's own words. */
   readonly status?: string | undefined
   readonly value?: unknown
-  /** 命名空间的修订号：写回时带上它做凭据。 */
+  /** The namespace's revision number: carried along on write as the credential. */
   readonly revision?: number | undefined
   readonly writable?: boolean | undefined
 }
@@ -161,10 +166,11 @@ export interface PrefsForm {
 }
 
 /**
- * 面板读到的那一份读数。
+ * The reading the panel consumes.
  *
- * `prefs` 只在值真的动了的时候换一个新的对象：`useSyncExternalStore` 拿它比前后两次，每次读都
- * 新造一个的话，面板会一直重画。
+ * `prefs` only becomes a new object when a value truly changed: `useSyncExternalStore` compares it
+ * against the previous one, and if every read fabricated a fresh object the panel would redraw
+ * forever.
  */
 export interface PrefsSnapshot {
   readonly prefs: PanelPrefs
@@ -172,10 +178,12 @@ export interface PrefsSnapshot {
   readonly revision: number | undefined
   readonly writable: boolean
   /**
-   * 上一笔写回没能落定时给人看的一句话；写完一笔、或换掉那份表单之后回到 `null`。
+   * A human-readable sentence for when the last write failed to land; back to `null` after a
+   * successful write or once the form is swapped out.
    *
-   * 设置表单被拒时只交回一个 `false`，理由吞在它自己那里——面板那几处 `void store.write(…)` 又
-   * 把这个 `false` 丢掉，读者的观感是控件静默弹回。这一格就是那条不许静默的路。
+   * A rejected settings form only returns `false` and swallows the reason — and the panel's
+   * `void store.write(…)` call sites drop that `false` too, so the control silently snaps back.
+   * This field is the road that forbids that silence.
    */
   readonly failure: string | null
 }
@@ -183,13 +191,13 @@ export interface PrefsSnapshot {
 export interface PrefsSource {
   subscribe(listener: () => void): () => void
   getSnapshot(): PrefsSnapshot
-  /** 把一条改动递出去；这条口子上没有设置服务时给 `false`，不抛。 */
+  /** Hand one change over; gives `false` when no settings service sits on this port, never throws. */
   write(field: PrefField, value: unknown): Promise<boolean>
 }
 
-/** 设置服务接进来之后挂得上：面板从第一帧起就有一条口子可读。 */
+/** Attachable once the settings service arrives: the panel has a readable port from the first frame. */
 export interface PrefsStore extends PrefsSource {
-  /** 接上（或换掉）那一份设置表单；`null` 表示这一份先收掉。 */
+  /** Attach (or swap out) the settings form; `null` means this one is taken away. */
   attach(form: PrefsForm | null): () => void
 }
 
@@ -201,10 +209,10 @@ const UNAVAILABLE: PrefsSnapshot = Object.freeze({
   failure: null,
 })
 
-/** 两笔都作了废时摆出来的那一句话。 */
+/** The sentence shown when both write attempts were refused. */
 const WRITE_FAILED = '保存失败：设置服务没有接受这次改动。'
 
-/** 两条读数说的是不是同一件事：值逐项比，别的照原样。 */
+/** Whether two readings say the same thing: values compared item by item, the rest as-is. */
 function sameSnapshot(left: PrefsSnapshot, right: PrefsSnapshot): boolean {
   return left.status === right.status
     && left.revision === right.revision
@@ -213,7 +221,7 @@ function sameSnapshot(left: PrefsSnapshot, right: PrefsSnapshot): boolean {
     && samePrefs(left.prefs, right.prefs)
 }
 
-/** 面板读的那几个值说的是不是同一件事：逐项比，不认对象身份。 */
+/** Whether the panel's values say the same thing: item by item, object identity not consulted. */
 function samePrefs(left: PanelPrefs, right: PanelPrefs): boolean {
   return left.sideWidth === right.sideWidth
     && left.info === right.info
@@ -223,10 +231,11 @@ function samePrefs(left: PanelPrefs, right: PanelPrefs): boolean {
 }
 
 /**
- * 那条口子本身。
+ * The port itself.
  *
- * 它先站着（出厂那几条），等设置服务到了再挂上去：这样面板不必等谁准备好才开始画，而设置一到，
- * 订阅者当场收到一条新读数。
+ * It stands first (on the factory defaults) and mounts once the settings service arrives: the panel
+ * need not wait for anyone to start drawing, and the moment settings arrive, subscribers get a
+ * fresh reading on the spot.
  */
 export function createPrefsSource(): PrefsStore {
   const listeners = new Set<() => void>()
@@ -239,19 +248,19 @@ export function createPrefsSource(): PrefsStore {
       try {
         listener()
       } catch (error) {
-        /* 一个订阅者出了岔子，别把其余的也带下水。 */
+        /* One subscriber failing must not take the others down with it. */
       }
     }
   }
 
-  /** 换掉「上一笔没落定」那一句话；写成功、换表单、摘表单都会把它收回去。 */
+  /** Replace the "last write did not land" sentence; a successful write or a form swap takes it back. */
   const setFailure = (message: string | null): void => {
     if (snapshot.failure === message) return
     snapshot = { ...snapshot, failure: message }
     announce()
   }
 
-  /** 把表单那一刻的读数折成这一条口子的读数，值没动就不惊动订阅者。 */
+  /** Fold the form's current reading into this port's reading; leave subscribers alone when nothing changed. */
   const derive = (): void => {
     let next = UNAVAILABLE
     if (form !== null) {
@@ -262,7 +271,7 @@ export function createPrefsSource(): PrefsStore {
           status: held.status === 'ready' ? 'ready' : held.status === 'loading' ? 'loading' : 'unavailable',
           revision: typeof held.revision === 'number' ? held.revision : undefined,
           writable: held.writable === true,
-          /* 这一趟折的是那份文档本身，上一笔没落定那句话留着，直到有一笔真的写成。 */
+          /* This fold reads the document itself, so the "last write did not land" sentence stays until a write truly succeeds. */
           failure: snapshot.failure,
         }
       } catch (error) {
@@ -282,7 +291,7 @@ export function createPrefsSource(): PrefsStore {
     try {
       held()
     } catch (error) {
-      /* 摘不掉就算了，读数已经交回出厂那一份。 */
+      /* If it cannot be detached, let it go: the reading has already fallen back to the factory copy. */
     }
   }
 
@@ -316,12 +325,12 @@ export function createPrefsSource(): PrefsStore {
       const held = form
       if (held === null) return Promise.resolve(false)
       const ops = [prefsWriteOp(field, value)]
-      /** 这一笔的最后结局：落定了就把那句话收回去，两笔都不作数就把它摆出来。 */
+      /** This write's final outcome: on success take the sentence back, if both attempts fail put it up. */
       const settle = (accepted: boolean): boolean => {
         setFailure(accepted ? null : WRITE_FAILED)
         return accepted
       }
-      /** 被拒之后的那一次：把修订号围栏摘掉，让控制器自己取当下最新那一个。 */
+      /** The retry after a refusal: drop the revision fence and let the controller take the latest one itself. */
       const again = (): Promise<boolean> => {
         try {
           return Promise.resolve(held.mutate(ops)).then(
@@ -333,8 +342,9 @@ export function createPrefsSource(): PrefsStore {
         }
       }
       try {
-        /* 头一次带上读到的修订号。同一趟往返里的第二笔读到的还是上一笔落定前的号码，宿主照那道
-         * 围栏把这一笔拒掉，于是摘掉围栏再走一次；这一趟仍不作数时 `settle` 会把话摆到读数里。 */
+        /* The first attempt carries the revision read earlier. A second write in the same round trip
+         * still sees the pre-landing number, so the host refuses it on that fence; drop the fence and
+         * go again. If this attempt is refused too, `settle` puts the sentence into the reading. */
         return Promise.resolve(held.mutate(ops, snapshot.revision)).then(
           (accepted) => (accepted === true ? settle(true) : again()),
           () => again(),
@@ -346,5 +356,5 @@ export function createPrefsSource(): PrefsStore {
   }
 }
 
-/** 设置服务一直没到场时面板读的那一份：出厂那几条，写回一律不作数。 */
+/** What the panel reads while the settings service has never arrived: factory defaults, all writes refused. */
 export const DEFAULT_SOURCE: PrefsSource = createPrefsSource()

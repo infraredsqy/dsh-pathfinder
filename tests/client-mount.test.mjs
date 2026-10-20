@@ -1,11 +1,14 @@
-/* 调度中心那两处挂载点：锁的是「注册了哪两条」与「卸载撤干净」。
+/* The two mount points of the dispatch center: locks in "which two seats get registered" and "unmount cleans up".
  *
- * 两处各自的槽位名、条目 id / key、order、侧栏那一行的名字，以及中央栏那一格交出去的
- * 正好是这次 apply 装的那块面板；收掉那条 effect 时两条注册从名册上撤下来、两张注入的
- * 样式标签跟着摘掉；同一本名册上再起一条插件那一下停在这一层里。
+ * For each seat: the slot name, entry id / key, order, the sidebar row's label, and the fact that
+ * the central section is handed exactly the panel installed by this apply. When the effect is
+ * disposed, both registrations leave the ledger and both injected style tags come off; a second
+ * plugin started on the same ledger stops at this layer on the duplicate registration.
  *
- * 替身按真协议写：同一个 id 重复注册会抛。两张样式表的正文在 Node 里解不开、进不来单测，
- * 这里按同一对记号把标签挂上再量卸载——挂与摘认的是那两枚记号。
+ * The stand-ins follow the real protocol: registering the same id twice throws. The bodies of the
+ * two stylesheets cannot be resolved in Node and cannot enter unit tests, so the tags are mounted
+ * here by the same pair of markers and unmount is measured — mount and unmount both key on those
+ * two markers.
  *
  *   node --test tests/
  */
@@ -25,14 +28,14 @@ import { PANEL_STYLE_ID, SETTINGS_STYLE_ID, dropStyleTag, ensureStyleTag } from 
 
 const PANEL_ID = 'pathfinder'
 
-/** 一处注册在名册上的钥匙：单座与列表认 `id`，按 key 分派的那一格认 `key`。 */
+/** The key a registration is filed under: single-seat and list slots key on `id`, the key-dispatched section keys on `key`. */
 function entryKey(options) {
   return `${options.name}:${options.id ?? options.key}`
 }
 
 /**
- * 一架替身上下文：`slots`、`effect`、`inject` 三样都在，形状与真部署一致；
- * `effect: false` 时摘掉 `effect`，量「没有 effect 的上下文」那一条路。
+ * A stand-in context: `slots`, `effect`, and `inject` all present, shaped like a real deployment;
+ * with `effect: false` the `effect` slot is removed to exercise the "context without effect" path.
  */
 function harness({ withEffect = true, services = {} } = {}) {
   const ledger = new Map()
@@ -68,7 +71,7 @@ function harness({ withEffect = true, services = {} } = {}) {
   return { ledger, calls, effects, ctx }
 }
 
-/** 一块面板：组件与口子都是替身。 */
+/** A panel: component and port are stand-ins. */
 function fakePanel() {
   const Panel = () => null
   return {
@@ -86,8 +89,9 @@ test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条�
 
   registerSeats(ctx, panel, () => undefined)
 
-  /* 两条各落在不同的槽位，谁先登记在 DSH 里没有语义（`order` 只在同一个 list 槽内部
-   * 才有意义）：这里只量「哪两条在册」，不锁它们之间的先后。 */
+  /* The two seats land in different slots; registration order carries no semantics in DSH
+   * (`order` only matters inside a single list slot): this only measures "which two are
+   * registered", not their relative order. */
   assert.deepEqual([...ledger.keys()].sort(), [
     `main:${PANEL_ID}`,
     `sidebar.panellist:${PANEL_ID}`,
@@ -152,7 +156,7 @@ test('工作区清单那份服务还没到场：交出去的是一份空名单�
   const items = [{ workspaceId: 'w-1', path: 'C:\\ws', title: '一个工作区', sessionIds: ['s-1'] }]
   let registered
   const { ledger, ctx } = harness()
-  /* 量的是「服务晚到」那一趟：先给空名单，等它到场再通知订阅者。 */
+  /* Measures the "service arrives late" route: hand out the empty list first, notify subscribers once it shows up. */
   ctx.inject = (names, callback) => {
     if (names.includes('workspaces')) registered = callback
     else callback(ctx)
@@ -189,7 +193,7 @@ test('收掉那条 effect：两条从名册上撤下来，两张样式标签跟�
     dropStyleTag(SETTINGS_STYLE_ID)
   })
 
-  /* 两张表按同一对记号挂上：真渲染那条路在 Node 里解不开。 */
+  /* The two tags are mounted by the same pair of markers: the real rendering route cannot be resolved in Node. */
   ensureStyleTag(PANEL_STYLE_ID, '.pf-page{color:red}')
   ensureStyleTag(SETTINGS_STYLE_ID, '.pfset-page{color:red}')
   assert.equal(ledger.size, 2)
@@ -217,7 +221,7 @@ test('没有 effect 的上下文：两条照样挂上，这一层不往调用点
   assert.equal(effects.length, 0)
   assert.equal(ledger.size, 2)
 
-  /* 这种上下文上没有卸载通知可归：真 Cordis 的上下文都带 `effect`。 */
+  /* This context carries no unmount notification: real Cordis contexts all have `effect`. */
   assert.equal(handedBack, undefined)
   assert.equal(stylesDropped, 0)
 })
@@ -226,7 +230,7 @@ test('同一本名册上再起一条插件：重复登记那一下停在这一�
   const { ledger, calls, effects, ctx } = harness()
   const panel = fakePanel()
 
-  /* 那一条抛被这一层收住，但不咽下去：每条各留一句警告。 */
+  /* The throw from the duplicate registration is caught at this layer, not swallowed: one warning each. */
   const warned = []
   const realWarn = console.warn
   console.warn = (...args) => { warned.push(args.map(String).join(' ')) }
@@ -242,14 +246,15 @@ test('同一本名册上再起一条插件：重复登记那一下停在这一�
   assert.equal(effects.length, 2)
   assert.equal(warned.length, 2)
 
-  /* 第二条插件那一条 effect 手上没有东西可撤：它一条也没登记上，收掉它不该动名册。 */
+  /* The second plugin's effect holds nothing to dispose: it registered nothing, so disposing it must not touch the ledger. */
   effects[1].dispose()
   assert.equal(ledger.size, 2)
 })
 
 test('座席标准 props 里的 useSessions 是一条带投影的 hook，整份快照要靠恒等投影取回来', () => {
-  /* 真形状：`ids` 是宿主清单次序，`byId` 里当前会话那条挂着 `retainedBy.mainView`，
-   * 清单第一行是另一条会话（副会话也会进 `byId`，它只是没挂 mainView）。 */
+  /* Real shape: `ids` is the host's list order, the current session in `byId` carries
+   * `retainedBy.mainView`, and the first row of the list is a different session (secondary
+   * sessions also enter `byId`; they just do not carry mainView). */
   const snapshot = {
     ids: ['other', 's1'],
     byId: {
@@ -267,20 +272,20 @@ test('座席标准 props 里的 useSessions 是一条带投影的 hook，整份�
   assert.equal(typeof seen[0], 'function')
   assert.equal(snapshot.ids[0], 'other')
 
-  /* 挑的是挂了 `mainView` 的那条：它落在 `ids` 第二位也照样挑中。 */
+  /* Picks the entry carrying `mainView`: still picked even though it sits second in `ids`. */
   assert.equal(currentSessionOf(snapshot), 's1')
 
-  /* 没人挂 `mainView` 时，按 `byId` 的键序挑人会挑错。 */
+  /* With nobody carrying `mainView`, picking by `byId` key order would pick wrong. */
   assert.equal(currentSessionOf({ ids: [], byId: { z: { id: 'z', retainedBy: {} } }, phase: 'ready' }), undefined)
 
-  /* 三个身份探针还在别的形状里：有它们时先认它们。 */
+  /* The three identity probes still exist in other shapes: when present, they win first. */
   assert.equal(currentSessionOf({ ...snapshot, selectedId: 'picked' }), 'picked')
 
-  /* 三者都没有、`mainView` 也没有时，落到 `ids[0]` 那条末尾兜底。 */
+  /* With none of the three and no `mainView`, fall through to the `ids[0]` last resort. */
   const noMainView = { ids: ['first'], byId: { first: { id: 'first', retainedBy: {} } }, phase: 'ready' }
   assert.equal(currentSessionOf(noMainView), 'first')
 
-  /* 这个部署上没有这条 hook 时什么都不是，不许抛。 */
+  /* Without this hook on this deployment, both are undefined; throwing is not allowed. */
   assert.equal(sessionsSnapshotOf(undefined), undefined)
   assert.equal(currentSessionOf(undefined), undefined)
 })
@@ -297,9 +302,9 @@ test('会话名册：宿主清单与本地清单行两处都算数，其余的�
   }
 
   assert.deepEqual([...knownSessionsOf(snapshot)].sort(), ['s1', 's2', 's3'])
-  /* 空身份各处都不进册：记录里那条会话是空串时，卡片照样没有去处。 */
+  /* An empty identity never enters the roster: when a record's session is the empty string, the card still has nowhere to go. */
   assert.equal(knownSessionsOf(snapshot).has(''), false)
-  /* 快照拿不到、或者 `ids` / `byId` 的形状不对时，交回一份空名册。 */
+  /* An unreadable snapshot, or a malformed `ids` / `byId` shape, yields an empty roster. */
   assert.deepEqual([...knownSessionsOf(undefined)], [])
   assert.deepEqual([...knownSessionsOf({ ids: 's1', byId: null })], [])
 })
@@ -312,7 +317,7 @@ test('切会话那一手：接上导航口子就把身份递过去，没接上�
   nav.open('session-7')
   assert.deepEqual(opened, ['session-7'])
 
-  /* 口子晚一层到：这一层先在 `inject` 上等它。 */
+  /* The port arrives a layer late: this layer waits for it on `inject`. */
   const late = []
   let arrived
   const waiting = createSessionNav({
@@ -325,7 +330,7 @@ test('切会话那一手：接上导航口子就把身份递过去，没接上�
   waiting.open('session-late')
   assert.deepEqual(late, ['session-late'])
 
-  /* 口子上那一手自己抛：停在这一层里，不往上带。 */
+  /* The port's own call throws: stopped at this layer, not propagated upward. */
   const warned = []
   const realWarn = console.warn
   console.warn = (...args) => { warned.push(args.map(String).join(' ')) }

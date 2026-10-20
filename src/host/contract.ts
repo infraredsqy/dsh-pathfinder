@@ -1,10 +1,14 @@
 /**
- * 宿主半身与浏览器半身之间的类型契约：记录落点的位置与取数服务的形状。
+ * Type contract between the host and the browser half: where the records live
+ * and the shape of the reading service.
  *
- * 记录原形（四份记录的字段直通副本）与取数结果的类型归模型层所有，住在 `src/model/records.ts`，
- * 宿主半身从这里转手再出口；本模块自己只留路径常量与服务的形状。
+ * The raw record shapes (field-for-field copies of the four records) and the
+ * reading result types are owned by the model layer in `src/model/records.ts`;
+ * this module re-exports them and keeps only the path constants and the
+ * service shape.
  *
- * 路径一律工作区相对：绝对根由宿主半身按会话身份解析，本模块里没有一台机器的路径。
+ * Paths are always workspace-relative: the host resolves absolute roots from
+ * the session identity, so no machine-specific path appears here.
  */
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -21,43 +25,49 @@ export type {
   PathfinderStep,
 } from '../model/records.ts'
 
-/** 记录所在的那一层目录，工作区相对。 */
+/** The directory layer holding the records, workspace-relative. */
 export const RECORD_DIR = '.pf'
 
-/** 四份来源的工作区相对位置；键与模型层那份来源键（{@link RecordSourceKey}）一一对应。 */
+/** Workspace-relative locations of the four sources; keys match the model layer's source keys ({@link RecordSourceKey}). */
 export const RECORD_SOURCES: Readonly<Record<RecordSourceKey, string>> = {
-  /** `ideas.json` 的 `nodes`，键是节点身份。 */
+  /** `nodes` of `ideas.json`, keyed by node id. */
   nodes: `${RECORD_DIR}/ideas.json`,
-  /** `state.json` 的 `cycles`，每条线自己带着走过的 `path`。 */
+  /** `cycles` of `state.json`, each cycle carrying its own `path`. */
   cycles: `${RECORD_DIR}/state.json`,
-  /** `instructions.json` 的 `instructions`。 */
+  /** `instructions` of `instructions.json`. */
   instructions: `${RECORD_DIR}/instructions.json`,
-  /** `issues/issues.json` 的 `issues`，键是问题身份。 */
+  /** `issues` of `issues/issues.json`, keyed by issue id. */
   issues: `${RECORD_DIR}/issues/issues.json`,
 }
 
 /**
- * 会话笔记住的那一层目录，工作区相对：一格一份小文件，文件名就是节点身份。
+ * The directory layer holding session notes, workspace-relative: one small
+ * file per node, named by the node id.
  *
- * 会话身份是这台机器自己的事，不跟着记录本体走——换一台机器、新克隆一份记录，
- * 这一层目录都不跟着走，面板据此把那几格读作「这台机器上没有去处」。
+ * Session identity belongs to this machine and does not travel with the
+ * records — on a new machine or a fresh clone of the records this directory
+ * is absent, and the panel reads those nodes as "no notes on this machine".
  */
 export const RECORD_SESSIONS = `${RECORD_DIR}/meta/sessions`
 
-/** 取数时可以带的东西。 */
+/** Options that may accompany a read. */
 export interface PathfinderReadOptions {
   readonly signal?: AbortSignal
 }
 
 /**
- * 宿主半身交给浏览器半身的那条服务：给它一条会话身份与一个工作区根，它把那个工作区里的
- * 记录读成一份读数。记录不在就是空读数（四份来源全 `missing`、集合全空）。
+ * The service the host exposes to the browser half: given a session id and a
+ * workspace root, it reads that workspace's records into a reading. Missing
+ * records yield an empty reading (all four sources `missing`, all collections
+ * empty).
  *
- * 工作区根由调用方点名，挑哪一个读哪一个；空字符串是「没挑」，那时候按会话身份解析。
+ * The workspace root is named by the caller, selecting which workspace to
+ * read; an empty string means "not named", in which case it is resolved from
+ * the session identity.
  */
 export interface PathfinderRecords {
   /**
-   * @param workspaceRoot - 要读的那个工作区根，绝对路径；空字符串＝这条会话自己那个根。
+   * @param workspaceRoot - The workspace root to read, absolute; an empty string means this session's own root.
    */
   read(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderReading>
 }

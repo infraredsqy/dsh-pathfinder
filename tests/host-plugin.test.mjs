@@ -1,7 +1,8 @@
-/* 宿主半身插件那一段：锁的是工作区根的解析次序。
+/* The host-half plugin segment: locks in the workspace root resolution order.
  *
- * 三个来源按活着的会话头 → 落盘的会话头 → 沙箱策略那个根的顺序落定，一项都不许乱；
- * 有活着的会话头就不再问落盘的头。递进口子的那个根是不是解析出来的那一个，也在这里锁住。
+ * Three sources settle in order — live session header, stored session header, the sandbox
+ * policy's root — none may be shuffled; once a live header exists, the stored one is never
+ * consulted. That the root handed to the port is the resolved one is also locked here.
  *
  *   node --test tests/
  */
@@ -77,7 +78,7 @@ test('出口面收在插件协议要的那四样上：内部件不再从入口�
   ]) {
     assert.equal(entry[internal], undefined, `${internal} 没有外部消费者，不该再从入口出口`)
   }
-  /* 网关类留在出口面上：tools/panel-check.mjs 这位自证夹具要从入口现造一个网关。 */
+  /* The gateway class stays on the export surface: the self-check fixture tools/panel-check.mjs builds a fresh gateway from the entry. */
   assert.equal(typeof entry.PathfinderRecordsGateway, 'function')
 })
 

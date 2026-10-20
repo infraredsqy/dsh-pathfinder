@@ -1,31 +1,33 @@
 /**
- * 面板顶上那枚工作区选择器的候选名单：DSH 自己那份工作区清单。
+ * The candidate list for the workspace selector at the top of the panel: DSH's own workspace list.
  *
- * 调度中心不关心 DSH 此刻把哪条会话摆在中央栏，所有工作区对它都是可以打开的对象；这一层只把
- * 那份清单读成一个快照、认出「这条会话落在哪个桶里」、没有清单时交出一份空名单。清单本身归
- * DSH 的 `workspaces` 服务，这里不缓存、不复制。
+ * The dispatch center does not care which session DSH currently shows in the center column — all
+ * workspaces are openable to it. This layer only reads that list into a snapshot, works out which
+ * bucket a session falls into, and hands back an empty list when there is no list. The list itself
+ * belongs to DSH's `workspaces` service: no caching, no copying here.
  */
 import { serviceAt } from './data.ts'
 
 export interface WorkspaceChoice {
-  /** 工作区身份，下拉里的值就是它。 */
+  /** Workspace identity; the dropdown's value is it. */
   readonly workspaceId: string
-  /** 那个工作区的绝对路径：读记录时的那个根。 */
+  /** The workspace's absolute path: the root used when reading records. */
   readonly path: string
-  /** 印在下拉里的名字，DSH 自己给的那个标题。 */
+  /** The name shown in the dropdown: DSH's own title. */
   readonly title: string
   readonly sessionIds: readonly string[]
 }
 
 export interface WorkspaceSnapshot {
-  /** 按 DSH 自己的次序排好的工作区。 */
+  /** Workspaces in DSH's own order. */
   readonly items: readonly WorkspaceChoice[]
 }
 
 /**
- * DSH 那份工作区清单的口子。
+ * The gateway to DSH's workspace list.
  *
- * 只取读的两手：这一层不写清单——建、改名、删都是 DSH 左侧那一栏的事。
+ * Only the two read methods: this layer never writes the list — creating, renaming, and deleting
+ * are the business of DSH's own sidebar.
  */
 export interface WorkspaceSource {
   getSnapshot(): WorkspaceSnapshot
@@ -33,24 +35,26 @@ export interface WorkspaceSource {
 }
 
 /**
- * 一份空名单。
+ * An empty list.
  *
- * 它必须是同一个对象：`getSnapshot` 交给 React 之后，清单没变时每次都要给出同一个引用，临时
- * 拼一份新的会让 React 以为一直在变。没有工作区清单的部署共用这一份。
+ * It must be the same object: once `getSnapshot` hands a snapshot to React, an unchanged list has
+ * to yield the same reference every time — assembling a fresh one would make React think it keeps
+ * changing. Deployments without a workspace list share this one.
  */
 const EMPTY: WorkspaceSnapshot = { items: [] }
 
-/** 这个部署上没有工作区清单时用的那一份口子：名单永远空着，谁也不用订阅。 */
+/** The gateway used when this deployment has no workspace list: the list stays empty and nobody subscribes. */
 export const NO_WORKSPACES: WorkspaceSource = {
   getSnapshot: () => EMPTY,
   subscribe: () => () => undefined,
 }
 
 /**
- * 从上下文上取 DSH 那份工作区清单。
+ * Take DSH's workspace list from the context.
  *
- * 取不到就是取不到：面板顶上不摆选择器，照旧读这条会话自己那个工作区。这一层不抛。
- * @param owner - 一个上下文（插件自己的，或注入回调给的那个）。
+ * If it cannot be fetched, it cannot be fetched: the panel simply shows no selector and keeps
+ * reading the current session's own workspace. This layer does not throw.
+ * @param owner - A context (the plugin's own, or the one given to the inject callback).
  */
 export function workspacesAt(owner: unknown): WorkspaceSource | undefined {
   const service = serviceAt(owner, 'workspaces')
@@ -62,10 +66,11 @@ export function workspacesAt(owner: unknown): WorkspaceSource | undefined {
 }
 
 /**
- * 这条会话落在哪个桶里。
+ * Which bucket a session falls into.
  *
- * 「桶」就是 DSH 那一栏的分组：会话身份出现在某个工作区的 `sessionIds` 里，它就落在那一个里；
- * 一个都不出现就是未分组——DSH 自己也是这么读的。
+ * A "bucket" is one of DSH's sidebar groups: if the session's id appears in some workspace's
+ * `sessionIds`, it falls into that one; if it appears in none, it is ungrouped — DSH reads it the
+ * same way.
  */
 export function bucketOf(
   items: readonly WorkspaceChoice[],

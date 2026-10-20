@@ -1,10 +1,12 @@
-/* 包面：发出去的那一份在哪几处必须站得住——「装得上、装上去有面板」的几条前置。
+/* The package surface: the places the shipped artifact must hold up — the prerequisites for
+ * "installs, and installs with a panel".
  *
- * 这几条都是不变量：这个包必须可发布、`version` 必须是一个真版本号、两个入口指的产物必须
- * 落在 `files` 覆盖的范围内、profile 的挂载点与浏览器那一侧声明的加载依赖必须还在。
+ * These are all invariants: the package must be publishable, `version` must be a real version
+ * number, the artifacts both entries point at must fall within `files` coverage, and the profile's
+ * mount points and the browser side's declared injection dependencies must still be there.
  *
- * 这里只读 `package.json` 与那份 patch 的盘上存在性，不读 `lib/`（新克隆里还没构建），
- * 也不跑 `npm pack`。
+ * Only `package.json` and the patch file's on-disk presence are read here — not `lib/` (not built
+ * in a fresh clone), and `npm pack` is not run.
  *
  *   node --test tests/
  */
@@ -16,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 const manifestPath = fileURLToPath(new URL('../package.json', import.meta.url))
 const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8'))
 
-/** npm 的 `files` 通配（`**` 跨目录、`*` 不跨）够不够盖住一个具体路径。 */
+/** Whether npm's `files` wildcard (`**` crosses directories, `*` does not) covers a concrete path. */
 function covered(pattern, file) {
   const rx = new RegExp(
     '^' + pattern

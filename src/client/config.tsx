@@ -1,9 +1,13 @@
 /**
- * 主面板第六格：这个工作区自己的项目设置。一行一个键、一行一个控件，行尾一枚小签说这个值住在哪一层。
+ * The sixth pane of the main panel: this workspace's own project settings. One key per row, one
+ * control per row, with a small tag at the row's end saying which layer the value lives on.
  *
- * 读与写都走工具：有哪些键、有效值与「它来自哪一层」都由工具印出来，行的次序也跟着读数走，
- * 写落在这个项目那一层。这一层不做第二套判断——键与值合不合法都由工具说。页面上不摆乐观更新：
- * 控件印的永远是最近一次读回来的那份读数，改一下就写回、再读一遍，工具拒了的时候控件自己就回到原位。
+ * Both reading and writing go through the tool: which keys exist, the valid values, and "which
+ * layer a value comes from" are all printed by the tool; row order follows the reading, and writes
+ * land on this project's layer. This layer makes no second set of judgments — the tool says whether
+ * keys and values are valid. No optimistic updates on the page: controls always show the most
+ * recently read-back reading; a change is written, then read again, and when the tool refuses, the
+ * control returns to its place on its own.
  */
 import * as React from 'react'
 import type { ConfigEntry, PathfinderConfigReading } from '../host/project-config.ts'
@@ -36,15 +40,15 @@ type Load =
 
 export interface ConfigPaneProps {
   readonly port: PanelPort
-  /** 会话身份：工作区文件口子按它认路径。 */
+  /** Session identity: the workspace file gateway resolves paths by it. */
   readonly sessionId: string
-  /** 读、写哪个工作区：面板顶上挑中的那个根；空字符串＝这条会话自己那个。 */
+  /** Which workspace to read and write: the root picked at the top of the panel; an empty string means this session's own. */
   readonly workspaceRoot: string
-  /** 这个工作区里还没有节点那一份记录：这一格收成一句话，那条读命令也不必起。 */
+  /** This workspace has no node record yet: the pane collapses to one sentence and the read command is not even started. */
   readonly noNodes: boolean
-  /** 这一格此刻露不露面：露面那一趟才去读。 */
+  /** Whether this pane is visible right now: the read happens only on the pass it becomes visible. */
   readonly active: boolean
-  /** 面板底下那条提示行；`null` 是「上一句是我说的，收回去」。 */
+  /** The note line at the bottom of the panel; `null` means "the last sentence was mine, take it back". */
   readonly onNote: (text: string | null) => void
 }
 
@@ -53,8 +57,9 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
   const [tick, setTick] = React.useState(0)
   const [width, setWidth] = React.useState(CONFIG_WIDTH)
-  /* 提示行上最后那一句是谁留下的：读失败留下的那一声由下一次读顺了收回，写失败留下的那一声
-     由下一笔写成收回；面板别处留下的那一句，这一格谁也不去动。 */
+  /* Who left the last sentence on the note line: a failed read's sentence is retracted by the next
+     successful read; a failed write's by the next successful write. A sentence left by other parts
+     of the panel is not touched by this pane. */
   const said = React.useRef<'read' | 'write' | null>(null)
   const speak = React.useRef(props.onNote)
   React.useEffect(() => { speak.current = props.onNote }, [props.onNote])
@@ -62,10 +67,12 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
     speak.current(text)
   }, [])
 
-  /* 只在这一格真露面的时候读：读一次要起一条工具命令，没人看的那几格不必花这一下。
+  /* Read only while this pane is actually visible: one read costs a tool command, and panes nobody
+   * is looking at need not spend it.
    *
-   * 读顺了只收上一句读失败留下的那一声；写失败那一句归写那一趟管，不然每写一次被拒，跟着来的
-   * 那次重读会把它当场抹掉，读者什么也看不到。 */
+   * A successful read retracts only the previous failed-read sentence; the failed-write sentence is
+   * the write's own business — otherwise every refused write would be wiped away on the spot by the
+   * re-read that follows, and the reader would see nothing. */
   React.useEffect(() => {
     if (noNodes || !active || sessionId.length === 0) return undefined
     let live = true
@@ -91,8 +98,9 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
     return () => { live = false }
   }, [noNodes, active, sessionId, workspaceRoot, port, tick, note])
 
-  /* 写一下：工具说什么就是什么，写完再读一遍——控件印的永远跟着重读回来那一份走。
-     键不拦：没登记的键也照递，工具不认得时它那句话原样回到提示行上。 */
+  /* One write: the tool's word is final, then read again — what controls show always follows the
+     re-read copy. No key filtering: unregistered keys are passed through as well, and when the
+     tool does not recognize one, its message lands verbatim on the note line. */
   const send = React.useCallback((key: string, next: string): void => {
     const after = (): void => { setTick((round) => round + 1) }
     port.setConfig(sessionId, workspaceRoot, key, next).then(
@@ -174,7 +182,7 @@ function Row(props: {
   )
 }
 
-/** 下拉那一枚：读数里没有这个键的值时一枚都不选中（留空），不去挑第一档。 */
+/** The dropdown: when the reading has no value for the key, no option is selected (left blank) rather than picking the first. */
 function Pick(props: {
   readonly row: ConfigRow
   readonly entry: ConfigEntry | undefined
@@ -190,10 +198,10 @@ function Pick(props: {
         value={pick.value}
         onChange={(event) => props.onWrite(event.target.value)}
       >
-        {/* 没有值：留一个空档给它落，别让浏览器去挑第一档；这一枚不在下拉里供人挑。 */}
+        {/* No value: leave an empty slot for it to land on, so the browser does not pick the first option; this option is not offered for picking. */}
         {pick.value === '' ? <option value="" hidden /> : null}
         {(props.row.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}
-        {/* 读数里有、候选表里没有的值：照它自己摆一档，读数与记录一致。 */}
+        {/* A value in the reading but not in the candidate table: laid out as its own option, keeping the view consistent with the record. */}
         {pick.extra === null ? null : <option value={pick.extra}>{pick.extra}</option>}
       </select>
     </span>
@@ -201,9 +209,10 @@ function Pick(props: {
 }
 
 /**
- * 数字那一枚：改完才写（回车或失焦），中间敲的字只活在这个框里。
+ * The number control: writes only on commit (Enter or blur); keystrokes in between live only in the box.
  *
- * `revision` 每写一次就翻一格，翻的时候框里跟着换成重读回来那一份——工具拒了的那个数不赖在框里。
+ * `revision` flips on every write, and on each flip the box swaps to the re-read copy — a refused
+ * number does not squat in the box.
  */
 function NumberBox(props: {
   readonly row: ConfigRow
@@ -229,9 +238,10 @@ function NumberBox(props: {
 }
 
 /**
- * 文本那一枚（没登记的键用的）：改完才写（回车或失焦），中间敲的字只活在这个框里，规矩与
- * 数字那一枚同一套——读数来了才让位，工具拒了的那个词不赖在框里。能摆到这一行上的键都是
- * 读数里有的，所以框里起头就是读数那一个值。
+ * The text control (for unregistered keys): writes only on commit (Enter or blur), keystrokes in
+ * between live only in the box — the same rules as the number control. It yields only when a
+ * reading arrives, so a refused word does not squat in the box. Every key that can reach this row
+ * exists in the reading, so the box starts out holding the reading's value.
  */
 function TextBox(props: {
   readonly row: ConfigRow
@@ -267,7 +277,7 @@ function TextBox(props: {
   )
 }
 
-/** 开 / 关那一枚：两枚钮，按下的那一枚是此刻的值；记录里没写这一个键时两枚都不亮。 */
+/** The on / off control: two buttons, the pressed one being the current value; neither lights when the record does not carry the key. */
 function Toggle(props: {
   readonly row: ConfigRow
   readonly entry: ConfigEntry | undefined
@@ -294,9 +304,10 @@ function Toggle(props: {
 }
 
 /**
- * 列缘那一对把手：拖、键盘、双击都在共用那枚 Grip 上，这里只说这一对的量法——
- * 单侧挪 Δ、宽窄变 2Δ、中心不动，指针一直抓在列缘上；左边那一枚的 `out` 是 -1：方向键
- * 挪的是这一侧的缘。
+ * The pair of column-edge grips: drag, keyboard, and double-click all live on the shared Grip; this
+ * only states how the pair is measured — one edge moving Δ changes the width by 2Δ with the center
+ * fixed, and the pointer stays grabbed on the column edge. The left grip's `out` is -1: the arrow
+ * keys move that side's edge.
  */
 function ConfigGrip(props: {
   readonly side: 'left' | 'right'
