@@ -1,13 +1,13 @@
-# dsh-pathfinder —— 把 agent-pathfinder 的管线搬进 DSH，做成一个用户看得见的工作面板
+# dsh-pathfinder — Port the agent-pathfinder pipeline into DSH as a work panel the user can see
 
-> 本文件是路牌，上限 15 行：一行一条，只写这一层有什么、什么时候看。
+> This file is a signpost, capped at 15 lines: one line per entry — only what this layer holds and when to read it.
 
-**改界面之前先读 [docs/design-principles.md](docs/design-principles.md)** —— 那是这个仓的法。
+**Read [docs/design-principles.md](docs/design-principles.md) before changing the UI** — that is this repo's law.
 
-- `mock/` —— 原型蓝本：主面板与它内嵌的两格，另有一页设置页。改版面前看
-- `src/` —— 宿主半身、模型层与浏览器半身：记录怎么读进来、读数怎么算、面板怎么画（见 `src/AGENTS.md`）。改取数、改界面时看
-- `tests/` —— 单测，`npm test` 一条命令跑全
-- `tools/` —— 记录从哪来、产物怎么构建、面板怎么自证、测试床怎么起（见 `tools/AGENTS.md`）
-- `docs/` —— 这个仓的法（动手改界面前看）与发布做法（见 `docs/AGENTS.md`）
-- 包面与构建面 —— `package.json`、`tsconfig.json`、`tsconfig.host.json`、`tsdown.config.ts`、`cordis.patch.yml`：两个入口怎么出、这一行怎么挂进 profile、git 那条安装路子要授权什么。改发布面时看
-- `.tmp/` —— 过程物，gitignored：截图、探针、当轮笔记，随手写随手扔
+- `mock/` — Prototype blueprint: the main panel and its two embedded tiles, plus a separate settings page. Read before changing the layout
+- `src/` — Host half, model layer, and browser half: how records are read in, how readings are computed, how the panel is drawn (see `src/AGENTS.md`). Read when changing data fetching or the UI
+- `tests/` — Unit tests; `npm test` runs them all in one command
+- `tools/` — Where records come from, how artifacts are built, how the panel self-verifies, how the testbed starts (see `tools/AGENTS.md`)
+- `docs/` — This repo's law (read before touching the UI) and publishing practice (see `docs/AGENTS.md`)
+- Package and build surface — `package.json`, `tsconfig.json`, `tsconfig.host.json`, `tsdown.config.ts`, `cordis.patch.yml`: how the two entries are emitted, how this line gets hooked into the profile, what the git install route needs authorized. Read when changing the publishing surface
+- `.tmp/` — Process artifacts, gitignored: screenshots, probes, per-round notes; jot and toss

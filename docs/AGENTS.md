@@ -1,6 +1,6 @@
-# docs/ —— 这个仓的法：动手之前要读的规矩
+# docs/ — This repo's law: the rules to read before touching anything
 
-> 本文件是路牌，上限 15 行：一行一条，只写这一层有什么、什么时候看。
+> This file is a signpost, capped at 15 lines: one line per entry — only what this layer holds and when to read it.
 
-- `design-principles.md` —— 动手改界面之前必读的**法**
-- `publish.md` —— 发布与安装：改包面、要发一版、或别人装不上时看
+- `design-principles.md` — The **law** to read before changing the UI
+- `publish.md` — Publishing and installation: read when changing the package surface, cutting a release, or when someone cannot install
