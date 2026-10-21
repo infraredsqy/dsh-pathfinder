@@ -89,7 +89,7 @@ test('只有一个出局等人的节点：等待处理那一栏正好一条，�
   assert.deepEqual(reading.columns.running, [])
   assert.deepEqual(reading.columns.todo, [])
   assert.equal(only.state, 'shelved')
-  assert.equal(only.gate.word, '等待处理')
+  assert.equal(only.gate.kind, 'shelved', '闸只说是哪一种，叫什么由客户端说')
   assert.equal(only.parkedSince, null, '没有判决那一步，就没有那一刻')
 })
 
@@ -193,7 +193,7 @@ test('人闸：一个词 + 那一刻，不要人的格没有这个词', () => {
     cycles: [cycle({ path: [step('s', '2026-03-10T09:00:00.000Z', '2026-03-10T10:00:00.000Z', 'stopped')] })],
   }))
   assert.deepEqual(shelved.nodeById.s.gate, {
-    kind: 'shelved', word: '等待处理', since: new Date('2026-03-10T10:00:00.000Z'),
+    kind: 'shelved', since: new Date('2026-03-10T10:00:00.000Z'),
   })
 
   /* That word was not written yet at that moment (its last modification is later than the moment
@@ -211,7 +211,7 @@ test('人闸：一个词 + 那一刻，不要人的格没有这个词', () => {
     cycles: [cycle({ path: [step('m', '2026-03-10T09:00:00.000Z', null, null)] })],
   }))
   assert.equal(manual.nodeById.m.gate.kind, 'manual')
-  assert.equal(manual.nodeById.m.gate.word, '手动节点')
+  assert.equal(Object.hasOwn(manual.nodeById.m.gate, 'word'), false, '闸不再带词：是哪一种只看 kind')
   assert.equal(manual.nodeById.m.gate.since.getTime(), Date.parse('2026-03-10T09:00:00.000Z'))
 
   const hand = readProject(record({ nodes: { m: node({ mode: 'manual' }) } }))
@@ -223,7 +223,7 @@ test('人闸：一个词 + 那一刻，不要人的格没有这个词', () => {
     cycles: [cycle({ path: [step('cp', '2026-03-10T08:00:00.000Z', '2026-03-10T09:00:00.000Z', 'completed')] })],
   }))
   assert.equal(checkpoint.nodeById.cp.gate.kind, 'checkpoint')
-  assert.equal(checkpoint.nodeById.cp.gate.word, '检查点')
+  assert.equal(Object.hasOwn(checkpoint.nodeById.cp.gate, 'word'), false, '闸不再带词：是哪一种只看 kind')
   assert.equal(checkpoint.nodeById.cp.gate.since.getTime(), Date.parse('2026-03-10T09:00:00.000Z'))
 
   const moved = readProject(record({

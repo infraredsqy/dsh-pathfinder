@@ -81,18 +81,21 @@ export function groupInstructions(
   project: ProjectReading,
   entries: readonly InstructionReading[],
 ): readonly InstructionGroupReading[] {
-  const groups = new Map<string, { label: string; entries: InstructionReading[] }>()
-  const group = (key: string, label: string): { label: string; entries: InstructionReading[] } => {
+  const groups = new Map<string, InstructionReading[]>()
+  const group = (key: string): InstructionReading[] => {
     const held = groups.get(key)
     if (held !== undefined) return held
-    const fresh = { label, entries: [] as InstructionReading[] }
+    const fresh: InstructionReading[] = []
     groups.set(key, fresh)
     return fresh
   }
-  group('global', '全局')
-  for (const cycle of project.cycles) group(`cycle:${cycle.id}`, cycle.id)
-  group('cycle:', '未分组')
-  group('node', '这一格')
+  /* Pre-register every bucket, empty included: it fixes the order the cycle-bound buckets come out
+   * in (record order, not first-entry order) and gives the two unnamed buckets a place to sit. What
+   * each bucket is CALLED is the client's business — the key says which bucket it is. */
+  group('global')
+  for (const cycle of project.cycles) group(`cycle:${cycle.id}`)
+  group('cycle:')
+  group('node')
 
   for (const entry of entries) {
     const key = entry.scope === 'global'
@@ -100,20 +103,20 @@ export function groupInstructions(
       : entry.scope === 'cycle'
         ? (entry.cycleId === null ? 'cycle:' : `cycle:${entry.cycleId}`)
         : 'node'
-    group(key, key).entries.push(entry)
+    group(key).push(entry)
   }
 
   const order = ['global', ...[...groups.keys()].filter((key) => key.startsWith('cycle:') && key !== 'cycle:'), 'cycle:', 'node']
   const out: InstructionGroupReading[] = []
   for (const key of order) {
     const held = groups.get(key)
-    if (held === undefined || held.entries.length === 0) continue
-    held.entries.sort((left, right) => {
+    if (held === undefined || held.length === 0) continue
+    held.sort((left, right) => {
       const byForce = (left.inForce ? 0 : 1) - (right.inForce ? 0 : 1)
       if (byForce !== 0) return byForce
       return (right.saidAt?.getTime() ?? 0) - (left.saidAt?.getTime() ?? 0)
     })
-    out.push({ key, label: held.label, entries: held.entries })
+    out.push({ key, entries: held })
   }
   return out
 }

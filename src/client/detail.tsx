@@ -11,7 +11,11 @@ import * as React from 'react'
 import type { CycleReading, DetailGroupKey, NodeReading, ProjectReading } from '../model/index.ts'
 import { nodesOf } from '../model/index.ts'
 import { clampSide, SIDE_DEFAULT, SIDE_MAX, SIDE_MIN } from './prefs.ts'
-import { NOT_ENABLED } from './constants.ts'
+import { NOT_ENABLED_WORD } from './constants.ts'
+import { useT } from './locale.ts'
+import type { Translate } from './locale.ts'
+import type { WordKey } from './locales/index.ts'
+import { gateWord, unit } from './words.ts'
 import { nodeName, nodeHover } from './nodes.ts'
 import { Grip } from './widgets.tsx'
 import { gateTitle, StateMark } from './marks.tsx'
@@ -20,7 +24,8 @@ import { DepsChip } from './field.tsx'
 /** The five detail sections, in the order readers meet them. */
 interface Group {
   readonly key: DetailGroupKey
-  readonly label: string
+  /** Which word heads this section, looked up when the header is drawn so the table knows no language. */
+  readonly word: WordKey
   readonly cls: string
   readonly deps: boolean
 }
@@ -28,11 +33,11 @@ interface Group {
 /* The five sections always start expanded: this pane is called detail, and the rows are what the
  * reader came to see. The folding move survives, triggered by the reader. */
 const GROUPS: readonly Group[] = [
-  { key: 'shelved', label: '等待处理', cls: 'is-shelved', deps: false },
-  { key: 'run', label: '进行中', cls: 'is-running', deps: false },
-  { key: 'ready', label: '可开工', cls: 'is-todo', deps: false },
-  { key: 'wait', label: '未开始', cls: 'is-todo', deps: true },
-  { key: 'done', label: '已交付', cls: 'is-done', deps: false },
+  { key: 'shelved', word: 'state.shelved', cls: 'is-shelved', deps: false },
+  { key: 'run', word: 'state.running', cls: 'is-running', deps: false },
+  { key: 'ready', word: 'state.ready', cls: 'is-todo', deps: false },
+  { key: 'wait', word: 'state.todo', cls: 'is-todo', deps: true },
+  { key: 'done', word: 'state.done', cls: 'is-done', deps: false },
 ]
 
 /** How far one keyboard move of the detail split travels; Shift takes two steps. */
@@ -56,6 +61,7 @@ export function DetailPane(props: {
   readonly onPickLine: (id: string) => void
   readonly onOpenSettings: (id: string) => void
 }): React.ReactElement {
+  const t = useT()
   return (
     <div
       className="pf-pane"
@@ -65,16 +71,16 @@ export function DetailPane(props: {
       data-fill=""
       hidden={!props.active}
     >
-      {props.noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
+      {props.noNodes ? <p className="pf-innone">{t(NOT_ENABLED_WORD)}</p> : (
       <div className="pf-detail" style={{ ['--pf-side-w' as string]: `${props.sideWidth}px` }}>
-        <div className="pf-lineside" role="group" aria-label="线路">
+        <div className="pf-lineside" role="group" aria-label={t('detail.lines.aria')}>
           {props.cycles.map((cycle) => (
             <div className="pf-lineitem" key={cycle.id}>
               <button
                 type="button"
                 className="pf-linepick"
                 aria-current={cycle.id === props.picked?.id}
-                aria-label={`${cycle.id} · ${stateWord(cycle)}`}
+                aria-label={`${cycle.id} · ${stateWord(t, cycle)}`}
                 onClick={() => props.onPickLine(cycle.id)}
               >
                 <LineMark cycle={cycle} />
@@ -83,10 +89,10 @@ export function DetailPane(props: {
               <button
                 type="button"
                 className="pf-mini"
-                aria-label={`${cycle.id} 的设置`}
+                aria-label={t('detail.line.settings.aria', { cycle: cycle.id })}
                 onClick={() => props.onOpenSettings(cycle.id)}
               >
-                设置
+                {t('common.settings')}
               </button>
             </div>
           ))}
@@ -94,7 +100,7 @@ export function DetailPane(props: {
         {/* The split between sidebar and body: one edge moving Δ measures this column's width. */}
         <Grip
           id="detail-split"
-          label="调整线路侧栏的宽度"
+          label={t('detail.side-grip.aria')}
           value={props.sideWidth}
           min={SIDE_MIN}
           max={SIDE_MAX}
@@ -105,7 +111,7 @@ export function DetailPane(props: {
           resetTo={SIDE_DEFAULT}
         />
         <div className="pf-linemain">
-          <div className="pf-scroll" role="region" aria-label="明细" tabIndex={0}>
+          <div className="pf-scroll" role="region" aria-label={t('view.detail')} tabIndex={0}>
             {props.picked === null ? null : <DetailList cycle={props.picked} project={props.project as ProjectReading} />}
           </div>
         </div>
@@ -117,14 +123,15 @@ export function DetailPane(props: {
 
 /** A line's mark: parked and idle when stopped, spinning while running, drawn as blocked when it owes waiting nodes. */
 function LineMark(props: { readonly cycle: CycleReading }): React.ReactElement {
+  const t = useT()
   const { cycle } = props
   const cls = cycle.parked.length > 0 ? 'is-blocked' : cycle.inService ? 'is-run' : ''
-  return <span className={`pf-linemark ${cls}`.trim()} title={stateWord(cycle)} />
+  return <span className={`pf-linemark ${cls}`.trim()} title={stateWord(t, cycle)} />
 }
 
-function stateWord(cycle: CycleReading): string {
-  if (cycle.parked.length > 0) return '阻塞'
-  return cycle.inService ? '运行中' : '停止'
+function stateWord(t: Translate, cycle: CycleReading): string {
+  if (cycle.parked.length > 0) return t('cycle.blocked')
+  return cycle.inService ? t('cycle.running') : t('cycle.stopped')
 }
 
 /** Detail: the picked line's node list, grouped into five sections. */
@@ -145,6 +152,7 @@ function DetailList(props: { readonly cycle: CycleReading; readonly project: Pro
 /** A section's header and the rows under it. */
 function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[]; readonly at: Date }): React.ReactElement {
   const { group } = props
+  const t = useT()
   const [folded, setFolded] = React.useState(false)
   return (
     <section className={`pf-sec${folded ? ' is-folded' : ''}`}>
@@ -154,18 +162,20 @@ function DetailGroup(props: { readonly group: Group; readonly nodes: readonly No
         aria-expanded={!folded}
         onClick={() => setFolded((value) => !value)}
       >
-        <span className="pf-rowhead-key">{group.label}</span>
+        <span className="pf-rowhead-key">{t(group.word)}</span>
         {folded
-          ? <span className="pf-rowhead-figs pf-rowcount"><b className="pf-num">{props.nodes.length}</b>{' 格'}</span>
+          ? <span className="pf-rowhead-figs pf-rowcount"><b className="pf-num">{props.nodes.length}</b>{unit(t, 'detail.folded.cells.one', 'detail.folded.cells.other', props.nodes.length)}</span>
           : null}
       </button>
       {props.nodes.map((node) => (
-        <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(node, props.at)}>
+        <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(t, node, props.at)}>
           <StateMark node={node} kind={group.key} at={props.at} />
           <span className="pf-rowtitle" title={nodeHover(node)}>{nodeName(node)}</span>
           <span className="pf-rowfigs">{group.deps ? <DepsChip node={node} /> : null}</span>
-          {node.gate !== null && node.gate.word !== group.label
-            ? <span className={`pf-gate pf-rowgate${node.state === 'todo' ? ' is-quiet' : ''}`}>{node.gate.word}</span>
+          {/* The section already says its own gate kind: a node gated that same way adds no second
+              badge here. Both sides are the structured kind — a gate's kind against the section's. */}
+          {node.gate !== null && node.gate.kind !== group.key
+            ? <span className={`pf-gate pf-rowgate${node.state === 'todo' ? ' is-quiet' : ''}`}>{gateWord(t, node.gate)}</span>
             : null}
         </div>
       ))}

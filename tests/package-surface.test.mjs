@@ -78,3 +78,32 @@ test('包面：engines.dsh 写着一段非空的范围', () => {
   assert.equal(typeof manifest.engines?.dsh, 'string')
   assert.ok(manifest.engines.dsh.trim().length > 0)
 })
+
+/*
+ * The package's own locale metadata: DSH's plugin inventory reads `locale/<id>.json` to say what this
+ * line is called, in the reader's language. It is a separate surface from the panel's word table —
+ * that one lives in the browser bundle and words the panel — so it gets its own guard: a metadata
+ * file that exists on disk but is not exported, or not covered by `files`, is simply absent from the
+ * published package, and the inventory line falls back to the raw package name with nothing failing.
+ */
+test('包面：语言元数据两份都在盘上，各自的标题非空', async () => {
+  for (const locale of ['zh', 'en']) {
+    const path = fileURLToPath(new URL(`../locale/${locale}.json`, import.meta.url))
+    assert.ok(existsSync(path), `locale/${locale}.json 不在盘上`)
+    const held = JSON.parse(await (await import('node:fs/promises')).readFile(path, 'utf8'))
+    assert.equal(typeof held.meta?.title, 'string')
+    assert.ok(held.meta.title.trim().length > 0, `locale/${locale}.json 的 meta.title 是空的`)
+    assert.ok(held.meta.title !== locale, `locale/${locale}.json 的 meta.title 还是语言名本身`)
+  }
+})
+
+test('包面：语言元数据既经 exports 放行，也被 files 收进包', () => {
+  assert.equal(manifest.exports['./locale/*.json'], './locale/*.json', '没有这条 exports，外壳取不到元数据')
+  const files = manifest.files ?? []
+  for (const locale of ['zh', 'en']) {
+    assert.ok(
+      files.some((pattern) => covered(pattern, `locale/${locale}.json`)),
+      `locale/${locale}.json 没有被 files 里任何一条盖住：files=${JSON.stringify(files)}`,
+    )
+  }
+})

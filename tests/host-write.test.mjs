@@ -155,9 +155,8 @@ test('记下一条：两种叫法都不在这台机器上，宁可不落笔，�
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const outcome = await gateway.addInstruction('s1', '', '一句话', 'global', '', '')
 
-  assert.equal(outcome.ok, false)
+  assert.deepEqual(outcome, { ok: false, code: 'no-interpreter' }, '没有解释器时报这个码，句子留给面板去说')
   assert.deepEqual(subprocess.specs, [])
-  assert.match(outcome.text, /解释器/u)
 })
 
 test('记下一条：空话与不认识的范围当场说清，命令一条都不递', async () => {
@@ -166,9 +165,8 @@ test('记下一条：空话与不认识的范围当场说清，命令一条都�
   const blank = await gateway.addInstruction('s1', '', '   ', 'global', '', '')
   const odd = await gateway.addInstruction('s1', '', '一句话', 'everywhere', '', '')
 
-  assert.equal(blank.ok, false)
-  assert.equal(odd.ok, false)
-  assert.match(odd.text, /无法识别的范围/u)
+  assert.deepEqual(blank, { ok: false, code: 'empty-text' }, '空话没有可记的东西')
+  assert.deepEqual(odd, { ok: false, code: 'scope-unknown', detail: 'everywhere' }, '不认识的范围把它本身放在 detail 里')
   assert.deepEqual(subprocess.specs, [])
 })
 
@@ -185,18 +183,18 @@ test('无法识别的策略键：不递命令，直接拒', async () => {
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const outcome = await gateway.setCyclePolicy('s1', '', 'panel-to-plugin', 'spawner', 'dsh')
 
-  assert.equal(outcome.ok, false)
+  assert.deepEqual(outcome, { ok: false, code: 'policy-key-unknown', detail: 'spawner' }, '不在那三个可写键里就不递命令')
   assert.deepEqual(subprocess.specs, [])
 })
 
 test('参数闸：命令行元字符进不去，命令也就不递', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.archiveInstruction('s1', '', 'i-1 & del /s C:\\')
+  const id = 'i-1 & del /s C:\\'
+  const outcome = await gateway.archiveInstruction('s1', '', id)
 
-  assert.equal(outcome.ok, false)
+  assert.deepEqual(outcome, { ok: false, code: 'arg-not-allowed', detail: id }, '被闸住的那个参数原样放进 detail')
   assert.deepEqual(subprocess.specs, [])
-  assert.match(outcome.text, /不能进入命令/u)
 })
 
 test('工具非零退出：读数里那个数一个都不改，ok 是假', async () => {
@@ -204,16 +202,18 @@ test('工具非零退出：读数里那个数一个都不改，ok 是假', async
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const outcome = await gateway.archiveInstruction('s1', '', 'i-0007')
 
-  assert.equal(outcome.ok, false)
-  assert.match(outcome.text, /没有 i-0007 这一条/u)
+  assert.deepEqual(
+    outcome,
+    { ok: false, code: 'tool-refused', detail: '没有 i-0007 这一条' },
+    '工具自己说了原因：原因原样放进 detail，不替它翻译',
+  )
 })
 
 test('宿主没有进程通道：如实说这次写入没法落笔', async () => {
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess: undefined }))
   const outcome = await gateway.removeInstruction('s1', '', 'i-0007')
 
-  assert.equal(outcome.ok, false)
-  assert.match(outcome.text, /进程通道/u)
+  assert.deepEqual(outcome, { ok: false, code: 'no-subprocess' }, '没有进程通道就没有写入，报的是这个码')
 })
 
 test('Windows 上那条命令行：解释器 + 一条命令，`pf` 那条路径不带引号', { skip: process.platform !== 'win32' }, async () => {
@@ -231,7 +231,10 @@ test('Windows 上路径带空格：宁可不落笔，不硬拼一条会被 cmd �
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const outcome = await gateway.reviveInstruction('s1', '', 'i-0007')
 
-  assert.equal(outcome.ok, false)
+  assert.deepEqual(
+    outcome,
+    { ok: false, code: 'pf-path-unsafe', detail: 'C:\\Program Files\\pf\\pf.cmd' },
+    '拼不出一条 cmd 认得的命令行时，把那条路径原样报出来',
+  )
   assert.deepEqual(subprocess.specs, [])
-  assert.match(outcome.text, /cmd 无法处理的字符/u)
 })

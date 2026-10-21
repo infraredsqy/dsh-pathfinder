@@ -7,7 +7,7 @@
  * blocks nobody; if the data loops back to the node itself, the walk stops
  * there.
  */
-import type { DepsWord, GraphEdge, GraphReading, NodeReading } from './contract.ts'
+import type { DepsReading, GraphEdge, GraphReading, NodeReading } from './contract.ts'
 
 /**
  * Read the dependency field at that moment.
@@ -54,17 +54,20 @@ export function readGraph(nodes: readonly NodeReading[]): GraphReading {
 }
 
 /**
- * Which sentence a node should say on the dependency field: ready to start,
- * or how many prerequisites are still owed.
+ * What a node answers on the dependency field: ready to start, or how many
+ * prerequisites are still owed.
  *
  * Ready-to-start trusts only the reading's own value — a running node's state
  * is also `todo` and its owed prerequisites may be down to none; assembling
- * the sentence from other fields would print a node currently in someone's
+ * the answer from other fields would print a node currently in someone's
  * hands as ready to start. Completed, running, and shelved nodes owe no such
  * answer and say nothing.
+ *
+ * The wording is the client's (`src/client/words.ts`): this hands over the two
+ * facts and nothing else.
  */
-export function depsWord(node: NodeReading): DepsWord | null {
-  if (node.ready) return { word: '可开工', ready: true, count: null }
+export function readDeps(node: NodeReading): DepsReading | null {
+  if (node.ready) return { ready: true, count: null }
   if (node.state !== 'todo' || node.running || node.openDependencies.length === 0) return null
-  return { word: `前置节点 ${String(node.openDependencies.length)} 个`, ready: false, count: node.openDependencies.length }
+  return { ready: false, count: node.openDependencies.length }
 }

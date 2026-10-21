@@ -16,28 +16,31 @@ npm run bundle:client  # lib/client.js（浏览器半身）
 
 这三条绑在 `prepack` 上，`npm pack` 与 `npm publish` 会自己跑一遍。
 
-`package.json` 的 `files` 只收两个运行时入口与 `lib/types/**/*.d.ts`、`cordis.patch.yml`，于是
-`npm pack` 出的那一个 `.tgz` 就是分发件本身（`lib/client-body.js` 是浏览器那一步的中间件，构建脚本
-用完当场删掉，不进包）。包里两个口子：
+`package.json` 的 `files` 只收两个运行时入口、`lib/types/**/*.d.ts`、`locale/*.json`、
+`cordis.patch.yml`，于是 `npm pack` 出的那一个 `.tgz` 就是分发件本身（`lib/client-body.js` 是浏览器
+那一步的中间件，构建脚本用完当场删掉，不进包）。三个口子：
 
 | 口子 | 落点 | 谁用 |
 |---|---|---|
 | `.`（`main`） | `lib/host/index.js` | 宿主半身：装成 `ctx.pathfinderRecords`，那几手端点经网关交出去 |
 | `./client` | `lib/client.js` | 浏览器半身：`dsh.client.platform` 是 `web`，外壳按启动名册去拉这一份 |
+| `./locale/*.json` | `locale/{zh,en}.json` | DSH 的插件清单读它来印这一行的名字与说明；与面板自己的对照表是两处（那份在浏览器包里，说面板上的词） |
 
 `dsh.bundle.patch` 指着 `./cordis.patch.yml`（一条 `insert`，行 id `pathfinder`）。装进一个 profile 时
 `dsh plugin add` 会把这一层并进那个 profile 的 `dsh.profile.bundles`，profile 自己的
 `cordis.patch.yml` 照旧可以按 id 把这一行关掉。
 
-`./client` 那一条还带一行加载依赖：
+`./client` 那一条还带两行加载依赖：
 
 ```json
-"dsh": { "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-connection"] } }
+"dsh": { "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-locale"] } }
 ```
 
-**这一行不能摘**：外壳照启动名册先送达 `connection` 那条客户端插件，再应用本包的面板，浏览器半身
+**这两行都不能摘**：外壳照启动名册先送达 `connection` 那条客户端插件，再应用本包的面板，浏览器半身
 那条取数口子才接得上。摘掉之后面板应用得早，中央栏那一格正文里没有记录的数，摆的是「该部署未连接
 寻路记录服务，无法读取记录。」（宿主那一侧的端点 `/api/pathfinderRecords/read` 照旧是好的）。
+`locale` 那条管的是语言：不声明它，面板照样画得出来（语言端口会退回包里那份中文对照表），但跟随 DSH
+设置切换语言这一条就接不上了。
 
 `engines.dsh` 那段范围收得很窄，出处是 `package.json`：宿主半身有一处**运行时的**外部依赖
 `@deepseek-ai/dsh-typert-protocol`（与 DSH 本体锁步同版本发布），0.2.x 里换一个 rc 它就可能动；要放宽

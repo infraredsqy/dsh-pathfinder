@@ -8,15 +8,27 @@
  * every key in the reading gets a row — registered keys are described per this table, unregistered
  * ones show the key name directly with a text box; keys absent from the reading get no row here —
  * nothing is drawn for what does not exist.
+ *
+ * The two words a row carries are dictionary KEYS, never the words themselves: which language they
+ * read in is decided where the row is drawn, by the translator handed to {@link rowWords}.
  */
 import type { ConfigEntry, ConfigLayer } from '../host/project-config.ts'
+import type { Translate } from './locale.ts'
+import type { WordKey } from './locales/index.ts'
 
 export type ControlKind = 'pick' | 'num' | 'toggle' | 'text'
 
 export interface ConfigRow {
   readonly key: string
-  readonly name: string
-  readonly caption: string
+  /**
+   * The name in the label cell, as a dictionary key.
+   *
+   * `null` for a key this table does not know: that key has no name of its own to translate — the key
+   * name is a word out of the records, and it is printed as it stands in every language.
+   */
+  readonly name: WordKey | null
+  /** The one sentence under the name, as a dictionary key. */
+  readonly caption: WordKey
   readonly kind: ControlKind
   /** Only the dropdown kind has it: the words the tool accepts, in blueprint order. */
   readonly options?: readonly string[]
@@ -32,34 +44,34 @@ export interface ConfigRow {
 export const KNOWN_CONFIG_ROWS: Readonly<Record<string, ConfigRow>> = {
   worktree_mode: {
     key: 'worktree_mode',
-    name: 'worktree 档',
-    caption: '一格的活要不要开在自己的 worktree 里跑',
+    name: 'config.row.worktree_mode.name',
+    caption: 'config.row.worktree_mode.caption',
     kind: 'pick',
     options: ['off', 'fork', 'reuse'],
   },
   test_tier: {
     key: 'test_tier',
-    name: '测试档',
-    caption: 'full 跑整套测试套件，minimal 只跑项目自己的几条检查',
+    name: 'config.row.test_tier.name',
+    caption: 'config.row.test_tier.caption',
     kind: 'pick',
     options: ['full', 'minimal'],
   },
   max_agents: {
     key: 'max_agents',
-    name: '并行 subagent 上限',
-    caption: '一个 session 同时在飞的 subagent 数量上限',
+    name: 'config.row.max_agents.name',
+    caption: 'config.row.max_agents.caption',
     kind: 'num',
   },
   issue_repair: {
     key: 'issue_repair',
-    name: 'issue 开关',
-    caption: '问题池越线时自动加入解决问题的节点；关了就不自动加',
+    name: 'config.row.issue_repair.name',
+    caption: 'config.row.issue_repair.caption',
     kind: 'toggle',
   },
 }
 
 /** The caption under unregistered keys: the key name is already in the name cell, so this only says who judges the value. */
-const UNREGISTERED_CAPTION = '这一键还没有它的说法，值合不合法由工具判'
+const UNREGISTERED_CAPTION: WordKey = 'config.unregistered-caption'
 
 /**
  * Grow this view's rows out of a reading: only keys present in the reading get rows, none are added.
@@ -76,9 +88,24 @@ export function configRowsOf(entries: Readonly<Record<string, ConfigEntry>>): re
     if (entries[known.key] !== undefined) rows.push(known)
   }
   for (const key of Object.keys(entries)) {
-    if (KNOWN_CONFIG_ROWS[key] === undefined) rows.push({ key, name: key, caption: UNREGISTERED_CAPTION, kind: 'text' })
+    if (KNOWN_CONFIG_ROWS[key] === undefined) rows.push({ key, name: null, caption: UNREGISTERED_CAPTION, kind: 'text' })
   }
   return rows
+}
+
+/**
+ * The two words one row prints, in the reader's language.
+ *
+ * The translator comes in as the first argument rather than being reached for, so a caller can hand
+ * in whichever language is in force; see `words.ts` for the same discipline.
+ *
+ * An unregistered key has no name of its own to translate: its name is the key itself, which is a
+ * word out of the records and reads the same in every language.
+ * @param t - The translator for the language in force.
+ * @param row - The row whose words are wanted.
+ */
+export function rowWords(t: Translate, row: ConfigRow): { readonly name: string; readonly caption: string } {
+  return { name: row.name === null ? row.key : t(row.name), caption: t(row.caption) }
 }
 
 export interface PickState {
@@ -106,11 +133,17 @@ export function pickState(entry: ConfigEntry | undefined, options: readonly stri
   return options.includes(value) ? { value, extra: null } : { value, extra: value }
 }
 
-/** The three words for the layer tag at the end of a row. The default layer reads as "default": the factory copy nobody has changed. */
-export const LAYER_WORDS: Readonly<Record<ConfigLayer, string>> = {
-  default: '默认',
-  project: '本项目',
-  global: '全局',
+/**
+ * The three words for the layer tag at the end of a row, on the same terms as the panel's other word
+ * tables: keys, not words.
+ *
+ * The default layer reads as "default": the factory copy nobody has changed. The global layer is
+ * the instruction ledger's own "global" — one word for one fact, spelled once.
+ */
+export const LAYER_WORDS: Readonly<Record<ConfigLayer, WordKey>> = {
+  default: 'config.layer.default',
+  project: 'config.layer.project',
+  global: 'common.global',
 }
 
 /** That column's width bounds, default, and two step sizes, per the blueprint. */

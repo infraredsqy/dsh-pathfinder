@@ -71,6 +71,37 @@ test('全局那一层：工具印的是家目录那份，读作 global', () => {
   assert.deepEqual(entries['issue_repair'], { value: 'off', layer: 'global' })
 })
 
+/*
+ * The tool has printed its layer tag two ways: the Chinese words inside full-width parentheses, and
+ * the English words inside half-width ones. Both are inbound tokens matched against the tool's
+ * stdout — never rendered — so this reader accepts either rather than pinning the one the tool
+ * happened to print when it was written. Getting this wrong is silent: the parse yields no entries,
+ * the panel draws no settings rows, and nothing errors.
+ */
+test('层签两种写法都认：全角括号中文层名，与半角括号英文层名', () => {
+  const chinese = parseConfigList([
+    'max_agents    = 1（项目 .pf/config.json）',
+    'issue_repair  = on（出厂默认）',
+    'worktree_mode = off（全局 ~/.pf/config.json）',
+  ].join('\n'))
+  const english = parseConfigList([
+    'max_agents    = 1 (project .pf/config.json)',
+    'issue_repair  = on (factory default)',
+    'worktree_mode = off (global ~/.pf/config.json)',
+  ].join('\n'))
+
+  assert.deepEqual(chinese, english, '两种写法读出来得是同一份表')
+  assert.deepEqual(english['max_agents'], { value: '1', layer: 'project' })
+  assert.deepEqual(english['issue_repair'], { value: 'on', layer: 'default' })
+  assert.deepEqual(english['worktree_mode'], { value: 'off', layer: 'global' })
+})
+
+test('半角括号下，不认得的层名照样留空——宽度变了不改变判据', () => {
+  const entries = parseConfigList('test_tier     = minimal (nobody knows this layer)')
+
+  assert.deepEqual(entries['test_tier'], { value: 'minimal', layer: null })
+})
+
 test('不认得的层名：那一行留着，层签留空——不替工具编一个它没说的层', () => {
   const entries = parseConfigList('test_tier     = minimal（这一层谁都不认得）')
 
@@ -115,8 +146,12 @@ test('读那一趟没成：如实说它没成，一行都不编', async () => {
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const reading = await gateway.readConfig('s1', '')
 
+  /* The reason is a code, and the tool's own words ride along as the detail: those words are not
+   * this plugin's to translate, and the panel prints them as they came. */
   assert.equal(reading.ok, false)
-  assert.match(reading.text, /python not found/u)
+  assert.equal(reading.text, '', '没成的时候不往 text 里塞话——那句话没有语言')
+  assert.equal(reading.refusal?.code, 'tool-refused')
+  assert.match(reading.refusal?.detail ?? '', /python not found/u)
   assert.deepEqual(reading.entries, {})
 })
 
@@ -135,10 +170,12 @@ test('没登记的键照递：这一手不立放行表，键与值一并交工�
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const outcome = await gateway.setConfig('s1', '', 'spawner', 'dsh')
 
-  /* The command is still forwarded and the tool's error surfaces verbatim — the repo no longer keeps an "unrecognized config key" gate. */
+  /* The command is still forwarded and the tool's refusal surfaces as its own code, with the tool's
+   * words in the detail — the repo no longer keeps an "unrecognized config key" gate. */
   assert.equal(outcome.ok, false)
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['config', 'set', 'spawner', 'dsh'])
-  assert.match(outcome.text, /spawner/u)
+  assert.equal(outcome.code, 'tool-refused')
+  assert.match(outcome.detail ?? '', /spawner/u)
 })
 
 test('值合不合法由工具判：面板这一手照递，回来的是它那一句话', async () => {
@@ -147,6 +184,7 @@ test('值合不合法由工具判：面板这一手照递，回来的是它那�
   const outcome = await gateway.setConfig('s1', '', 'max_agents', '0')
 
   assert.equal(outcome.ok, false)
-  assert.match(outcome.text, /要一个正整数/u)
+  assert.equal(outcome.code, 'tool-refused')
+  assert.match(outcome.detail ?? '', /要一个正整数/u)
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['config', 'set', 'max_agents', '0'])
 })

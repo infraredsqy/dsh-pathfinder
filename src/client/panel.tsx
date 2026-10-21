@@ -17,8 +17,12 @@ import type { PathfinderReading } from '../host/contract.ts'
 import type { InstructionReading, ProjectReading } from '../model/index.ts'
 import { everySourceIs, readProject, readSessions } from '../model/index.ts'
 import type { InfoLevel, PrefField, PrefsSource, ViewId } from './prefs.ts'
-import { clampSide, DEFAULT_SOURCE, PANEL_PREF_FIELDS, VIEW_LABELS } from './prefs.ts'
-import { NOT_ENABLED } from './constants.ts'
+import { clampSide, DEFAULT_SOURCE, PANEL_PREF_FIELDS, VIEW_WORDS } from './prefs.ts'
+import { useT } from './locale.ts'
+import { NOT_ENABLED_WORD } from './constants.ts'
+import { failureWord } from './words.ts'
+import type { Failure, Outcome } from './failure.ts'
+import { failureOf } from './failure.ts'
 import type { PanelPort } from './data.ts'
 import { bucketOf, NO_WORKSPACES, type WorkspaceSource } from './workspaces.ts'
 import { Pill } from './widgets.tsx'
@@ -33,36 +37,25 @@ import { IssuePool } from './pool.tsx'
 
 interface View {
   readonly id: ViewId
-  readonly label: string
   /** The panes with a built-in height floor stretch to the viewport; the rest grow with their content. */
   readonly fill: boolean
 }
 
+/* Only the layout is stated here; the word on each tab is looked up when the tab row is drawn, so
+ * the settings dropdown and the tab row cannot drift apart and neither knows the language. */
 const VIEWS: readonly View[] = [
-  { id: 'now', label: VIEW_LABELS.now, fill: false },
-  { id: 'detail', label: VIEW_LABELS.detail, fill: true },
-  { id: 'notes', label: VIEW_LABELS.notes, fill: true },
-  { id: 'wires', label: VIEW_LABELS.wires, fill: true },
-  { id: 'issue', label: VIEW_LABELS.issue, fill: true },
-  { id: 'config', label: VIEW_LABELS.config, fill: true },
+  { id: 'now', fill: false },
+  { id: 'detail', fill: true },
+  { id: 'notes', fill: true },
+  { id: 'wires', fill: true },
+  { id: 'issue', fill: true },
+  { id: 'config', fill: true },
 ]
 
 /** The three levels of cards per column, and the fallback when "full" cannot reach the ruler. */
 const INFO_CAPS: Readonly<Record<Exclude<InfoLevel, 'full'>, number>> = { lean: 1, three: 3 }
 const FULL_MAX = 8
 const FULL_FALLBACK = 3
-
-/** The sentence on the panel when the settings service has not arrived: this change lives only on this screen. */
-const PREFS_NOT_KEPT = '显示偏好未能保存：设置服务未连接，本次改动只在当前页面生效。'
-
-/** The sentence in the panel body when this workspace has no such record. */
-const NO_RECORD = '当前工作区没有 pathfinder 的记录。'
-
-/** The session belongs to some workspace yet the reader picked "ungrouped": that bucket is not a root and carries no record to read. */
-const UNGROUPED_EMPTY = '未分组名下没有记录；这条会话属于清单里的某个工作区。'
-
-/** The other sentence, when the record is there but none of the four sources can be parsed: a different thing from having no record. */
-const UNREADABLE_RECORD = '无法读取当前工作区的记录。'
 
 export interface PanelProps {
   readonly port: PanelPort
@@ -83,11 +76,25 @@ const NO_NOTES: Readonly<Record<string, string>> = Object.freeze({})
 
 const NO_SESSIONS: ReadonlySet<string> = new Set<string>()
 
-/** How far one reading has got. */
+/** How far one reading has got. Which words a failure reads as is decided where it is drawn. */
 type Load =
   | { readonly phase: 'loading' }
   | { readonly phase: 'ok'; readonly reading: PathfinderReading }
-  | { readonly phase: 'failed'; readonly message: string }
+  | { readonly phase: 'failed'; readonly failure: Failure }
+  /** No session is selected, so there is no workspace to read and no failure to speak of. */
+  | { readonly phase: 'no-session' }
+
+/**
+ * What the one note line under the panel says.
+ *
+ * Two different things land there and they are not the same kind of text: the tool's own words,
+ * carried out verbatim when it spoke while succeeding, and why an operation was refused, which is a
+ * code this panel spells. Kept apart rather than flattened into one string, because only the second
+ * is ours to translate.
+ */
+type Note =
+  | { readonly kind: 'said'; readonly text: string }
+  | { readonly kind: 'failure'; readonly failure: Failure }
 
 /**
  * The level the panel reads at this moment.
@@ -107,6 +114,9 @@ function usePreference<T>(stored: T): [T, (next: T) => void] {
 
 export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const { port, sessionId, openSession, knownSessions } = props
+  /* Every word this pane prints comes from here. The translator reads the active language at call
+   * time, so a redraw after a language switch says the new one without anything being re-created. */
+  const t = useT()
   /* The workspace selector at the top of the panel: the candidates are DSH's own list, and the read
    * goes to the picked workspace. The picked one lives only on this screen; the panel's own
    * preferences have nothing to do with it, and no key is left in local storage. Before anything is
@@ -151,7 +161,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
    * reading already carries this moment; "now" is never fetched separately. */
   const [at, setAt] = React.useState<Date>(() => new Date())
   const [tick, setTick] = React.useState(0)
-  const [note, setNote] = React.useState<string | null>(null)
+  const [note, setNote] = React.useState<Note | null>(null)
   const [lineId, setLineId] = React.useState<string | null>(null)
   const [settingsFor, setSettingsFor] = React.useState<string | null>(null)
   const [deleting, setDeleting] = React.useState<InstructionReading | null>(null)
@@ -163,7 +173,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
    * after a write lands (`tick` is that pass's marker). */
   React.useEffect(() => {
     if (sessionId === undefined || sessionId.length === 0) {
-      setLoad({ phase: 'failed', message: '尚未选中会话，无法确定工作区。' })
+      setLoad({ phase: 'no-session' })
       return undefined
     }
     if (pickedNone) return undefined
@@ -177,7 +187,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
       },
       (error: unknown) => {
         if (!live) return
-        setLoad({ phase: 'failed', message: error instanceof Error ? error.message : String(error) })
+        setLoad({ phase: 'failed', failure: failureOf(error) })
       },
     )
     return () => { live = false }
@@ -261,16 +271,20 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
    * "did it land" is for the "record one" row — only a landed sentence clears the box; when the
    * tool refuses, the original words stay in the box for further editing. */
   const onWrite = React.useCallback(
-    (run: () => Promise<{ ok: boolean; text: string }>): Promise<boolean> => {
+    (run: () => Promise<Outcome>): Promise<boolean> => {
       setNote(null)
       return run().then(
         (outcome) => {
-          setNote(outcome.text.length > 0 ? outcome.text : null)
+          /* Success carries the tool's own words when it said any; a refusal carries a code, and the
+           * note line spells it when it is drawn — not here, where the reader's language is unknown. */
+          setNote(outcome.ok
+            ? (outcome.text.length > 0 ? { kind: 'said', text: outcome.text } : null)
+            : { kind: 'failure', failure: { code: outcome.code, ...(outcome.detail !== undefined ? { detail: outcome.detail } : {}) } })
           if (outcome.ok) setTick((value) => value + 1)
           return outcome.ok
         },
         (error: unknown) => {
-          setNote(error instanceof Error ? error.message : String(error))
+          setNote({ kind: 'failure', failure: failureOf(error) })
           return false
         },
       )
@@ -283,10 +297,14 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
    * When the write cannot land, the control does not silently snap back: the sentence in the port's
    * reading lands on the note line below, and when the service has not arrived there is its own
    * sentence for that too. */
-  const prefNote = React.useRef<string | null>(null)
+  const prefNote = React.useRef<Note | null>(null)
   const keep = React.useCallback((field: PrefField, value: unknown): void => {
     void store.write(field, value).then((accepted) => {
-      const said = accepted ? null : (store.getSnapshot().failure ?? PREFS_NOT_KEPT)
+      /* Two different failures are possible and they read differently: the settings service refused
+       * the change, or there is no settings service at all and the change lives only on this screen. */
+      const said: Note | null = accepted
+        ? null
+        : { kind: 'failure', failure: { code: store.getSnapshot().refused ? 'settings-refused' : 'settings-unwritable' } }
       const was = prefNote.current
       prefNote.current = said
       /* On success take the previous "not saved" sentence back; other notes (the write-side ones) stay put. */
@@ -318,14 +336,16 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
    * are speechless, and the pane collapses to one sentence — the plaque and the workspace selector
    * stay; tabs, counts, and body go together. */
   const nothing = pickedNone
-    ? UNGROUPED_EMPTY
-    : load.phase === 'failed'
-      ? load.message
-      : reading !== null && everySourceIs(reading, 'missing')
-        ? NO_RECORD
-        : reading !== null && everySourceIs(reading, 'unusable')
-          ? UNREADABLE_RECORD
-          : null
+    ? t('panel.ungrouped-empty')
+    : load.phase === 'no-session'
+      ? t('panel.no-session')
+      : load.phase === 'failed'
+        ? failureWord(t, load.failure)
+        : reading !== null && everySourceIs(reading, 'missing')
+          ? t('panel.no-record')
+          : reading !== null && everySourceIs(reading, 'unusable')
+            ? t('panel.unreadable')
+            : null
 
   return (
     <div className="pf-page">
@@ -336,13 +356,13 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             {items.length === 0 ? null : (
               <span className="pf-pick">
                 <select
-                  aria-label="工作区"
+                  aria-label={t('workspace.aria')}
                   value={chosen?.workspaceId ?? ''}
                   onChange={(event) => setPickedSpace(event.target.value.length === 0 ? null : event.target.value)}
                 >
                   {items.map((item) => <option key={item.workspaceId} value={item.workspaceId}>{item.title}</option>)}
                   {/* The pile of sessions belonging to no workspace, which DSH itself calls "ungrouped", stands last on the list. */}
-                  <option value="">未分组</option>
+                  <option value="">{t('workspace.ungrouped')}</option>
                 </select>
               </span>
             )}
@@ -366,7 +386,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
                 aria-controls={`pane-${view.id}`}
                 onClick={() => pickView(view.id)}
               >
-                {view.label}
+                {t(VIEW_WORDS[view.id])}
               </button>
             ))}
           </div>
@@ -429,7 +449,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             data-fill=""
             hidden={tab !== 'wires'}
           >
-            {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p>
+            {noNodes ? <p className="pf-innone">{t(NOT_ENABLED_WORD)}</p>
               : project === null ? null : <DependencyField project={project} active={tab === 'wires'} />}
           </div>
 
@@ -462,7 +482,9 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
         </div>
       )}
 
-      {note === null ? null : <p className="pf-innone">{note}</p>}
+      {note === null ? null : (
+        <p className="pf-innone">{note.kind === 'said' ? note.text : failureWord(t, note.failure)}</p>
+      )}
 
       {settingsFor === null ? null : (
         <LineSettings
@@ -495,13 +517,14 @@ function capOf(info: InfoLevel, fullCap: number): number {
 
 /** The four numbers at the top right; "waiting" shows only when someone is truly parked out, and stands first. */
 function Census(props: { readonly project: ProjectReading }): React.ReactElement {
+  const t = useT()
   const { columns } = props.project
   return (
     <React.Fragment>
-      {columns.shelved.length > 0 ? <Pill cls="is-shelved" n={columns.shelved.length} label="等待处理" /> : null}
-      <Pill cls="is-done" n={columns.completed.length} label="已交付" />
-      <Pill cls="is-running" n={columns.running.length} label="进行中" />
-      <Pill cls="is-todo" n={columns.todo.length} label="未开始" />
+      {columns.shelved.length > 0 ? <Pill cls="is-shelved" n={columns.shelved.length} label={t('state.shelved')} /> : null}
+      <Pill cls="is-done" n={columns.completed.length} label={t('state.done')} />
+      <Pill cls="is-running" n={columns.running.length} label={t('state.running')} />
+      <Pill cls="is-todo" n={columns.todo.length} label={t('state.todo')} />
     </React.Fragment>
   )
 }

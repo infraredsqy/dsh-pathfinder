@@ -34,13 +34,15 @@ export interface RecordsAtMoment {
 export type NodeState = 'todo' | 'shelved' | 'completed'
 
 /**
- * The human gate: when a node needs a person. One word plus a moment, only
- * three words, all criteria in the records — no new data here.
+ * The human gate: when a node needs a person. Which of the three it is plus a moment, all criteria
+ * in the records — no new data here.
+ *
+ * The kind is the whole fact. What a reader calls it is a word, and words are the client's business
+ * (see `src/client/words.ts`): a reading that carried the word as well as the kind would carry two
+ * spellings of one fact, and only one of them could be the reader's language.
  */
 export interface GateReading {
   readonly kind: 'shelved' | 'manual' | 'checkpoint'
-  /** The word a reader sees, spelled from `kind`. */
-  readonly word: '等待处理' | '手动节点' | '检查点'
   /** That moment; `null` when the records have no such moment — none is invented. */
   readonly since: Date | null
 }
@@ -106,25 +108,26 @@ export interface NodeReading {
   readonly steps: readonly StepReading[]
   /** The cycles that passed through it. */
   readonly cycleIds: readonly string[]
-  /** The human gate: which word and which moment if this node needs a person; `null` when it does not. */
+  /** The human gate: which kind, and which moment, if this node needs a person; `null` when it does not. */
   readonly gate: GateReading | null
 }
 
 /**
- * One sentence for the reader on the dependency field: ready to start, or how
- * many prerequisites are still owed.
+ * What a node answers on the dependency field: whether it may start, or how
+ * many prerequisites it still owes.
  *
- * Which sentence belongs to a node is stated by the reading's own `ready`;
+ * Which of the two belongs to a node is stated by the reading's own `ready`;
  * the UI does not re-judge the three conditions. Completed, running, and
  * shelved nodes owe no such answer — dependencies are written only for work
  * not yet started.
+ *
+ * The sentence itself is not here: a reader's wording differs per language, so
+ * the client spells it from these two facts (`src/client/words.ts`).
  */
-export interface DepsWord {
-  /** The sentence, verbatim. */
-  readonly word: string
-  /** Whether it is the ready-to-start sentence: the badge changes with it. */
+export interface DepsReading {
+  /** Whether it is the ready-to-start answer. */
   readonly ready: boolean
-  /** The owed-prerequisite count in the not-ready sentence; the ready sentence has no number. */
+  /** The owed-prerequisite count in the not-ready answer; the ready one has no number. */
   readonly count: number | null
 }
 
@@ -153,18 +156,19 @@ export interface CycleReading {
 }
 
 /**
- * One group on the instruction ledger: the section piled by scope. A word as
+ * One group on the instruction ledger: the section piled by scope. A key as
  * the group head, a stack of entries beneath.
  *
- * The scope word is read in exactly one place, where readings are produced:
- * global first, then each cycle in record order, then the unrecognized cycle
- * last; empty groups are not collected.
+ * The key is read in exactly one place, where readings are produced: global
+ * first, then each cycle in record order, then the unrecognized cycle last;
+ * empty groups are not collected. What the head says is the client's business
+ * — the key is what identifies the bucket, and one of them is headed by a
+ * cycle's own id, which is a record's word and reads the same in every
+ * language.
  */
 export interface InstructionGroupReading {
   /** This group's id: `global` / the bound cycle (`cycle:<cycle id>`) / `node`. */
   readonly key: string
-  /** The word a reader sees, spelled from the group's key. */
-  readonly label: string
   /** The entries in this group: still-counting ones first, newly spoken ones first. */
   readonly entries: readonly InstructionReading[]
 }
@@ -269,9 +273,8 @@ export interface IssueReading {
 
 /** One pile in the issue pool: the issues under one state. */
 export interface IssueGroupReading {
+  /** Which state this pile holds; what it is called is the client's word. */
   readonly key: IssueState
-  /** The word a reader sees, spelled from the state. */
-  readonly label: string
   /** Whether this pile counts as still owed by the pool: the two standing piles count, the two set-down piles do not. */
   readonly standing: boolean
   /** The issues in this pile, ordered as in {@link PoolReading}. */

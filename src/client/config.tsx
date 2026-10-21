@@ -21,22 +21,36 @@ import {
   configRowsOf,
   LAYER_WORDS,
   pickState,
+  rowWords,
   type ConfigRow,
 } from './config-rows.ts'
-import { NOT_ENABLED } from './constants.ts'
+import { NOT_ENABLED_WORD } from './constants.ts'
 import type { PanelPort } from './data.ts'
+import type { Failure } from './failure.ts'
+import { failureOf } from './failure.ts'
+import { useT } from './locale.ts'
+import type { WordKey } from './locales/index.ts'
 import { CommitNumberInput, Grip } from './widgets.tsx'
 
-const READ_FAILED = '无法读取该工作区的项目设置。'
-
-const WRITE_FAILED = '这次写入没有生效。'
-
-const SIDES: readonly (readonly [string, boolean])[] = [['开', true], ['关', false]]
+/** The two words of the on / off control, as keys; the pressed one states the value the tool holds. */
+const SIDES: readonly (readonly [WordKey, boolean])[] = [['config.toggle.on', true], ['config.toggle.off', false]]
 
 type Load =
   | { readonly phase: 'loading' }
   | { readonly phase: 'ok'; readonly reading: PathfinderConfigReading }
-  | { readonly phase: 'failed'; readonly message: string }
+  | { readonly phase: 'failed'; readonly failure: Failure }
+
+/**
+ * What this pane can leave on the note line under the panel.
+ *
+ * The shell owns that line and the words on it, so this pane hands over what it has and lets the
+ * shell say it: the tool's own words, carried out verbatim when it spoke while succeeding, or a
+ * refusal — a code, because which language the reader looks at is not known here. Mirrors the
+ * shell's own note type.
+ */
+type Note =
+  | { readonly kind: 'said'; readonly text: string }
+  | { readonly kind: 'failure'; readonly failure: Failure }
 
 export interface ConfigPaneProps {
   readonly port: PanelPort
@@ -48,30 +62,33 @@ export interface ConfigPaneProps {
   readonly noNodes: boolean
   /** Whether this pane is visible right now: the read happens only on the pass it becomes visible. */
   readonly active: boolean
-  /** The note line at the bottom of the panel; `null` means "the last sentence was mine, take it back". */
-  readonly onNote: (text: string | null) => void
+  /** The note line at the bottom of the panel: what this pane has to say, or `null` to take back the last note it left. */
+  readonly onNote: (note: Note | null) => void
 }
 
 export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
   const { port, sessionId, workspaceRoot, noNodes, active } = props
+  /* Every word this pane prints comes from here; the translator reads the active language at call
+   * time, so a redraw after a language switch says the new one. */
+  const t = useT()
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
   const [tick, setTick] = React.useState(0)
   const [width, setWidth] = React.useState(CONFIG_WIDTH)
-  /* Who left the last sentence on the note line: a failed read's sentence is retracted by the next
-     successful read; a failed write's by the next successful write. A sentence left by other parts
+  /* Who left the last note on the note line: a failed read's note is retracted by the next
+     successful read; a failed write's by the next successful write. A note left by other parts
      of the panel is not touched by this pane. */
   const said = React.useRef<'read' | 'write' | null>(null)
   const speak = React.useRef(props.onNote)
   React.useEffect(() => { speak.current = props.onNote }, [props.onNote])
-  const note = React.useCallback((text: string | null): void => {
-    speak.current(text)
+  const note = React.useCallback((next: Note | null): void => {
+    speak.current(next)
   }, [])
 
   /* Read only while this pane is actually visible: one read costs a tool command, and panes nobody
    * is looking at need not spend it.
    *
-   * A successful read retracts only the previous failed-read sentence; the failed-write sentence is
-   * the write's own business — otherwise every refused write would be wiped away on the spot by the
+   * A successful read retracts only the previous failed-read note; the failed-write note is the
+   * write's own business — otherwise every refused write would be wiped away on the spot by the
    * re-read that follows, and the reader would see nothing. */
   React.useEffect(() => {
     if (noNodes || !active || sessionId.length === 0) return undefined
@@ -87,12 +104,14 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
           }
         } else {
           said.current = 'read'
-          note(reading.text.length > 0 ? reading.text : READ_FAILED)
+          /* The tool's run failed: why is a code, spelled by the shell when the note line is drawn.
+           * A refusal carrying nothing at all still reads as "the settings could not be read". */
+          note({ kind: 'failure', failure: reading.refusal ?? { code: 'config-unreadable' } })
         }
       },
       (error: unknown) => {
         if (!live) return
-        setLoad({ phase: 'failed', message: messageOf(error) })
+        setLoad({ phase: 'failed', failure: failureOf(error) })
       },
     )
     return () => { live = false }
@@ -100,18 +119,22 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
 
   /* One write: the tool's word is final, then read again — what controls show always follows the
      re-read copy. No key filtering: unregistered keys are passed through as well, and when the
-     tool does not recognize one, its message lands verbatim on the note line. */
+     tool does not recognize one, its refusal lands on the note line. */
   const send = React.useCallback((key: string, next: string): void => {
     const after = (): void => { setTick((round) => round + 1) }
     port.setConfig(sessionId, workspaceRoot, key, next).then(
       (outcome) => {
         said.current = outcome.ok ? null : 'write'
-        note(outcome.ok ? null : (outcome.text.length > 0 ? outcome.text : WRITE_FAILED))
+        /* Success carries the tool's own words when it said any; a refusal carries a code, which the
+         * shell spells — not here, where the reader's language is unknown. */
+        note(outcome.ok
+          ? (outcome.text.length > 0 ? { kind: 'said', text: outcome.text } : null)
+          : { kind: 'failure', failure: { code: outcome.code, ...(outcome.detail !== undefined ? { detail: outcome.detail } : {}) } })
         after()
       },
       (error: unknown) => {
         said.current = 'write'
-        note(messageOf(error))
+        note({ kind: 'failure', failure: failureOf(error) })
         after()
       },
     )
@@ -125,14 +148,14 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
       id="pane-config"
       role="tabpanel"
       aria-labelledby="tab-config"
-      aria-label="设置"
+      aria-label={t('common.settings')}
       data-fill=""
       hidden={!active}
     >
-      {noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
+      {noNodes ? <p className="pf-innone">{t(NOT_ENABLED_WORD)}</p> : (
       <div className="pf-configwrap" style={{ ['--pf-config-w' as string]: `${String(width)}px` }}>
         <ConfigGrip side="left" value={width} onChange={setWidth} />
-        <div className="pf-scroll" role="region" aria-label="设置" tabIndex={0}>
+        <div className="pf-scroll" role="region" aria-label={t('common.settings')} tabIndex={0}>
           {reading === null ? null : (
             <div className="pf-config">
               {configRowsOf(reading.entries).map((row) => (
@@ -160,13 +183,15 @@ function Row(props: {
   readonly revision: number
   readonly onWrite: (value: string) => void
 }): React.ReactElement {
+  const t = useT()
   const { row, entry } = props
   const noteId = `cfg-note-${row.key}`
+  const words = rowWords(t, row)
   return (
     <div className="pf-setrow" data-key={row.key}>
       <div className="pf-settext">
-        <div className="pf-setlabel">{row.name}</div>
-        <div className="pf-setcaption" id={noteId}>{row.caption}</div>
+        <div className="pf-setlabel">{words.name}</div>
+        <div className="pf-setcaption" id={noteId}>{words.caption}</div>
       </div>
       {row.kind === 'pick'
         ? <Pick row={row} entry={entry} noteId={noteId} onWrite={props.onWrite} />
@@ -177,7 +202,7 @@ function Row(props: {
             : <TextBox row={row} entry={entry} noteId={noteId} revision={props.revision} onWrite={props.onWrite} />}
       {entry === undefined || entry.layer === null
         ? null
-        : <span className="pf-tag pf-vlayer" data-layer={entry.layer}>{LAYER_WORDS[entry.layer]}</span>}
+        : <span className="pf-tag pf-vlayer" data-layer={entry.layer}>{t(LAYER_WORDS[entry.layer])}</span>}
     </div>
   )
 }
@@ -189,11 +214,12 @@ function Pick(props: {
   readonly noteId: string
   readonly onWrite: (value: string) => void
 }): React.ReactElement {
+  const t = useT()
   const pick = pickState(props.entry, props.row.options ?? [])
   return (
     <span className="pf-pick">
       <select
-        aria-label={props.row.name}
+        aria-label={rowWords(t, props.row).name}
         aria-describedby={props.noteId}
         value={pick.value}
         onChange={(event) => props.onWrite(event.target.value)}
@@ -221,12 +247,13 @@ function NumberBox(props: {
   readonly revision: number
   readonly onWrite: (value: string) => void
 }): React.ReactElement {
+  const t = useT()
   const held = props.entry?.value ?? ''
   return (
     <CommitNumberInput
       held={held}
       unset={props.entry === undefined}
-      label={props.row.name}
+      label={rowWords(t, props.row).name}
       describedBy={props.noteId}
       revision={props.revision}
       onCommit={(typed) => {
@@ -250,6 +277,7 @@ function TextBox(props: {
   readonly revision: number
   readonly onWrite: (value: string) => void
 }): React.ReactElement {
+  const t = useT()
   const held = props.entry?.value ?? ''
   const [text, setText] = React.useState(held)
   React.useEffect(() => { setText(held) }, [held, props.revision])
@@ -263,7 +291,7 @@ function TextBox(props: {
       className="pf-numin"
       type="text"
       spellCheck={false}
-      aria-label={props.row.name}
+      aria-label={rowWords(t, props.row).name}
       aria-describedby={props.noteId}
       value={text}
       onChange={(event) => setText(event.target.value)}
@@ -284,9 +312,10 @@ function Toggle(props: {
   readonly noteId: string
   readonly onWrite: (value: string) => void
 }): React.ReactElement {
+  const t = useT()
   const on = props.entry === undefined ? null : props.entry.value === 'on'
   return (
-    <div className="pf-seg" role="group" aria-label={props.row.name}>
+    <div className="pf-seg" role="group" aria-label={rowWords(t, props.row).name}>
       {SIDES.map(([word, flag]) => (
         <button
           key={word}
@@ -296,7 +325,7 @@ function Toggle(props: {
           aria-describedby={props.noteId}
           onClick={() => props.onWrite(flag ? 'on' : 'off')}
         >
-          {word}
+          {t(word)}
         </button>
       ))}
     </div>
@@ -314,11 +343,12 @@ function ConfigGrip(props: {
   readonly value: number
   readonly onChange: (px: number) => void
 }): React.ReactElement {
+  const t = useT()
   const { side, value, onChange } = props
   const out = side === 'left' ? -1 : 1
   return (
     <Grip
-      label="调整设置那一列的宽度"
+      label={t('config.grip.aria')}
       value={value}
       min={CONFIG_WIDTH_MIN}
       max={CONFIG_WIDTH_MAX}
@@ -332,8 +362,4 @@ function ConfigGrip(props: {
       attributes={{ 'data-side': side, 'data-width': String(value) }}
     />
   )
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

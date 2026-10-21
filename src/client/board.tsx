@@ -10,8 +10,10 @@ import * as React from 'react'
 import type { NodeReading, ProjectReading } from '../model/index.ts'
 import { duration, elapsedSince } from '../model/index.ts'
 import type { InfoLevel } from './prefs.ts'
-import { INFO_LABELS } from './prefs.ts'
-import { NOT_ENABLED } from './constants.ts'
+import { INFO_WORDS } from './prefs.ts'
+import { NOT_ENABLED_WORD } from './constants.ts'
+import { useT } from './locale.ts'
+import { gateWord } from './words.ts'
 import { nodeName, nodeHover } from './nodes.ts'
 import { DepsChip } from './field.tsx'
 import { StateMark, timeOf, type CardKind } from './marks.tsx'
@@ -32,6 +34,9 @@ export function BoardPane(props: {
   readonly colsRef: React.Ref<HTMLDivElement>
   readonly onPickInfo: (level: InfoLevel) => void
 }): React.ReactElement {
+  /* Every word this pane prints comes from here: the column heads, the mode buttons, the
+   * not-enabled sentence. */
+  const t = useT()
   return (
     <section
       className="pf-pane pf-board"
@@ -40,14 +45,14 @@ export function BoardPane(props: {
       aria-labelledby="tab-now"
       hidden={!props.active}
     >
-      {props.noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
+      {props.noNodes ? <p className="pf-innone">{t(NOT_ENABLED_WORD)}</p> : (
         <React.Fragment>
           <div className="pf-boardbar">
-            <h3 className="pf-colhead">进行中</h3>
-            <h3 className="pf-colhead">刚完成</h3>
+            <h3 className="pf-colhead">{t('state.running')}</h3>
+            <h3 className="pf-colhead">{t('state.just-done')}</h3>
             <div className="pf-boardtail">
-              <h3 className="pf-colhead">即将进线</h3>
-              <div className="pf-seg pf-modes" role="group" aria-label="每列几张卡">
+              <h3 className="pf-colhead">{t('state.next')}</h3>
+              <div className="pf-seg pf-modes" role="group" aria-label={t('board.per-column.aria')}>
                 {(['lean', 'three', 'full'] as const).map((level) => (
                   <button
                     key={level}
@@ -56,7 +61,7 @@ export function BoardPane(props: {
                     aria-pressed={level === props.info}
                     onClick={() => props.onPickInfo(level)}
                   >
-                    {INFO_LABELS[level]}
+                    {t(INFO_WORDS[level])}
                   </button>
                 ))}
               </div>
@@ -128,6 +133,7 @@ function Column(props: { readonly items: readonly Paired[]; readonly cap: number
  * screen — the card itself can say that its destination is gone.
  */
 function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date }): React.ReactElement {
+  const t = useT()
   const { node, kind, target, go, at } = props
   const cls = kind === 'shelved' ? 'shelved' : kind === 'run' ? 'run' : kind === 'next' ? 'next' : 'done'
   const loud = node.gate !== null && node.state !== 'todo'
@@ -143,7 +149,7 @@ function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date })
         /* The name carries the cell's identity: with a dozen cards on one screen, screen-reader
          * users cannot tell identical names apart; the identity is the 8-char handle from the
          * hover text, sourced from the same sentence as the line on the card. */
-        'aria-label': `${nodeHover(node)} 的会话`,
+        'aria-label': t('board.card.aria', { node: nodeHover(node) }),
         onClick: () => jump.open(jump.target),
         onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
           if (event.key !== 'Enter' && event.key !== ' ') return
@@ -159,7 +165,7 @@ function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date })
       <div className="pf-card-run">
         <StateMark node={node} kind={kind} at={at} />
         {node.gate === null ? null : (
-          <span className={`pf-gate${loud ? '' : ' is-quiet'}`}>{node.gate.word}</span>
+          <span className={`pf-gate${loud ? '' : ' is-quiet'}`}>{gateWord(t, node.gate)}</span>
         )}
         {kind === 'shelved'
           ? <span className={`pf-elapsed${node.parkedSince === null ? ' is-unknown' : ''}`}><span className="pf-num">{durationOf(node.parkedSince, at)}</span></span>
@@ -167,7 +173,7 @@ function Card(props: Paired & { readonly go: CardGo | null; readonly at: Date })
             ? <span className={`pf-elapsed${node.elapsedSeconds === null ? ' is-unknown' : ''}`}><span className="pf-num">{duration(node.elapsedSeconds)}</span></span>
             : kind === 'next'
               ? <DepsChip node={node} />
-              : <span className="pf-card-time pf-num">{timeOf(node.completedAt, at)}</span>}
+              : <span className="pf-card-time pf-num">{timeOf(t, node.completedAt, at)}</span>}
       </div>
     </article>
   )

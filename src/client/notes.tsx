@@ -10,9 +10,12 @@
 import * as React from 'react'
 import type { InstructionScope } from '../host/gateway.ts'
 import type { CycleReading, InstructionReading, NodeReading, ProjectReading } from '../model/index.ts'
-import { dayLabel, groupInstructions } from '../model/index.ts'
-import { NOT_ENABLED } from './constants.ts'
+import { dayParts, groupInstructions } from '../model/index.ts'
+import { NOT_ENABLED_WORD } from './constants.ts'
+import type { Translate } from './locale.ts'
+import { useT } from './locale.ts'
 import { timeOf } from './marks.tsx'
+import { dayLabel, groupWord, unit } from './words.ts'
 
 /** With archived entries collapsed, how many non-standing rows a group may show at most. */
 const NOTES_ROWS = 5
@@ -34,6 +37,7 @@ export function NotesPane(props: {
   readonly onRevive: (id: string) => void
   readonly onDelete: (instruction: InstructionReading) => void
 }): React.ReactElement {
+  const t = useT()
   return (
     <div
       className="pf-pane"
@@ -43,7 +47,7 @@ export function NotesPane(props: {
       data-fill=""
       hidden={!props.active}
     >
-      {props.noNodes ? <p className="pf-innone">{NOT_ENABLED}</p> : (
+      {props.noNodes ? <p className="pf-innone">{t(NOT_ENABLED_WORD)}</p> : (
         <React.Fragment>
           {props.project === null ? null : (
             <InstructionAdd
@@ -52,7 +56,7 @@ export function NotesPane(props: {
               onAdd={props.onAdd}
             />
           )}
-          <div className="pf-scroll" id="notes-scroll" role="region" aria-label="用户指令" tabIndex={0}>
+          <div className="pf-scroll" id="notes-scroll" role="region" aria-label={t('notes.scroll.aria')} tabIndex={0}>
             {props.project === null ? null : (
               <InstructionBook
                 project={props.project}
@@ -69,6 +73,9 @@ export function NotesPane(props: {
   )
 }
 
+/** The global entry's own scope value: first on the scope table, and where the picker starts. */
+const GLOBAL_VALUE = 'global'
+
 /** The three things the scope picker needs per entry: the scope word, which line, which cell. */
 interface ScopeChoice {
   readonly value: string
@@ -78,25 +85,26 @@ interface ScopeChoice {
   readonly node: string
 }
 
-/** The global entry: first on the scope table, the fallback when the previously picked line is gone. */
-const GLOBAL_CHOICE: ScopeChoice = { value: 'global', label: '全局', scope: 'global', cycle: '', node: '' }
-
 /**
  * Which entries the scope column lists: global, the record's lines, and the cell currently in hand.
  *
  * The blueprint's row lists the same three, only there the clickable running cell is always the top
  * one; in the real panel which cell is in hand is said by the record itself, and when none, the
  * entry is absent.
+ *
+ * The global entry stands first, which is also what the picker falls back to when the previously
+ * picked line is gone; its word, and the cell-bound entry's, are asked for here. A line's own id is a
+ * record's word and is carried through as it stands.
  */
-function scopeChoices(cycles: readonly CycleReading[], inHand: NodeReading | null): readonly ScopeChoice[] {
-  const out: ScopeChoice[] = [GLOBAL_CHOICE]
+function scopeChoices(t: Translate, cycles: readonly CycleReading[], inHand: NodeReading | null): readonly ScopeChoice[] {
+  const out: ScopeChoice[] = [{ value: GLOBAL_VALUE, label: t('common.global'), scope: 'global', cycle: '', node: '' }]
   for (const cycle of cycles) {
     out.push({ value: `cycle:${cycle.id}`, label: cycle.id, scope: 'cycle', cycle: cycle.id, node: '' })
   }
   if (inHand !== null) {
     const name = inHand.title ?? inHand.id
     const short = name.length > 12 ? `${name.slice(0, 12)}…` : name
-    out.push({ value: `node:${inHand.id}`, label: `这一格 · ${short}`, scope: 'node', cycle: '', node: inHand.id })
+    out.push({ value: `node:${inHand.id}`, label: t('notes.scope.node', { node: short }), scope: 'node', cycle: '', node: inHand.id })
   }
   return out
 }
@@ -112,11 +120,13 @@ function InstructionAdd(props: {
   readonly inHand: NodeReading | null
   readonly onAdd: (text: string, scope: InstructionScope, cycle: string, node: string) => Promise<boolean>
 }): React.ReactElement {
+  const t = useT()
   const [text, setText] = React.useState('')
-  const [picked, setPicked] = React.useState(GLOBAL_CHOICE.value)
+  const [picked, setPicked] = React.useState(GLOBAL_VALUE)
   const box = React.useRef<HTMLInputElement | null>(null)
-  const choices = scopeChoices(props.cycles, props.inHand)
-  const chosen = choices.find((one) => one.value === picked) ?? GLOBAL_CHOICE
+  const choices = scopeChoices(t, props.cycles, props.inHand)
+  /* The previously picked entry may be gone from the record; the global entry always stands first. */
+  const chosen = choices.find((one) => one.value === picked) ?? choices[0] as ScopeChoice
 
   const submit = (event: React.FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -134,7 +144,7 @@ function InstructionAdd(props: {
     <form className="pf-add" id="add" onSubmit={submit}>
       <span className="pf-pick">
         <select
-          aria-label="这句话管到哪儿"
+          aria-label={t('notes.scope.aria')}
           value={chosen.value}
           onChange={(event) => setPicked(event.target.value)}
         >
@@ -144,13 +154,13 @@ function InstructionAdd(props: {
       <input
         ref={box}
         type="text"
-        placeholder="原话照抄"
-        aria-label="原话照抄"
+        placeholder={t('notes.text.placeholder')}
+        aria-label={t('notes.text.aria')}
         autoComplete="off"
         value={text}
         onChange={(event) => setText(event.target.value)}
       />
-      <button type="submit" className="pf-btn">添加</button>
+      <button type="submit" className="pf-btn">{t('notes.add')}</button>
     </form>
   )
 }
@@ -163,6 +173,7 @@ function InstructionBook(props: {
   readonly onRevive: (id: string) => void
   readonly onDelete: (instruction: InstructionReading) => void
 }): React.ReactElement {
+  const t = useT()
   const { project } = props
   const [folded, setFolded] = React.useState<Readonly<Record<string, boolean>>>({})
   const [open, setOpen] = React.useState<Readonly<Record<string, boolean>>>({})
@@ -175,12 +186,12 @@ function InstructionBook(props: {
     : project.instructions.filter((entry) => entry.standing)
   const groups = groupInstructions(project, visible)
   if (project.instructions.length === 0) {
-    return <p className="pf-innone">这份记录里还没有指令。</p>
+    return <p className="pf-innone">{t('notes.empty')}</p>
   }
   return (
     <React.Fragment>
       {groups.length === 0
-        ? <p className="pf-innone">现在没有生效的指令。</p>
+        ? <p className="pf-innone">{t('notes.empty-live')}</p>
         : groups.map((group) => {
           const live = group.entries.filter((entry) => entry.inForce).length
           const isFolded = folded[group.key] === true
@@ -195,11 +206,11 @@ function InstructionBook(props: {
                 aria-expanded={!isFolded}
                 onClick={() => setFolded((table) => ({ ...table, [group.key]: !isFolded }))}
               >
-                <span className="pf-rowhead-key">{group.label}</span>
+                <span className="pf-rowhead-key">{groupWord(t, group)}</span>
                 <span className="pf-rowhead-figs">
                   <b className="pf-num">{live}</b>
-                  {' 生效'}
-                  <React.Fragment>{' · '}<b className="pf-num">{group.entries.length}</b>{' 条'}</React.Fragment>
+                  {t('notes.in-force')}
+                  <React.Fragment>{' · '}<b className="pf-num">{group.entries.length}</b>{unit(t, 'notes.entries.one', 'notes.entries.other', group.entries.length)}</React.Fragment>
                 </span>
               </button>
               {shown.map((entry) => (
@@ -215,14 +226,14 @@ function InstructionBook(props: {
               {hidden > 0 && !isOpen
                 ? (
                   <button type="button" className="pf-trim" onClick={() => setOpen((table) => ({ ...table, [group.key]: true }))}>
-                    {`展开其余 ${String(hidden)} 条`}
+                    {t('common.expand-more', { count: hidden })}
                   </button>
                 )
                 : null}
               {hidden > 0 && isOpen
                 ? (
                   <button type="button" className="pf-trim" onClick={() => setOpen((table) => ({ ...table, [group.key]: false }))}>
-                    收起
+                    {t('common.collapse')}
                   </button>
                 )
                 : null}
@@ -240,27 +251,28 @@ function InstructionRow(props: {
   readonly onRevive: (id: string) => void
   readonly onDelete: (instruction: InstructionReading) => void
 }): React.ReactElement {
+  const t = useT()
   const { entry, at } = props
   const moment = entry.inForce ? entry.saidAt : (entry.closedAt ?? entry.saidAt)
-  const mark = entry.inForce ? '' : entry.standing ? '范围外' : '已归档'
+  const mark = entry.inForce ? '' : entry.standing ? t('notes.out-of-scope') : t('notes.archived-mark')
   return (
     <article className={`pf-ins${entry.inForce ? '' : ' is-out'}`} title={entry.nodeId ?? ''}>
       <div className="pf-ins-text">{entry.text ?? ''}</div>
-      <div className="pf-ins-read" title={`${entry.inForce ? '说于' : `${mark}于`} ${timeOf(moment, at)}`}>
+      <div className="pf-ins-read" title={`${entry.inForce ? t('notes.said-at') : t('notes.said-mark', { mark })} ${timeOf(t, moment, at)}`}>
         {mark.length === 0 ? null : <span className="pf-ins-mark">{mark}</span>}
-        <span className="pf-num">{dayLabel(moment, at)}</span>
+        <span className="pf-num">{dayLabel(t, dayParts(moment, at))}</span>
       </div>
       <span className="pf-ins-acts">
         {entry.standing
-          ? <button type="button" className="pf-mini" title="收进归档：这一条不再生效，条目留在原处" onClick={() => props.onArchive(entry.id)}>归档</button>
-          : <button type="button" className="pf-mini" title="让它重新生效" onClick={() => props.onRevive(entry.id)}>复原</button>}
+          ? <button type="button" className="pf-mini" title={t('notes.archive.tip')} onClick={() => props.onArchive(entry.id)}>{t('common.archive')}</button>
+          : <button type="button" className="pf-mini" title={t('notes.revive.tip')} onClick={() => props.onRevive(entry.id)}>{t('common.revive')}</button>}
         <button
           type="button"
           className="pf-mini"
-          title="删掉：这一条连同正文一起从记录里拿走，放不回来"
+          title={t('notes.delete.tip')}
           onClick={() => props.onDelete(entry)}
         >
-          删除
+          {t('common.delete')}
         </button>
       </span>
       {entry.note === undefined ? null : (

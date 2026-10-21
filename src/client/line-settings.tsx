@@ -8,24 +8,38 @@
 import * as React from 'react'
 import type { CyclePolicyKey } from '../host/gateway.ts'
 import type { CycleReading } from '../model/index.ts'
+import { useT } from './locale.ts'
+import type { WordKey } from './locales/index.ts'
 import { CommitNumberInput, ModalShell } from './widgets.tsx'
 
+/**
+ * One row of the table below: which policy key, and the two dictionary keys saying what it is.
+ *
+ * A key, not a word: the modal is drawn in whichever language the reader is looking at, and both
+ * cells ask the translator for the wording at draw time.
+ */
+interface PolicyRowDef {
+  readonly key: CyclePolicyKey
+  readonly nameKey: WordKey
+  readonly noteKey: WordKey
+}
+
 /** A line's own three numbers, one per row; names and notes follow the blueprint. */
-const POLICY_ROWS: readonly { key: CyclePolicyKey; name: string; note: string }[] = [
+const POLICY_ROWS: readonly PolicyRowDef[] = [
   {
     key: 'parallel',
-    name: '可并行的会话数上限',
-    note: '单条管线可以并行启动的会话数量，默认值为 1。',
+    nameKey: 'line.row.parallel.name',
+    noteKey: 'line.row.parallel.note',
   },
   {
     key: 'test_seconds_limit',
-    name: '测试套件的运行时间上限（秒）',
-    note: '全量验证的实际时长上限阈值；超过该上限会自动加入精简或加速测试的节点。',
+    nameKey: 'line.row.test_seconds_limit.name',
+    noteKey: 'line.row.test_seconds_limit.note',
   },
   {
     key: 'issue_pool_weight_limit',
-    name: '问题池加权和的上限',
-    note: '问题池里不同等级的问题，按记录里写明的重量表折算出的总和上限阈值；超过该阈值会自动加入解决问题的节点。',
+    nameKey: 'line.row.issue_pool_weight_limit.name',
+    noteKey: 'line.row.issue_pool_weight_limit.note',
   },
 ]
 
@@ -58,23 +72,25 @@ export function LineSettings(props: {
 }
 
 function PolicyRow(props: {
-  readonly row: { readonly key: CyclePolicyKey; readonly name: string; readonly note: string }
+  readonly row: PolicyRowDef
   readonly value: unknown
   readonly onWrite: (value: string) => void
 }): React.ReactElement {
+  const t = useT()
   const { row } = props
   const current = typeof props.value === 'number' ? props.value : null
   const noteId = `note-${row.key}`
+  const name = t(row.nameKey)
   return (
     <div className="pf-setrow">
       <div className="pf-settext">
-        <div className="pf-setlabel">{row.name}</div>
-        <div className="pf-setcaption" id={noteId}>{row.note}</div>
+        <div className="pf-setlabel">{name}</div>
+        <div className="pf-setcaption" id={noteId}>{t(row.noteKey)}</div>
       </div>
       <CommitNumberInput
         held={current === null ? '' : String(current)}
         unset={current === null}
-        label={row.name}
+        label={name}
         describedBy={noteId}
         title={`${row.key} = ${current === null ? 'off' : String(current)} · pf cycle policy ${row.key}`}
         onCommit={(typed) => {

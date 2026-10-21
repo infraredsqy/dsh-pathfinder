@@ -7,6 +7,7 @@
  * change as the single atomic action the settings service accepts. A bad read is treated the same
  * as no record: the panel stands on the factory defaults.
  */
+import type { WordKey } from './locales/index.ts'
 import {
   INFO_LEVELS,
   PANEL_PREF_DEFAULTS,
@@ -24,21 +25,27 @@ export { INFO_LEVELS, PANEL_PREF_DEFAULTS, PANEL_PREF_FIELDS, SIDE_DEFAULT, SIDE
 /** Which settings-document field the panel writes back to; the names are the document's keys. */
 export type PrefField = (typeof PANEL_PREF_FIELDS)[keyof typeof PANEL_PREF_FIELDS]
 
-/** What each of the three info levels prints: the settings row and the panel's button row say the same thing. */
-export const INFO_LABELS: Readonly<Record<InfoLevel, string>> = {
-  lean: '精简',
-  three: '展开',
-  full: '铺满',
+/**
+ * What each of the three info levels is called: the settings row and the panel's button row say the
+ * same word.
+ *
+ * A KEY, not the word. Both surfaces render it through the same translator, so the two cannot drift
+ * apart, and the word itself can change language without either of them knowing.
+ */
+export const INFO_WORDS: Readonly<Record<InfoLevel, WordKey>> = {
+  lean: 'info.lean',
+  three: 'info.three',
+  full: 'info.full',
 }
 
-/** What each of the six views prints: the tab row and the settings dropdown say the same thing. */
-export const VIEW_LABELS: Readonly<Record<ViewId, string>> = {
-  now: '当前',
-  detail: '明细',
-  notes: '指令',
-  wires: '依赖',
-  issue: '问题',
-  config: '设置',
+/** What each of the six views is called, on the same terms as {@link INFO_WORDS}. */
+export const VIEW_WORDS: Readonly<Record<ViewId, WordKey>> = {
+  now: 'view.now',
+  detail: 'view.detail',
+  notes: 'view.notes',
+  wires: 'view.wires',
+  issue: 'view.issue',
+  config: 'view.config',
 }
 
 export interface PanelPrefs {
@@ -178,14 +185,18 @@ export interface PrefsSnapshot {
   readonly revision: number | undefined
   readonly writable: boolean
   /**
-   * A human-readable sentence for when the last write failed to land; back to `null` after a
-   * successful write or once the form is swapped out.
+   * Whether the last write this panel made was refused and did not land; back to `false` after a
+   * successful write, or once the form is taken away.
    *
    * A rejected settings form only returns `false` and swallows the reason — and the panel's
    * `void store.write(…)` call sites drop that `false` too, so the control silently snaps back.
-   * This field is the road that forbids that silence.
+   * This field is the road that forbids that silence. It is a fact rather than a sentence: which
+   * words say it is the panel's business, because the language is the reader's.
+   *
+   * Swapping one form for another keeps it: no write landed in between, so the reader still has not
+   * seen that change saved, and the new form's reading says nothing about it.
    */
-  readonly failure: string | null
+  readonly refused: boolean
 }
 
 export interface PrefsSource {
@@ -206,18 +217,15 @@ const UNAVAILABLE: PrefsSnapshot = Object.freeze({
   status: 'unavailable',
   revision: undefined,
   writable: false,
-  failure: null,
+  refused: false,
 })
-
-/** The sentence shown when both write attempts were refused. */
-const WRITE_FAILED = '保存失败：设置服务没有接受这次改动。'
 
 /** Whether two readings say the same thing: values compared item by item, the rest as-is. */
 function sameSnapshot(left: PrefsSnapshot, right: PrefsSnapshot): boolean {
   return left.status === right.status
     && left.revision === right.revision
     && left.writable === right.writable
-    && left.failure === right.failure
+    && left.refused === right.refused
     && samePrefs(left.prefs, right.prefs)
 }
 
@@ -253,10 +261,10 @@ export function createPrefsSource(): PrefsStore {
     }
   }
 
-  /** Replace the "last write did not land" sentence; a successful write or a form swap takes it back. */
-  const setFailure = (message: string | null): void => {
-    if (snapshot.failure === message) return
-    snapshot = { ...snapshot, failure: message }
+  /** Mark whether the last write landed; a successful write or a form swap takes it back. */
+  const setRefused = (refused: boolean): void => {
+    if (snapshot.refused === refused) return
+    snapshot = { ...snapshot, refused }
     announce()
   }
 
@@ -271,8 +279,8 @@ export function createPrefsSource(): PrefsStore {
           status: held.status === 'ready' ? 'ready' : held.status === 'loading' ? 'loading' : 'unavailable',
           revision: typeof held.revision === 'number' ? held.revision : undefined,
           writable: held.writable === true,
-          /* This fold reads the document itself, so the "last write did not land" sentence stays until a write truly succeeds. */
-          failure: snapshot.failure,
+          /* This fold reads the document itself, so "the last write did not land" stays until a write truly succeeds. */
+          refused: snapshot.refused,
         }
       } catch (error) {
         next = UNAVAILABLE
@@ -325,9 +333,9 @@ export function createPrefsSource(): PrefsStore {
       const held = form
       if (held === null) return Promise.resolve(false)
       const ops = [prefsWriteOp(field, value)]
-      /** This write's final outcome: on success take the sentence back, if both attempts fail put it up. */
+      /** This write's final outcome: on success take the "did not land" mark back, if both attempts fail put it up. */
       const settle = (accepted: boolean): boolean => {
-        setFailure(accepted ? null : WRITE_FAILED)
+        setRefused(!accepted)
         return accepted
       }
       /** The retry after a refusal: drop the revision fence and let the controller take the latest one itself. */

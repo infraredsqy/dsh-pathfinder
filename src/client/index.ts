@@ -7,7 +7,9 @@
  */
 import * as React from 'react'
 import { report } from './context.ts'
-import { createPanelPort, type PanelPort } from './data.ts'
+import { injectAt } from './context.ts'
+import { createPanelPort, serviceAt, type PanelPort } from './data.ts'
+import { createLocalePort, LocaleProvider, localeOf, type LocaleService, type LocaleSource } from './locale.ts'
 import { currentSessionOf, knownSessionsOf, registerSeats, sessionsSnapshotOf } from './mount.ts'
 import { PathfinderPanel } from './panel.tsx'
 import { createPrefsSource, type PrefsStore } from './prefs.ts'
@@ -17,8 +19,6 @@ import type { WorkspaceSource } from './workspaces.ts'
 
 /** The panel's identity: used as key by the center-column cell and as id by the sidebar row. */
 export const PANEL_ID = 'pathfinder'
-
-export const PANEL_TITLE = '寻路'
 
 export const SERVICE_KEY = 'pathfinderPanel'
 
@@ -31,9 +31,9 @@ export { PANEL_CSS } from './styles.ts'
 
 /** The settings section's identity, for callers and the self-check fixture to read against. */
 export {
-  SECTION_LABEL,
   SECTION_ORDER,
   SECTION_SLOT,
+  SECTION_WORD,
   SETTINGS_CSS,
   SETTINGS_NAMESPACE,
   SettingsSection,
@@ -45,9 +45,21 @@ export {
   currentSessionOf,
   knownSessionsOf,
   PANEL_ORDER,
-  SEAT_LABEL,
+  SEAT_WORD,
   sessionsSnapshotOf,
 } from './mount.ts'
+
+/**
+ * The language machinery, for the self-check fixture and the unit tests.
+ *
+ * `FALLBACK_WORD_TABLE` is the source-of-truth table, which is also the one an unattached port
+ * serves — so a fixture that reads a word off the panel and compares it against this cannot drift
+ * from what a deployment without a locale service really draws.
+ */
+export { createLocalePort, FALLBACK_LOCALE, localeOf, LOCALE_NS, LocaleProvider, useT } from './locale.ts'
+export type { LocaleService, LocaleSource, LocaleSnapshot, Translate } from './locale.ts'
+export { WORD_TABLES, zh as FALLBACK_WORD_TABLE } from './locales/index.ts'
+export { failureWord } from './words.ts'
 
 export { bucketOf, NO_WORKSPACES, workspacesAt } from './workspaces.ts'
 export type { WorkspaceChoice, WorkspaceSnapshot, WorkspaceSource } from './workspaces.ts'
@@ -57,11 +69,14 @@ export { PANEL_STYLE_ID, SETTINGS_STYLE_ID } from './style-tags.ts'
 
 export interface PathfinderPanelApi {
   readonly id: string
+  /** The panel's declared name, in the language in force when it is read. */
   readonly title: string
   /** The port for talking to the host: reads the four records, writes archive / restore / delete and the three policy numbers. */
   readonly port: PanelPort
   /** The port the panel uses to read and write settings; the settings page reads it too. */
   readonly prefs: PrefsStore
+  /** Where the words come from; the settings section is handed the same one, so both speak one language. */
+  readonly locale: LocaleSource
   /** The panel itself, passed directly as the second argument of `slots.register`. */
   readonly Panel: (props: PanelArgs) => React.ReactElement
 }
@@ -72,6 +87,8 @@ export interface PanelArgs {
   readonly sessionId?: string | undefined
   /** Which settings document holds the panel's own preferences; factory defaults apply when absent. */
   readonly prefs?: PrefsStore | undefined
+  /** Which language to speak; the bundled fallback applies when absent. */
+  readonly locale?: LocaleSource | undefined
   /** Where card clicks go: DSH's navigation gateway. Cards are inert without it. */
   readonly openSession?: ((target: string) => void) | undefined
   /** DSH's workspace list: candidates for the selector at the top of the panel. Nothing is pickable without it. */
@@ -81,11 +98,24 @@ export interface PanelArgs {
 export function apply(ctx: unknown): void {
   const port = createPanelPort(ctx)
   const prefs = createPrefsSource()
+  /* DSH owns the language preference — its settings page has the row, it remembers the choice, and
+   * it falls back to the browser's language and then to English. This attaches to that rather than
+   * inventing a second preference: when the service is absent (an older DSH, a stand-in context)
+   * the port keeps serving the bundled table, so the panel still says real words. */
+  const locale = createLocalePort()
+  injectAt(ctx, ['locale'], '语言那一层没接上', (owner) => {
+    locale.attach((serviceAt(owner, 'locale') as LocaleService | undefined) ?? null)
+  })
   const api: PathfinderPanelApi = {
     id: PANEL_ID,
-    title: PANEL_TITLE,
+    /* A getter rather than a captured string: the panel's name is read by whoever asks, which may be
+     * after the reader has changed language. */
+    get title() {
+      return localeOf(locale).t('panel.title')
+    },
     port,
     prefs,
+    locale,
     Panel: Entry,
   }
   try {
@@ -94,7 +124,7 @@ export function apply(ctx: unknown): void {
   } catch (error) {
     report('面板这一格没装上去', error)
   }
-  registerSettingsSection(ctx, prefs)
+  registerSettingsSection(ctx, prefs, locale)
   /* The two seats' unmount hangs on the `effect` in `mount.ts`: this line only registers them. */
   registerSeats(ctx, api, () => {
     dropStyle()
@@ -116,12 +146,19 @@ function Entry(props: PanelArgs & { readonly useSessions?: unknown }): React.Rea
   const snapshot = sessionsSnapshotOf(props.useSessions)
   const sessionId = props.sessionId ?? currentSessionOf(snapshot)
   const knownSessions = React.useMemo(() => knownSessionsOf(snapshot), [snapshot])
-  return React.createElement(PathfinderPanel, {
-    port: props.port,
-    sessionId,
-    prefs: props.prefs,
-    openSession: props.openSession,
-    knownSessions,
-    workspaces: props.workspaces,
-  })
+  /* The provider sits at this root rather than in `apply`: the language has to be readable while a
+   * component draws, and this is the one point every pane passes through. The settings section is
+   * not in this tree and wraps itself the same way. */
+  return React.createElement(
+    LocaleProvider,
+    { source: props.locale },
+    React.createElement(PathfinderPanel, {
+      port: props.port,
+      sessionId,
+      prefs: props.prefs,
+      openSession: props.openSession,
+      knownSessions,
+      workspaces: props.workspaces,
+    }),
+  )
 }

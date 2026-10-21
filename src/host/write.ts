@@ -16,12 +16,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { dirname, join } from 'node:path'
 /* The subprocess gateway lives on the `@deepseek-ai/dsh-subprocess` package entry, only to attach `subprocess` to the Context: a type-only import, nothing enters the runtime. */
 import type {} from '@deepseek-ai/dsh-subprocess'
-
-/** What a write command returns. Whatever the tool said is carried out verbatim; there is no JSON shape to rely on. */
-export interface PfOutcome {
-  readonly ok: boolean
-  readonly text: string
-}
+import type { PfFailure, PfOutcome } from './failure.ts'
 
 /** The argument gate: commands, subcommands, ids, key names, and values are all combinations of just these characters; the verbatim sentence stays outside the gate, see `runPf`. */
 const SAFE_ARG = /^[A-Za-z0-9_.:+-]{1,200}$/
@@ -44,21 +39,17 @@ export async function runPf(
   said?: string,
 ): Promise<PfOutcome> {
   const unsafe = args.find((arg) => !SAFE_ARG.test(arg))
-  if (unsafe !== undefined) return { ok: false, text: `该参数不能进入命令：${unsafe}` }
+  if (unsafe !== undefined) return { ok: false, code: 'arg-not-allowed', detail: unsafe }
 
   const subprocess = ctx.get('subprocess')
-  if (subprocess === undefined) return { ok: false, text: '该宿主没有可用的进程通道，无法执行这次写入。' }
+  if (subprocess === undefined) return { ok: false, code: 'no-subprocess' }
 
-  let argv: readonly string[]
-  try {
-    argv = await launchArgs(subprocess, args, signal, said)
-  } catch (error) {
-    return { ok: false, text: messageOf(error) }
-  }
+  const launched = await launchArgs(subprocess, args, signal, said)
+  if (!launched.ok) return launched
 
   try {
     const handle = subprocess.spawn({
-      argv,
+      argv: launched.argv,
       cwd: workspaceRoot,
       stdio: {
         stdin: 'ignore',
@@ -72,9 +63,12 @@ export async function runPf(
     const out = handle.collected.stdout?.readFrom(0).text ?? ''
     const err = handle.collected.stderr?.readFrom(0).text ?? ''
     const text = [out, err].filter((part) => part.length > 0).join('\n').trim()
-    return { ok: outcome.exitCode === 0, text }
+    /* The tool exiting non-zero is not this plugin's sentence to write: it said its own reason on
+     * one of the two streams, and that reason travels as `detail`, verbatim. */
+    if (outcome.exitCode !== 0) return { ok: false, code: 'tool-refused', ...(text.length > 0 ? { detail: text } : {}) }
+    return { ok: true, text }
   } catch (error) {
-    return { ok: false, text: messageOf(error) }
+    return { ok: false, code: 'spawn-failed', detail: messageOf(error) }
   }
 }
 
@@ -93,6 +87,15 @@ interface Spawner {
     signal: AbortSignal
   }): { readonly done: Promise<{ readonly exitCode: number | null }>; readonly collected: { readonly stdout?: { readFrom(from: number): { text: string } }; readonly stderr?: { readFrom(from: number): { text: string } } } }
 }
+
+/**
+ * What the launcher produced: the argv to run, or why it could not be built.
+ *
+ * A refusal that a person can act on (the command is missing, its path cannot be handed to cmd,
+ * no interpreter exists) is an ordinary answer here, not an exception: throwing would make the
+ * reason travel as a message string, which is exactly the shape this layer is getting out of.
+ */
+type Launch = { readonly ok: true; readonly argv: readonly string[] } | PfFailure
 
 /**
  * The argv for one write.
@@ -121,21 +124,22 @@ async function launchArgs(
   args: readonly string[],
   signal: AbortSignal,
   said: string | undefined,
-): Promise<readonly string[]> {
+): Promise<Launch> {
   let pf: string
   try {
     pf = await subprocess.resolveExecutable('pf', undefined, signal)
   } catch (error) {
-    /* "The command does not exist on this machine" and the failure below ("it exists, but its path cannot enter cmd") are two different things, kept as two separate messages: merged into one, the reader would go reinstall an already-installed command on the first message's advice. */
-    throw new Error(`未找到 pf 命令：${messageOf(error)}`)
+    /* "The command does not exist on this machine" and the failure below ("it exists, but its path cannot enter cmd") are two different things, kept as two separate codes: merged into one, the reader would go reinstall an already-installed command on the first one's advice. */
+    return { ok: false, code: 'pf-missing', detail: messageOf(error) }
   }
-  if (process.platform !== 'win32') return said === undefined ? [pf, ...args] : [pf, ...args, said]
-  if (said !== undefined) return [...(await scriptArgs(subprocess, pf, signal)), ...args, said]
-  if (!CMD_SAFE_PATH.test(pf)) {
-    throw new Error(`pf 命令的路径中含有 cmd 无法处理的字符（${pf}），无法执行这次写入。`)
+  if (process.platform !== 'win32') return { ok: true, argv: said === undefined ? [pf, ...args] : [pf, ...args, said] }
+  if (said !== undefined) {
+    const script = await scriptArgs(subprocess, pf, signal)
+    return script.ok ? { ok: true, argv: [...script.argv, ...args, said] } : script
   }
+  if (!CMD_SAFE_PATH.test(pf)) return { ok: false, code: 'pf-path-unsafe', detail: pf }
   const comspec = process.env['ComSpec'] ?? 'cmd.exe'
-  return [comspec, '/d', '/s', '/c', `${pf} ${args.join(' ')}`]
+  return { ok: true, argv: [comspec, '/d', '/s', '/c', `${pf} ${args.join(' ')}`] }
 }
 
 /** Only these characters are allowed in the path; commas, spaces, quotes, and cmd's metacharacters all stay outside the gate. */
@@ -154,15 +158,15 @@ const INTERPRETERS: readonly (readonly [string, ...string[]])[] = [
  * The head of the argv that carries the verbatim sentence: the interpreter,
  * its flags, and `pf.py`.
  */
-async function scriptArgs(subprocess: Spawner, pf: string, signal: AbortSignal): Promise<readonly string[]> {
+async function scriptArgs(subprocess: Spawner, pf: string, signal: AbortSignal): Promise<Launch> {
   for (const [command, ...flags] of INTERPRETERS) {
     try {
-      return [await subprocess.resolveExecutable(command, undefined, signal), ...flags, join(dirname(pf), PF_SCRIPT)]
+      return { ok: true, argv: [await subprocess.resolveExecutable(command, undefined, signal), ...flags, join(dirname(pf), PF_SCRIPT)] }
     } catch (error) {
-      /* This spelling does not exist on this machine: try the next one. When neither exists, the error below is the one to raise. */
+      /* This spelling does not exist on this machine: try the next one. When neither exists, the refusal below is the one to give. */
     }
   }
-  throw new Error('这台机器上没有能把原话送进 pf 的解释器：`python` 与 `py` 都不在 PATH 上。')
+  return { ok: false, code: 'no-interpreter' }
 }
 
 function messageOf(error: unknown): string {

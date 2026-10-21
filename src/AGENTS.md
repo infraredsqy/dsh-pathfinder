@@ -1,7 +1,9 @@
-# src/ —— 宿主半身、模型层与浏览器半身：记录读进来、读数算出来、面板画出来
+# src/ — Host half, model layer, and browser half: records read in, readings computed, panel drawn
 
-> 本文件是路牌，上限 15 行：一行一条，只写这一层有什么、什么时候看。
+> This file is a signpost, capped at 15 lines: one line per entry — only what this layer holds and when to read it.
 
-- `host/` —— 宿主半身：插件入口、记录与笔记那几手端点的服务、边界形状、取数与写面、设置面的 schema。改取数、改边界形状时看
-- `model/` —— 模型层：四份记录、会话笔记原形＋一个时刻 → 那一刻的读数；纯函数，不取数、不碰 DOM。记录原形（四份记录＋取数结果）的类型住这层最底下的 `records.ts`，host 从这里拿。改读数怎么算、改记录原形时看
-- `client/` —— 浏览器半身：主面板、设置里那一节、调度中心那两处挂载点。改界面时看
+**Words are not data.** The model says what a reading IS; the client says how it READS (`client/words.ts` for the spelling of a fact, `client/locales/` for the lookup tables). Nothing in `model/` or `host/` spells a sentence for a reader — a reader's language lives in the browser, so a sentence decided here could only ever be in the wrong one. Adding a language means adding a file beside `locales/zh.ts` with the same key set and one line in `locales/index.ts`; nothing else changes.
+
+- `host/` — Host half: the plugin entry, the service for those record and note endpoints, boundary shapes, data fetching and writing, the settings schema. A refusal travels as a code (`failure.ts`), never as a sentence. Read when changing data fetching or boundary shapes
+- `model/` — Model layer: the four records and the session-note shape, plus one instant → the reading at that instant; pure functions, no data fetching, no DOM. Read when changing how readings are computed or the record shapes
+- `client/` — Browser half: the main panel, the settings section, the two mount points in the dispatch-center panel, and the language layer (`locale.ts` attaches to DSH's own language service; `locales/` holds the lookup tables). Read when changing the UI or when adding a language

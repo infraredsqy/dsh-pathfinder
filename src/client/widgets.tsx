@@ -7,6 +7,7 @@
  * come from one place, with each pane contributing only its body.
  */
 import * as React from 'react'
+import { useT } from './locale.ts'
 
 /**
  * A movable split: pointer dragging, keyboard stepping, double-click-to-default, and the aria value
@@ -138,6 +139,7 @@ export function ModalShell(props: {
   readonly onClose: () => void
   readonly children: React.ReactNode
 }): React.ReactElement {
+  const t = useT()
   const { onClose } = props
   const panel = React.useRef<HTMLDivElement | null>(null)
   React.useEffect(() => {
@@ -151,7 +153,7 @@ export function ModalShell(props: {
       <div className="pf-modal-panel" role="dialog" aria-modal="true" aria-labelledby={props.labelId} ref={panel} tabIndex={-1}>
         <div className="pf-modal-head">
           <span className="pf-modal-name" id={props.labelId} title={props.nameTitle}>{props.name}</span>
-          <button type="button" className="pf-mini" onClick={onClose}>关闭</button>
+          <button type="button" className="pf-mini" onClick={onClose}>{t('common.close')}</button>
         </div>
         {props.children}
       </div>
@@ -169,6 +171,10 @@ export function ModalShell(props: {
  * (written then read back, or changed elsewhere) does the box swap to the reading's copy. The commit
  * rule is supplied by the caller: this file only hands over the trimmed text — whether to write,
  * and what, is its call.
+ *
+ * The "unset" placeholder is the one word this file prints itself that the dictionary has no key
+ * for (one such as `common.unset` would be wanted): a key is never invented at a call site, so that
+ * word stands until the dictionary states one.
  */
 export function CommitNumberInput(props: {
   /** How the reading's value prints; the box starts from it and returns to it. */
@@ -182,6 +188,7 @@ export function CommitNumberInput(props: {
   readonly title?: string
   readonly onCommit: (text: string) => void
 }): React.ReactElement {
+  const t = useT()
   const [text, setText] = React.useState(props.held)
   React.useEffect(() => { setText(props.held) }, [props.held, props.revision])
   const commit = (): void => {
@@ -194,7 +201,7 @@ export function CommitNumberInput(props: {
       min={1}
       aria-label={props.label}
       aria-describedby={props.describedBy}
-      placeholder={props.unset ? '未设置' : ''}
+      placeholder={props.unset ? t('common.unset') : ''}
       value={text}
       title={props.title}
       onChange={(event) => setText(event.target.value)}

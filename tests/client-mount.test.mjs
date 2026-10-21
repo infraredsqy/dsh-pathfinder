@@ -1,9 +1,13 @@
 /* The two mount points of the dispatch center: locks in "which two seats get registered" and "unmount cleans up".
  *
- * For each seat: the slot name, entry id / key, order, the sidebar row's label, and the fact that
- * the central section is handed exactly the panel installed by this apply. When the effect is
- * disposed, both registrations leave the ledger and both injected style tags come off; a second
- * plugin started on the same ledger stops at this layer on the duplicate registration.
+ * For each seat: the slot name, entry id / key, order, the word the sidebar row shows (looked up
+ * through the lookup table, not a literal), and the fact that the central section is handed exactly
+ * the panel installed by this apply. When the effect is disposed, both registrations leave the
+ * ledger and both injected style tags come off; a second plugin started on the same ledger stops at
+ * this layer on the duplicate registration.
+ *
+ * The language port is measured here too: every shipped lookup table carries the same key set, a
+ * language switch changes the words and wakes subscribers, and nothing attached means Chinese.
  *
  * The stand-ins follow the real protocol: registering the same id twice throws. The bodies of the
  * two stylesheets cannot be resolved in Node and cannot enter unit tests, so the tags are mounted
@@ -17,13 +21,15 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import {
   PANEL_ORDER,
-  SEAT_LABEL,
+  SEAT_WORD,
   createSessionNav,
   currentSessionOf,
   knownSessionsOf,
   registerSeats,
   sessionsSnapshotOf,
 } from '../src/client/mount.ts'
+import { FALLBACK_LOCALE, LOCALE_NS, createLocalePort, localeOf } from '../src/client/locale.ts'
+import { WORD_TABLES } from '../src/client/locales/index.ts'
 import { PANEL_STYLE_ID, SETTINGS_STYLE_ID, dropStyleTag, ensureStyleTag } from '../src/client/style-tags.ts'
 
 const PANEL_ID = 'pathfinder'
@@ -71,21 +77,67 @@ function harness({ withEffect = true, services = {} } = {}) {
   return { ledger, calls, effects, ctx }
 }
 
-/** A panel: component and port are stand-ins. */
-function fakePanel() {
+/**
+ * A panel: component and port are stand-ins.
+ *
+ * `locale` is the real port by default — the panel is handed one, and the sidebar row resolves its
+ * word through it — so the row's label can be read as a word rather than as a key.
+ */
+function fakePanel({ locale = createLocalePort() } = {}) {
   const Panel = () => null
   return {
     id: PANEL_ID,
     title: '寻路',
     port: { source: 'none' },
     prefs: {},
+    locale,
     Panel,
+  }
+}
+
+/**
+ * A stand-in for DSH's locale service, shaped like the interface in `src/client/locale.ts`:
+ * lookup tables registered per namespace, a translator bound per namespace, a snapshot saying which
+ * language is active, and a subscriber list the language switch walks.
+ *
+ * The bound translator resolves against the language active at call time, which is exactly what the
+ * port relies on: one bound reference serves every language.
+ */
+function fakeLocaleService() {
+  const dicts = new Map()
+  let active = 'zh'
+  let revision = 0
+  const listeners = new Set()
+  return {
+    register(ns, locale, dict) {
+      dicts.set(`${ns}:${locale}`, dict)
+    },
+    bind(ns) {
+      return (key, params) => {
+        const template = dicts.get(`${ns}:${active}`)?.[key] ?? key
+        if (params === undefined) return template
+        return template.replace(/\{([A-Za-z0-9_]+)\}/gu, (whole, name) => (params[name] === undefined ? whole : String(params[name])))
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    getSnapshot: () => ({ active, revision }),
+    getLocale: () => ({ active, revision }),
+    /** Flip the language the way DSH's own service does: change the fact, then tell subscribers. */
+    switchTo(locale) {
+      active = locale
+      revision += 1
+      for (const listener of [...listeners]) listener()
+    },
   }
 }
 
 test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条对上', () => {
   const { ledger, ctx } = harness()
-  const panel = fakePanel()
+  const port = createLocalePort()
+  const panel = fakePanel({ locale: port })
 
   registerSeats(ctx, panel, () => undefined)
 
@@ -102,12 +154,28 @@ test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条�
   assert.equal(side.id, PANEL_ID)
   assert.equal(side.order, PANEL_ORDER)
   assert.equal(typeof side.label, 'function')
-  assert.equal(side.label(), SEAT_LABEL)
+  /* The row is registered with a KEY, not a word, and marked with the lookup table it speaks; DSH
+   * calls `label()` while drawing, so the word is looked up on every frame. */
+  assert.equal(SEAT_WORD, 'seat.label')
+  assert.equal(side.locale, LOCALE_NS)
+  const t = localeOf(port).t
+  assert.equal(t(SEAT_WORD), '调度中心', '随包的中文词典里那一行就是这个字')
+  assert.equal(side.label(), t(SEAT_WORD), '那一行画出来的应当是词典里的字')
+  assert.notEqual(side.label(), SEAT_WORD, '那一行不能把键本身画出来')
+
+  /* A language switch changes what the row says with no re-registration: the label is a function
+   * reading the active language, not a word captured at registration time. */
+  const service = fakeLocaleService()
+  port.attach(service)
+  service.switchTo('en')
+  assert.equal(side.label(), 'Dispatch Center')
+  assert.equal(side.label(), WORD_TABLES.en[SEAT_WORD])
 
   const main = ledger.get(`main:${PANEL_ID}`).options
   assert.equal(main.name, 'main')
   assert.equal(main.key, PANEL_ID)
   assert.equal(main.key === 'conversation', false)
+  assert.equal(main.locale, LOCALE_NS)
 
   for (const [, entry] of ledger) assert.equal(typeof entry.component, 'function')
 })
@@ -122,7 +190,11 @@ test('中央栏那一格交的是这次 apply 装的那块面板，口子、偏�
   const main = ledger.get(`main:${PANEL_ID}`)
   assert.equal(main.component, panel.Panel)
   const given = main.options.inject()
-  assert.deepEqual({ port: given.port, prefs: given.prefs }, { port: panel.port, prefs: panel.prefs })
+  /* The panel is handed the language port too: its words are resolved from the same place. */
+  assert.deepEqual(
+    { port: given.port, prefs: given.prefs, locale: given.locale },
+    { port: panel.port, prefs: panel.prefs, locale: panel.locale },
+  )
   assert.equal(typeof given.openSession, 'function')
   given.openSession('session-7')
   assert.deepEqual(opened, ['session-7'])
@@ -341,4 +413,71 @@ test('切会话那一手：接上导航口子就把身份递过去，没接上�
     console.warn = realWarn
   }
   assert.match(warned.join('\n'), /切不动/u)
+})
+
+test('随包的词典键集逐个对得上：少一个键，屏幕上就有一处没换过去', () => {
+  const keys = Object.keys(WORD_TABLES.zh).sort()
+
+  assert.deepEqual(
+    Object.keys(WORD_TABLES.en).sort(),
+    keys,
+    '英文词典与中文词典的键必须逐个对得上：多一个、少一个都是一个屏幕上没人填的空',
+  )
+  assert.deepEqual(Object.keys(WORD_TABLES).sort(), ['en', 'zh'], '随包的语言就是这两份')
+
+  /* Every language carries every key, and carries a word rather than an empty spot. */
+  for (const [locale, dict] of Object.entries(WORD_TABLES)) {
+    for (const key of keys) assert.equal(typeof dict[key], 'string', `${locale} 词典里缺了 ${key}`)
+  }
+
+  /* One key set, two languages: the same key reads differently in the two lookup tables. */
+  assert.notEqual(WORD_TABLES.en[SEAT_WORD], WORD_TABLES.zh[SEAT_WORD])
+})
+
+test('切换语言：那一行换成另一种语言，订阅者当场收到新读数', () => {
+  const port = createLocalePort()
+  const service = fakeLocaleService()
+  port.attach(service)
+
+  /* Attached with Chinese active: the same word the fallback would have said. */
+  assert.equal(port.getSnapshot().active, 'zh')
+  assert.equal(port.getSnapshot().t(SEAT_WORD), WORD_TABLES.zh[SEAT_WORD])
+
+  const before = port.getSnapshot()
+  const seen = []
+  port.subscribe(() => seen.push(port.getSnapshot()))
+
+  service.switchTo('en')
+
+  /* A language switch must wake subscribers, or the panel keeps drawing the old language. */
+  assert.equal(seen.length, 1, '换语言要叫醒订阅者')
+  const after = port.getSnapshot()
+  assert.equal(seen[0], after)
+  assert.notEqual(after, before, '换语言后读数必须是一份新的：useSyncExternalStore 靠这个身份判断要不要重画')
+  assert.equal(after.revision, before.revision + 1)
+  assert.equal(after.active, 'en')
+  assert.equal(after.t(SEAT_WORD), 'Dispatch Center')
+  assert.equal(after.t(SEAT_WORD), WORD_TABLES.en[SEAT_WORD], '画出来的那个字要出自词典')
+  /* Every key moves with the language, not just the one the row asks for. */
+  assert.equal(after.t('view.notes'), 'Instructions')
+})
+
+test('没有语言服务在场：这一层说中文，取的是随包那份词典', () => {
+  /* The fallback is not a stub: a deployment with no locale service keeps the words the panel had
+   * before it could be translated — the mechanism must not change the copy. */
+  assert.equal(FALLBACK_LOCALE, 'zh')
+  const bare = createLocalePort()
+  assert.equal(bare.getSnapshot().active, 'zh', '没接上服务时说的是中文')
+  assert.equal(bare.getSnapshot().t(SEAT_WORD), WORD_TABLES.zh[SEAT_WORD])
+  assert.equal(bare.getSnapshot().t('view.notes'), '指令')
+
+  /* Handing the service back (`attach(null)`) returns the port to that same fallback. */
+  const port = createLocalePort()
+  const service = fakeLocaleService()
+  port.attach(service)
+  service.switchTo('en')
+  assert.equal(port.getSnapshot().t(SEAT_WORD), 'Dispatch Center')
+  port.attach(null)
+  assert.equal(port.getSnapshot().active, FALLBACK_LOCALE)
+  assert.equal(port.getSnapshot().t(SEAT_WORD), '调度中心')
 })

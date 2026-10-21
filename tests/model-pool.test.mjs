@@ -6,7 +6,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ISSUE_STATE_WORDS, readLine, readPool, readProject, readWeights } from '../src/model/index.ts'
+import { readLine, readPool, readProject, readWeights } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
@@ -100,14 +100,14 @@ test('记录自己那个词属于写它的那一刻：那一刻还没到就按�
 })
 
 test('四个状态的词面只在模型层一份：空堆不进组，词照旧问得到', () => {
-  assert.deepEqual(ISSUE_STATE_WORDS, { open: '未解决', acknowledged: '已承认', rejected: '已驳回', resolved: '已解决' })
-
   /* The pool holds one still-outstanding issue: the settled piles are empty piles and form no
-   * groups, yet their words still come from this one table. */
+   * groups, yet which pile each of the four is still comes from this one reading. */
   const reading = readPool({}, [], { a: issue() }, AT)
 
   assert.deepEqual(reading.groups.map((group) => group.key), ['open'])
-  assert.equal(reading.groups[0]?.label, ISSUE_STATE_WORDS.open)
+  assert.equal(reading.groups[0]?.standing, true, '还欠着的那一堆算站着')
+  assert.equal(reading.groups[0]?.count, 1)
+  assert.equal(Object.hasOwn(reading.groups[0], 'label'), false, '堆头不再由模型给词：是哪一堆看 key')
 })
 
 test('读数上的可选字段：记录里写了才出场，没写的不拿空串顶位', () => {
@@ -144,7 +144,8 @@ test('四堆：空的不收，还欠着的重的在前、搁得久的在前，�
   }, AT)
 
   assert.deepEqual(reading.groups.map((group) => group.key), ['open', 'acknowledged', 'resolved'], '已驳回那一堆一条都没有，不收')
-  assert.deepEqual(reading.groups.map((group) => group.label), ['未解决', '已承认', '已解决'], '组头的词就是模型那一份词表上的')
+  assert.deepEqual(reading.groups.map((group) => group.standing), [true, true, false], '还欠着的两堆算站着，放下的那堆不算')
+  assert.equal(reading.groups.every((group) => !Object.hasOwn(group, 'label')), true, '堆头不再由模型给词：是哪一堆看 key')
   assert.deepEqual(reading.groups[0].entries.map((row) => row.id), ['heavyOld', 'heavyNew', 'light'])
   assert.deepEqual(reading.groups[1].entries.map((row) => row.id), ['carried'])
   assert.deepEqual(reading.groups[2].entries.map((row) => row.id), ['closedNew', 'closedOld'])

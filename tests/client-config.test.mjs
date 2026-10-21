@@ -21,7 +21,12 @@ import {
   KNOWN_CONFIG_ROWS,
   LAYER_WORDS,
   pickState,
+  rowWords,
 } from '../src/client/config-rows.ts'
+import { createLocalePort } from '../src/client/locale.ts'
+
+/** The zh translator the panel itself stands on before any language service attaches: the words a reader actually sees. */
+const t = createLocalePort().getSnapshot().t
 
 /** A synthetic reading: key names are arbitrary — the rendering only cares "one row per printed key". */
 function entry(value, layer = 'project') {
@@ -31,7 +36,8 @@ function entry(value, layer = 'project') {
 test('已知的四个键都有说法：中文名、那一句话、控件形态一件不缺', () => {
   assert.deepEqual([...Object.keys(KNOWN_CONFIG_ROWS)].sort(), ['issue_repair', 'max_agents', 'test_tier', 'worktree_mode'])
   for (const row of Object.values(KNOWN_CONFIG_ROWS)) {
-    assert.ok(row.name.length > 0 && row.caption.length > 0, `${row.key} 缺名字或缺那一句话`)
+    const words = rowWords(t, row)
+    assert.ok(words.name.length > 0 && words.caption.length > 0, `${row.key} 缺名字或缺那一句话`)
   }
 })
 
@@ -60,10 +66,11 @@ test('没登记的键：照键名直显 + 文本框，跟在已知的行后面�
 
   assert.deepEqual(rows.map((row) => row.key), ['worktree_mode', 'test_tier', 'max_agents', 'issue_repair', 'spawner'])
   const stranger = rows[4]
-  assert.equal(stranger.name, 'spawner', '没登记的键照键名直显，不编名字')
+  assert.equal(stranger.name, null, '没登记的键没有可翻的名字，表里留空')
+  assert.equal(rowWords(t, stranger).name, 'spawner', '没登记的键照键名直显，不编名字')
   assert.equal(stranger.kind, 'text', '没登记的键给文本框，不猜控件形态')
   assert.equal(stranger.options, undefined)
-  assert.ok(stranger.caption.length > 0, '没登记的键也有一句话说值由谁判')
+  assert.ok(rowWords(t, stranger).caption.length > 0, '没登记的键也有一句话说值由谁判')
 })
 
 test('登记过的键照表描：读数里的键落在表里就用表里那一行', () => {
@@ -89,7 +96,21 @@ test('下拉的候选值抄本就是工具在 config --help 里说的那几个�
 })
 
 test('层签那三个词：默认 / 本项目 / 全局', () => {
-  assert.deepEqual(LAYER_WORDS, { default: '默认', project: '本项目', global: '全局' })
+  /* 表里存的是字典键：同一份记录在哪种语言下都读得出来。 */
+  assert.deepEqual(LAYER_WORDS, {
+    default: 'config.layer.default',
+    project: 'config.layer.project',
+    global: 'common.global',
+  })
+  assert.deepEqual(
+    {
+      default: t(LAYER_WORDS.default),
+      project: t(LAYER_WORDS.project),
+      global: t(LAYER_WORDS.global),
+    },
+    { default: '默认', project: '本项目', global: '全局' },
+    '中文下这三个键印出来仍是那三个词',
+  )
 })
 
 test('读数里没有这个键的值时，两枚下拉一档都不落（留空），不摆第一档', () => {

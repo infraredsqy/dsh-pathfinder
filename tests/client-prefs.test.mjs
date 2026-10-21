@@ -33,12 +33,13 @@ import {
   createPrefsSource,
   DEFAULT_PREFS,
   dropLegacyPrefs,
-  INFO_LABELS,
+  INFO_WORDS,
   LEGACY_PREF_KEYS,
   prefsFromSection,
   prefsWriteOp,
-  VIEW_LABELS,
+  VIEW_WORDS,
 } from '../src/client/prefs.ts'
+import { createLocalePort } from '../src/client/locale.ts'
 
 /* This Node version exposes `localStorage` as a getter that fires an ExperimentalWarning on every
  * touch, and this pathway consults it the moment the settings form attaches. Pad a minimal
@@ -52,9 +53,37 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 test('字段表就是那几个键，出厂默认那几条与浏览器那侧逐项对得上', () => {
   assert.deepEqual(Object.keys(PANEL_PREF_DEFAULTS).sort(), Object.values(PANEL_PREF_FIELDS).sort())
-  /* The words printed on the settings page and the panel: one entry per view (six) and per info level (three). */
-  assert.deepEqual(Object.keys(INFO_LABELS).sort(), [...INFO_LEVELS].sort())
-  assert.deepEqual(Object.keys(VIEW_LABELS).sort(), [...VIEW_IDS].sort())
+  /* The words printed on the settings page and the panel: one entry per view (six) and per info
+   * level (three). The tables hold KEYS now, so what has to line up is the key set. */
+  assert.deepEqual(Object.keys(INFO_WORDS).sort(), [...INFO_LEVELS].sort())
+  assert.deepEqual(Object.keys(VIEW_WORDS).sort(), [...VIEW_IDS].sort())
+
+  /* Each entry RESOLVES to a word through the lookup table: every level and every view still has
+   * something to print, and it is the lookup table in force that says it. */
+  const t = createLocalePort().getSnapshot().t
+  for (const entry of [...Object.values(INFO_WORDS), ...Object.values(VIEW_WORDS)]) {
+    assert.equal(typeof t(entry), 'string', `${entry} 在随包的词典里没有对应的字`)
+    assert.notEqual(t(entry), entry, `${entry} 应当查得到一个词，不能把键本身画出来`)
+  }
+
+  /* The three info levels, as the bundled Chinese table spells them. */
+  assert.equal(t(INFO_WORDS.lean), '精简')
+  assert.equal(t(INFO_WORDS.three), '展开')
+  assert.equal(t(INFO_WORDS.full), '铺满')
+
+  /* And the six views. */
+  assert.equal(t(VIEW_WORDS.now), '当前')
+  assert.equal(t(VIEW_WORDS.detail), '明细')
+  assert.equal(t(VIEW_WORDS.notes), '指令')
+  assert.equal(t(VIEW_WORDS.wires), '依赖')
+  assert.equal(t(VIEW_WORDS.issue), '问题')
+  assert.equal(t(VIEW_WORDS.config), '设置')
+
+  /* What the tables hold is the KEY, not the word: the settings row and the panel's button row both
+   * render it through the same translator, so the two cannot drift apart. */
+  assert.equal(INFO_WORDS.lean, 'info.lean')
+  assert.equal(VIEW_WORDS.notes, 'view.notes')
+  assert.notEqual(INFO_WORDS.lean, t(INFO_WORDS.lean))
 })
 
 test('一份写全的设置文档读成面板那几个值', () => {
@@ -149,7 +178,7 @@ test('设置服务还没到场：出厂那几条，写回不作数', async () =>
     status: 'unavailable',
     revision: undefined,
     writable: false,
-    failure: null,
+    refused: false,
   })
   assert.equal(await source.write(PANEL_PREF_FIELDS.infoLevel, 'lean'), false)
 })
@@ -205,11 +234,11 @@ test('同一趟往返里的第二笔：头一笔带着过期修订号被拒，�
     expected: undefined,
   })
   assert.equal(form.document().showArchived, true)
-  assert.equal(source.getSnapshot().failure, null)
+  assert.equal(source.getSnapshot().refused, false)
   assert.equal(source.getSnapshot().prefs.archived, true)
 })
 
-test('两笔都不作数时不静默：读数里摆出一句话，下一笔写成就把它收回', async () => {
+test('两笔都不作数时不静默：读数里摆出「被拒」这一事实，下一笔写成就把它收回', async () => {
   const form = fakeForm({})
   const source = createPrefsSource()
   source.attach(form)
@@ -218,14 +247,15 @@ test('两笔都不作数时不静默：读数里摆出一句话，下一笔写�
   assert.equal(await source.write(PANEL_PREF_FIELDS.showOtherStates, true), false)
   assert.equal(form.writes.length, 2)
   assert.equal(form.writes[1].expected, undefined)
-  const failure = source.getSnapshot().failure
-  assert.equal(typeof failure, 'string')
-  assert.ok(failure.length > 0)
+  /* Two attempts, neither accepted: the reading says so. A fact, not a sentence — which words say
+   * it is the panel's business, because the language is the reader's. */
+  assert.equal(source.getSnapshot().refused, true, '两笔都不作数这件事要摆进读数里，不能静默')
+  assert.equal(source.getSnapshot().failure, undefined, '读数里不再摆句子，只摆「被拒」这个事实')
 
-  /* A successful write clears it: the message is about "the previous write did not land". */
+  /* A successful write clears it: the fact is about "the previous write did not land". */
   form.refuse(false)
   assert.equal(await source.write(PANEL_PREF_FIELDS.showOtherStates, true), true)
-  assert.equal(source.getSnapshot().failure, null)
+  assert.equal(source.getSnapshot().refused, false)
 })
 
 test('接上设置表单那一刻扫掉旧版那四个键，别人的键不动', () => {

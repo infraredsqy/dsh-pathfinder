@@ -310,8 +310,10 @@ function readNode(
 }
 
 /**
- * Whether this node needs a person: one word plus a moment. All criteria in
- * the records; a node needing nobody has no word.
+ * Whether this node needs a person: which kind of gate plus a moment. All
+ * criteria in the records; a node needing nobody has no gate at all.
+ *
+ * The kind is the whole answer — what a reader calls it is the client's word.
  */
 function gateOf(facts: {
   readonly id: string
@@ -322,14 +324,14 @@ function gateOf(facts: {
   readonly lineLast: StepReading | null | undefined
 }): GateReading | null {
   if (facts.state === 'shelved') {
-    return { kind: 'shelved', word: '等待处理', since: facts.parkedSince }
+    return { kind: 'shelved', since: facts.parkedSince }
   }
   if (facts.mode === 'manual' && facts.state !== 'completed') {
-    return { kind: 'manual', word: '手动节点', since: facts.startedAt }
+    return { kind: 'manual', since: facts.startedAt }
   }
   const last = facts.lineLast
   if (facts.mode === 'checkpoint' && facts.state === 'completed' && last !== null && last !== undefined && last.node === facts.id) {
-    return { kind: 'checkpoint', word: '检查点', since: last.endedAt }
+    return { kind: 'checkpoint', since: last.endedAt }
   }
   return null
 }

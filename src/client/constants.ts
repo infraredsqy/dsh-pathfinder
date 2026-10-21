@@ -1,8 +1,11 @@
 /**
- * Shared phrases used across the client.
+ * Shared word keys used across the client.
  *
- * Each phrase is stored once: the five node-following cells say the same thing, so they share one literal.
+ * Each phrase is named once: the five node-following cells say the same thing, so they share one key
+ * and look it up through the same translator — the same discipline as before, with the word itself
+ * moved into the dictionary where the reader's language decides it.
  */
+import type { WordKey } from './locales/index.ts'
 
 /** Shown in each of the five node-following cells when this workspace has no node record yet. */
-export const NOT_ENABLED = '当前工作区尚未启用 Pathfinder。'
+export const NOT_ENABLED_WORD: WordKey = 'panel.not-enabled'

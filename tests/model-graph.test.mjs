@@ -5,7 +5,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { depsWord, readProject } from '../src/model/index.ts'
+import { readDeps, readProject } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
@@ -111,9 +111,9 @@ test('依赖那一句话：可开工只认读数自己那一个值，别的不�
     ],
   }))
 
-  assert.deepEqual(depsWord(reading.nodeById.plain), { word: '可开工', ready: true, count: null })
-  assert.deepEqual(depsWord(reading.nodeById.owed), { word: '前置节点 2 个', ready: false, count: 2 })
-  assert.equal(depsWord(reading.nodeById.held), null, '别人手里正做的：欠的前置一件不剩也不算可开工')
-  assert.equal(depsWord(reading.nodeById.shelved), null, '出局等人的不欠这个问题')
-  assert.equal(depsWord(reading.nodeById.done), null, '落定的不欠谁的前置')
+  assert.deepEqual(readDeps(reading.nodeById.plain), { ready: true, count: null }, '可开工那一臂只说可开工，不带一个数')
+  assert.deepEqual(readDeps(reading.nodeById.owed), { ready: false, count: 2 }, '欠着的那一臂带上前置的条数')
+  assert.equal(readDeps(reading.nodeById.held), null, '别人手里正做的：欠的前置一件不剩也不算可开工')
+  assert.equal(readDeps(reading.nodeById.shelved), null, '出局等人的不欠这个问题')
+  assert.equal(readDeps(reading.nodeById.done), null, '落定的不欠谁的前置')
 })

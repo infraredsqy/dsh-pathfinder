@@ -16,13 +16,22 @@ import * as React from 'react'
 import type { PathfinderPanelApi } from './index.ts'
 import { injectAt, report, serveOn, type SlotsService } from './context.ts'
 import { serviceAt } from './data.ts'
+import { localeOf, LOCALE_NS } from './locale.ts'
+import type { WordKey } from './locales/index.ts'
 import { NO_WORKSPACES, workspacesAt, type WorkspaceSource } from './workspaces.ts'
 
 /** The sidebar row's position: "plugins" is 0, "schedule" is 10; this tier sits right below plugins. */
 export const PANEL_ORDER = 1
 
-/** The name on that sidebar row: the UI calls it dispatch center, the package and repo call it `dsh-pathfinder`. */
-export const SEAT_LABEL = '调度中心'
+/**
+ * The word on that sidebar row.
+ *
+ * A key rather than the word: the UI calls that spot the dispatch center, the package and repo call
+ * it `dsh-pathfinder`, and which language says it is the reader's business. The row is registered
+ * with a `label` FUNCTION, which DSH calls while drawing, so the word is looked up on every frame
+ * and a language switch needs no re-registration.
+ */
+export const SEAT_WORD: WordKey = 'seat.label'
 
 /**
  * The `useSessions` snapshot from the seat's standard props.
@@ -280,12 +289,16 @@ function contribute(
     name: 'sidebar.panellist',
     id: api.id,
     order: PANEL_ORDER,
-    label: () => SEAT_LABEL,
+    /* Marked with the dictionary this outlet speaks: DSH redraws the row on a language switch, the
+     * same way it does for its own rows. */
+    locale: LOCALE_NS,
+    label: () => localeOf(api.locale).t(SEAT_WORD),
   }, PanelIcon)))
   put('中央栏那一格', () => slots.inject?.('main', () => slots.register?.({
     name: 'main',
     key: api.id,
-    inject: () => ({ port: api.port, prefs: api.prefs, openSession: nav.open, workspaces }),
+    locale: LOCALE_NS,
+    inject: () => ({ port: api.port, prefs: api.prefs, locale: api.locale, openSession: nav.open, workspaces }),
   }, api.Panel)))
   return disposers
 }

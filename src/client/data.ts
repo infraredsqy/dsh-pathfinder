@@ -5,12 +5,16 @@
  * Both lines reach the same endpoint: first through DSH's mounted remote namespace; deployments
  * without that namespace fall back to the carrier layer calling the same endpoint on `/api`
  * directly. The endpoint name string appears only once, here.
+ *
+ * Nothing on this layer writes a sentence. A read that fails rejects with a code (see
+ * `failure.ts`), and a write that fails answers with one; the panel turns it into words
+ * (`src/client/words.ts`), because the panel is the only place that knows the reader's language.
  */
 import type { PathfinderReading } from '../host/contract.ts'
 import type { PathfinderConfigReading } from '../host/project-config.ts'
 import type { PathfinderSessionsReading } from '../host/sessions.ts'
-import type { PfOutcome } from '../host/write.ts'
 import type { CyclePolicyKey, InstructionScope } from '../host/gateway.ts'
+import { RefusedError, type Failure, type Outcome } from './failure.ts'
 
 /** The namespace, named after the host-half service key. */
 export const NAMESPACE = 'pathfinderRecords'
@@ -38,23 +42,24 @@ const WRITE_ENDPOINTS: Readonly<Record<WriteVerb, string>> = {
  */
 export interface PanelPort {
   readonly source: 'remote' | 'carrier' | 'none'
-  /** Read the four records of the named workspace. */
+  /** Read the four records of the named workspace; rejects with a {@link RefusedError} when it cannot. */
   read(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderReading>
   /** The most recent session opened for each cell in the named workspace: where card clicks go. */
   readSessions(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderSessionsReading>
   /** Record an instruction: hand the user's verbatim text and scope to the tool. */
-  say(sessionId: string, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<PfOutcome>
+  say(sessionId: string, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<Outcome>
   /** Archive / revive / delete an instruction. */
-  write(verb: WriteVerb, sessionId: string, workspaceRoot: string, id: string): Promise<PfOutcome>
+  write(verb: WriteVerb, sessionId: string, workspaceRoot: string, id: string): Promise<Outcome>
   /** Write one policy number of a line. */
-  setPolicy(sessionId: string, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome>
+  setPolicy(sessionId: string, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<Outcome>
   /** The named workspace's project settings: effective values and which layer each lives on, from the tool's command. */
   readConfig(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderConfigReading>
   /** Write one project setting; it always lands on this project's layer. */
-  setConfig(sessionId: string, workspaceRoot: string, key: string, value: string): Promise<PfOutcome>
+  setConfig(sessionId: string, workspaceRoot: string, key: string, value: string): Promise<Outcome>
 }
 
-type Answer<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string }
+/** What one endpoint call yields before the two branches are unfolded: the value, or why not. */
+type Answer<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly failure: Failure }
 
 /** The minimal shape of a service: this layer only needs the few methods below. */
 type Service = Readonly<Record<string, unknown>>
@@ -155,9 +160,18 @@ type PortCall = <T>(
   signal?: AbortSignal,
 ) => Promise<Answer<T>>
 
+/** A refusal in the shape a write hands back, without the `ok` tag the reading already carries. */
+function refused(failure: Failure): Outcome {
+  return { ok: false, code: failure.code, ...(failure.detail !== undefined ? { detail: failure.detail } : {}) }
+}
+
 /**
  * The common skeleton of the panel's port: the seven methods written once, with the two paths
  * differing only in the `call` layer and how the signal is passed.
+ *
+ * A read that cannot happen rejects with {@link RefusedError} — a caller awaiting a reading has
+ * nowhere to put a failure but the rejection. A write answers with the failure instead, because its
+ * callers place the reason on the panel's note line and carry on.
  * @param source - Which layer this port ultimately connected through.
  * @param call - Given the endpoint name, named arguments, and abort signal; it unfolds the answer into the two branches.
  */
@@ -166,34 +180,34 @@ function portFromCall(source: PanelPort['source'], call: PortCall): PanelPort {
     source,
     async read(sessionId, workspaceRoot, signal) {
       const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot), signal)
-      if (!answer.ok) throw new Error(answer.message)
+      if (!answer.ok) throw new RefusedError(answer.failure)
       return answer.value
     },
     async readSessions(sessionId, workspaceRoot, signal) {
       const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot }, signal)
-      if (!answer.ok) throw new Error(answer.message)
+      if (!answer.ok) throw new RefusedError(answer.failure)
       return answer.value
     },
     async say(sessionId, workspaceRoot, text, scope, cycle, node) {
-      const answer = await call<PfOutcome>('addInstruction', { sessionId, workspaceRoot, text, scope, cycle, node })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
+      const answer = await call<Outcome>('addInstruction', { sessionId, workspaceRoot, text, scope, cycle, node })
+      return answer.ok ? answer.value : refused(answer.failure)
     },
     async write(verb, sessionId, workspaceRoot, id) {
-      const answer = await call<PfOutcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
+      const answer = await call<Outcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
+      return answer.ok ? answer.value : refused(answer.failure)
     },
     async setPolicy(sessionId, workspaceRoot, cycle, key, value) {
-      const answer = await call<PfOutcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
+      const answer = await call<Outcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
+      return answer.ok ? answer.value : refused(answer.failure)
     },
     async readConfig(sessionId, workspaceRoot, signal) {
       const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot }, signal)
-      if (!answer.ok) throw new Error(answer.message)
+      if (!answer.ok) throw new RefusedError(answer.failure)
       return answer.value
     },
     async setConfig(sessionId, workspaceRoot, key, value) {
-      const answer = await call<PfOutcome>('setConfig', { sessionId, workspaceRoot, key, value })
-      return answer.ok ? answer.value : { ok: false, text: answer.message }
+      const answer = await call<Outcome>('setConfig', { sessionId, workspaceRoot, key, value })
+      return answer.ok ? answer.value : refused(answer.failure)
     },
   }
 }
@@ -206,7 +220,7 @@ function remotePort(namespace: Service): PanelPort {
     signal?: AbortSignal,
   ): Promise<Answer<T>> => {
     const implementation = namespace[method]
-    if (typeof implementation !== 'function') return { ok: false, message: `这条通道上没有 ${method} 这个操作。` }
+    if (typeof implementation !== 'function') return { ok: false, failure: { code: 'no-operation', detail: method } }
     try {
       const answer = await (implementation as (...values: unknown[]) => Promise<unknown>).call(
         namespace,
@@ -215,7 +229,7 @@ function remotePort(namespace: Service): PanelPort {
       )
       return unwrap<T>(answer)
     } catch (error) {
-      return { ok: false, message: textOf(error) }
+      return { ok: false, failure: { code: 'transport-failed', detail: textOf(error) } }
     }
   }
   return portFromCall('remote', call)
@@ -232,7 +246,7 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
       const answer = await rpc.call('/api', `${NAMESPACE}/${method}`, { args }, signal)
       return unwrap<T>(answer)
     } catch (error) {
-      return { ok: false, message: textOf(error) }
+      return { ok: false, failure: { code: 'transport-failed', detail: textOf(error) } }
     }
   }
   return portFromCall('carrier', call)
@@ -241,29 +255,63 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
 /** The port used when neither path connects: every read states the failure outright. */
 function absentPort(): PanelPort {
   const missing = async (): Promise<never> => {
-    throw new Error('该部署未连接寻路记录服务，无法读取记录。')
+    throw new RefusedError({ code: 'not-connected' })
   }
-  const refused = async (): Promise<PfOutcome> => ({ ok: false, text: '该部署没有可用的写入通道。' })
-  return { source: 'none', read: missing, readSessions: missing, say: refused, write: refused, setPolicy: refused, readConfig: missing, setConfig: refused }
+  const refusedWrite = async (): Promise<Outcome> => ({ ok: false, code: 'no-write-channel' })
+  return { source: 'none', read: missing, readSessions: missing, say: refusedWrite, write: refusedWrite, setPolicy: refusedWrite, readConfig: missing, setConfig: refusedWrite }
 }
 
-/** Unfolds the `{ ok, value }` shape into the two branches this layer uses. */
+/**
+ * Unfolds the `{ ok, value }` shape into the two branches this layer uses.
+ *
+ * The failure branch carries whatever the far side said. When the host refused with one of its own
+ * codes those survive the trip as a `code`; anything else — a transport error, a thrown Error —
+ * arrives as a message, which is genuinely another program's words and rides as the detail.
+ */
 function unwrap<T>(answer: unknown): Answer<T> {
-  if (typeof answer !== 'object' || answer === null) return { ok: false, message: '宿主返回了无法解析的数据。' }
+  if (typeof answer !== 'object' || answer === null) return { ok: false, failure: { code: 'unparsable-answer' } }
   const held = answer as { ok?: unknown; value?: unknown; error?: unknown }
   if (held.ok === true) return { ok: true, value: held.value as T }
-  return { ok: false, message: failureText(held.error) }
+  return { ok: false, failure: failureIn(held.error) }
 }
 
-function failureText(error: unknown): string {
+/** Read a host-side failure out of the answer's `error` field. */
+function failureIn(error: unknown): Failure {
   if (typeof error === 'object' && error !== null) {
     const held = error as { message?: unknown; code?: unknown }
-    if (typeof held.message === 'string' && held.message.length > 0) {
-      return typeof held.code === 'string' && held.code.length > 0 ? `${held.code}: ${held.message}` : held.message
-    }
+    const detail = typeof held.message === 'string' && held.message.length > 0 ? held.message : undefined
+    /* A code this half knows is carried through; an unknown one is the host's own vocabulary
+     * (DSH's error codes), which this panel has no words for — it says the message instead. */
+    const code = typeof held.code === 'string' && KNOWN_CODES.has(held.code) ? (held.code as Failure['code']) : undefined
+    if (code !== undefined) return { code, ...(detail !== undefined ? { detail } : {}) }
+    if (detail !== undefined) return { code: 'transport-failed', detail }
   }
-  return textOf(error)
+  return { code: 'unparsable-answer' }
 }
+
+/** The refusal codes this half can spell; a code outside this set is another system's vocabulary. */
+const KNOWN_CODES: ReadonlySet<string> = new Set<string>([
+  'arg-not-allowed',
+  'no-subprocess',
+  'pf-missing',
+  'pf-path-unsafe',
+  'no-interpreter',
+  'tool-refused',
+  'spawn-failed',
+  'scope-unknown',
+  'empty-text',
+  'policy-key-unknown',
+  'no-operation',
+  'not-connected',
+  'no-write-channel',
+  'unparsable-answer',
+  'transport-failed',
+  'config-unreadable',
+  'config-write-failed',
+  'settings-refused',
+  'settings-unwritable',
+  'unstated',
+])
 
 function textOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

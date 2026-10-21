@@ -1,0 +1,190 @@
+/**
+ * The panel's vocabulary: the one place where a fact read out of the records becomes a word a
+ * reader sees.
+ *
+ * The split this file exists to hold: the model layer says *what* a reading is (a node is `shelved`,
+ * a gate's kind is `checkpoint`, three prerequisites are owed, a moment was two days ago), and this
+ * layer says *how it reads*. Nothing here computes a reading, and nothing in the model spells a
+ * sentence — which is what lets a second language be added without touching the model at all.
+ *
+ * Every function takes its translator as its first argument rather than reaching for one. That is
+ * deliberate: a caller can be handed a translator from anywhere, the unit tests can pass a
+ * lookup table directly, and there is no module-level language for a component to accidentally read
+ * on a stale frame.
+ */
+import type { Translate } from './locale.ts'
+import type { Failure, FailureCode } from './failure.ts'
+import type { WordKey } from './locales/index.ts'
+import type {
+  AgoParts,
+  DayParts,
+  DepsReading,
+  DurationParts,
+  GateReading,
+  InstructionGroupReading,
+  IssueState,
+  NodeState,
+} from '../model/index.ts'
+
+/**
+ * Pick the singular spelling at exactly one, the other spelling everywhere else.
+ *
+ * Chinese has one form and English has two, so a table ships both and both are the same word in
+ * a language that does not inflect. A language with more forms than two would need this widened;
+ * none does today, and inventing the machinery before a language needs it would cost every call
+ * site.
+ */
+export function unit(t: Translate, one: WordKey, other: WordKey, n: number): string {
+  return t(n === 1 ? one : other)
+}
+
+/** What each of a node's three states reads as. */
+const NODE_WORDS: Readonly<Record<NodeState, WordKey>> = {
+  todo: 'state.todo',
+  shelved: 'state.shelved',
+  completed: 'state.done',
+}
+
+/** What each of the three gate kinds reads as; the shelved gate says the state's own word. */
+const GATE_WORDS: Readonly<Record<GateReading['kind'], WordKey>> = {
+  shelved: 'state.shelved',
+  manual: 'gate.manual',
+  checkpoint: 'gate.checkpoint',
+}
+
+/** What each of the four issue states reads as. */
+const ISSUE_WORDS: Readonly<Record<IssueState, WordKey>> = {
+  open: 'issue.open',
+  acknowledged: 'issue.acknowledged',
+  rejected: 'issue.rejected',
+  resolved: 'issue.resolved',
+}
+
+/** A node's state, in words. */
+export function nodeWord(t: Translate, state: NodeState): string {
+  return t(NODE_WORDS[state])
+}
+
+/** Which kind of person-wait this is, in words. */
+export function gateWord(t: Translate, gate: GateReading): string {
+  return t(GATE_WORDS[gate.kind])
+}
+
+/** The issue's own state, in words. */
+export function issueWord(t: Translate, state: IssueState): string {
+  return t(ISSUE_WORDS[state])
+}
+
+/**
+ * The heading of one group on the instruction ledger.
+ *
+ * Spelled from the group's own key rather than carried in the reading: a group bound to a cycle is
+ * headed by that cycle's id, which is a record's own word and reads the same in every language,
+ * while the two unnamed groups and the cell-bound one have words of their own.
+ */
+export function groupWord(t: Translate, group: InstructionGroupReading): string {
+  if (group.key === 'global') return t('common.global')
+  if (group.key === 'node') return t('scope.node')
+  if (group.key.startsWith('cycle:')) {
+    const id = group.key.slice('cycle:'.length)
+    /* A cycle-bound entry whose cycle the records do not name: the same bucket as a session that
+     * belongs to no workspace, and it says so rather than heading a section with nothing. */
+    return id.length > 0 ? id : t('workspace.ungrouped')
+  }
+  return group.key
+}
+
+/** The dependency sentence in pieces: the number stays separate so the panel can style it. */
+export interface DepsSentence {
+  /** The whole sentence, for a tooltip or any place that prints it flat. */
+  readonly said: string
+  /** What stands before the number; empty in a language that leads with the number. */
+  readonly head: string
+  /** How many prerequisites are owed; `null` for the ready sentence, which carries no number. */
+  readonly count: number | null
+  /** What stands after the number. */
+  readonly tail: string
+}
+
+/**
+ * What a node says on the dependency field: ready to start, or how many prerequisites are owed.
+ *
+ * Which of the two it is comes from the reading itself — the three conditions behind "ready" are
+ * judged once, in the model. This side only says it.
+ */
+export function depsSentence(t: Translate, deps: DepsReading): DepsSentence {
+  if (deps.ready) return { said: t('state.ready'), head: '', count: null, tail: '' }
+  const count = deps.count ?? 0
+  const head = t('deps.owed.head')
+  const tail = t('deps.owed.tail')
+  return { said: `${head}${String(count)}${tail}`, head, count, tail }
+}
+
+/**
+ * The day a moment fell on: today / yesterday / the day before, or a month and a day.
+ *
+ * Which of those it is is measured by the model against the caller's "now"; the words are here.
+ */
+/** No moment to name is no day to name: the panel prints nothing where a day would stand. */
+export function dayLabel(t: Translate, parts: DayParts | null): string {
+  if (parts === null) return ''
+  if (parts.unit === 'today') return t('date.today')
+  if (parts.unit === 'yesterday') return t('date.yesterday')
+  if (parts.unit === 'before-yesterday') return t('date.before-yesterday')
+  return t('date.month-day', { month: parts.month, day: parts.day })
+}
+
+/** A duration spelled out in full, in the units a reader says it in. */
+export function durationLong(t: Translate, parts: DurationParts | null): string {
+  if (parts === null) return t('duration.none')
+  if (parts.unit === 'seconds') return t('duration.seconds', { value: parts.value })
+  if (parts.unit === 'minutes') return t('duration.minutes', { value: parts.value })
+  return parts.rest > 0
+    ? t('duration.hours-minutes', { value: parts.value, rest: parts.rest })
+    : t('duration.hours', { value: parts.value })
+}
+
+/** How long ago a moment was, relative to the caller's "now". */
+export function ago(t: Translate, parts: AgoParts | null): string {
+  if (parts === null) return ''
+  if (parts.unit === 'just-now') return t('ago.just-now')
+  if (parts.unit === 'minutes') return t('ago.minutes', { value: parts.value })
+  if (parts.unit === 'hours') return t('ago.hours', { value: parts.value })
+  return t('ago.days', { value: parts.value })
+}
+
+/** What each refusal code reads as. One entry per code, so a new code fails to compile until it speaks. */
+const FAILURE_WORDS: Readonly<Record<FailureCode, WordKey>> = {
+  'arg-not-allowed': 'failure.arg-not-allowed',
+  'no-subprocess': 'failure.no-subprocess',
+  'pf-missing': 'failure.pf-missing',
+  'pf-path-unsafe': 'failure.pf-path-unsafe',
+  'no-interpreter': 'failure.no-interpreter',
+  'tool-refused': 'failure.tool-refused',
+  'spawn-failed': 'failure.spawn-failed',
+  'scope-unknown': 'failure.scope-unknown',
+  'empty-text': 'failure.empty-text',
+  'policy-key-unknown': 'failure.policy-key-unknown',
+  'no-operation': 'failure.no-operation',
+  'not-connected': 'failure.not-connected',
+  'no-write-channel': 'failure.no-write-channel',
+  'unparsable-answer': 'failure.unparsable-answer',
+  'transport-failed': 'failure.transport-failed',
+  'config-unreadable': 'failure.config-unreadable',
+  'config-write-failed': 'failure.config-write-failed',
+  'settings-refused': 'failure.settings-refused',
+  'settings-unwritable': 'failure.settings-unwritable',
+  'unstated': 'failure.unstated',
+}
+
+/**
+ * Why an operation was refused, in words.
+ *
+ * The detail is handed to the wording as a placeholder, so a language decides where it lands; when
+ * the wording is the detail and nothing else — the tool's own reason, a transport's message — an
+ * empty detail would leave nothing to read, and the sentence for that stands in.
+ */
+export function failureWord(t: Translate, failure: Failure): string {
+  const said = t(FAILURE_WORDS[failure.code], { detail: failure.detail ?? '' }).trim()
+  return said.length > 0 ? said : t('failure.unstated')
+}

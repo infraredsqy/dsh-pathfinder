@@ -9,10 +9,13 @@
  */
 import * as React from 'react'
 import { INFO_LEVELS, PANEL_PREF_FIELDS, VIEW_IDS } from '../host/settings-fields.ts'
-import { DEFAULT_SOURCE, INFO_LABELS, VIEW_LABELS } from './prefs.ts'
+import { DEFAULT_SOURCE, INFO_WORDS, VIEW_WORDS } from './prefs.ts'
 import type { PrefField, PrefsForm, PrefsSource, PrefsStore } from './prefs.ts'
 import { serviceAt } from './data.ts'
 import { injectAt, report, serveOn, type SlotsService } from './context.ts'
+import { localeOf, LOCALE_NS, LocaleProvider, useT, type LocaleSource } from './locale.ts'
+import type { WordKey } from './locales/index.ts'
+import { failureWord } from './words.ts'
 import { SETTINGS_STYLE_ID, dropStyleTag, ensureStyleTag } from './style-tags.ts'
 
 /**
@@ -35,7 +38,13 @@ export const SETTINGS_NAMESPACE = 'pathfinder'
 
 export const SECTION_ORDER = 60
 
-export const SECTION_LABEL = '寻路面板'
+/**
+ * What this section's navigation row is called.
+ *
+ * A key: DSH calls this `label` function while drawing the row, so the word is looked up per frame
+ * and a language switch needs no re-registration.
+ */
+export const SECTION_WORD: WordKey = 'settings.section'
 
 const STYLE_ID = SETTINGS_STYLE_ID
 
@@ -83,6 +92,8 @@ export function dropSettingsStyle(): void {
 export interface SettingsSectionProps {
   /** The port the panel uses to read and write settings; factory defaults apply when absent. */
   readonly source?: PrefsSource | undefined
+  /** Which language to speak; the bundled fallback applies when absent. */
+  readonly locale?: LocaleSource | undefined
 }
 
 /** This section's stylesheet body, for the self-check fixture to measure against the same copy. */
@@ -93,6 +104,7 @@ function Row(props: {
   readonly tip: string | null
   readonly control: React.ReactNode
 }): React.ReactElement {
+  const t = useT()
   return (
     <div className="pfset-row">
       <div className="pfset-text">
@@ -104,7 +116,7 @@ function Row(props: {
               type="button"
               className="pfset-info"
               data-tip={props.tip}
-              aria-label={`${props.label}这一行管什么`}
+              aria-label={t('settings.row.help', { label: props.label })}
             >
               i
             </button>
@@ -115,12 +127,27 @@ function Row(props: {
   )
 }
 
+/**
+ * The section's page.
+ *
+ * It wraps itself in the language provider: DSH draws this page inside its own settings panel, a
+ * different tree from the main panel, so it cannot inherit the provider that one mounts. Both are
+ * handed the same port by `apply`, so the two speak one language.
+ */
 export function SettingsSection(props: SettingsSectionProps): React.ReactElement {
   ensureSettingsStyle()
+  return React.createElement(
+    LocaleProvider,
+    { source: props.locale },
+    React.createElement(SettingsPage, { source: props.source }),
+  )
+}
+
+function SettingsPage(props: SettingsSectionProps): React.ReactElement {
+  const t = useT()
   const source = props.source ?? DEFAULT_SOURCE
   const snapshot = React.useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   const prefs = snapshot.prefs
-  const failure = snapshot.failure ?? null
   const write = (field: PrefField, value: unknown): void => {
     void source.write(field, value)
   }
@@ -128,10 +155,10 @@ export function SettingsSection(props: SettingsSectionProps): React.ReactElement
   return (
     <div className="pfset-page">
       <Row
-        label="默认信息量"
+        label={t('settings.info.label')}
         tip={null}
         control={(
-          <div className="pfset-seg" role="group" aria-label="默认信息量">
+          <div className="pfset-seg" role="group" aria-label={t('settings.info.label')}>
             {INFO_LEVELS.map((level) => (
               <button
                 key={level}
@@ -140,36 +167,36 @@ export function SettingsSection(props: SettingsSectionProps): React.ReactElement
                 aria-pressed={level === prefs.info}
                 onClick={() => write(PANEL_PREF_FIELDS.infoLevel, level)}
               >
-                {INFO_LABELS[level]}
+                {t(INFO_WORDS[level])}
               </button>
             ))}
           </div>
         )}
       />
       <Row
-        label="默认标签页"
+        label={t('settings.tab.label')}
         tip={null}
         control={(
           <select
             className="pfset-select"
-            aria-label="默认标签页"
+            aria-label={t('settings.tab.label')}
             value={prefs.tab}
             onChange={(event) => write(PANEL_PREF_FIELDS.defaultTab, event.target.value)}
           >
-            {VIEW_IDS.map((id) => <option key={id} value={id}>{VIEW_LABELS[id]}</option>)}
+            {VIEW_IDS.map((id) => <option key={id} value={id}>{t(VIEW_WORDS[id])}</option>)}
           </select>
         )}
       />
       <Row
-        label="指令里显示已归档的"
-        tip="归档的条目默认收起来：一屏里先看见现在还算数的。打开这一行，它们回到各自的段里，右边多一枚复原。"
+        label={t('settings.archived.label')}
+        tip={t('settings.archived.tip')}
         control={(
           <button
             type="button"
             className="pfset-switch"
             role="switch"
             aria-checked={prefs.archived}
-            aria-label="指令里显示已归档的"
+            aria-label={t('settings.archived.label')}
             onClick={() => write(PANEL_PREF_FIELDS.showArchived, !prefs.archived)}
           >
             <span className="pfset-swthumb" />
@@ -177,15 +204,15 @@ export function SettingsSection(props: SettingsSectionProps): React.ReactElement
         )}
       />
       <Row
-        label="问题池里显示未解决之外的"
-        tip="问题池那一格默认只画未解决的。打开这一行，已承认 / 已驳回 / 已解决 才回到页面上，各自收在自己的段里。"
+        label={t('settings.other-states.label')}
+        tip={t('settings.other-states.tip')}
         control={(
           <button
             type="button"
             className="pfset-switch"
             role="switch"
             aria-checked={prefs.otherStates}
-            aria-label="问题池里显示未解决之外的"
+            aria-label={t('settings.other-states.label')}
             onClick={() => write(PANEL_PREF_FIELDS.showOtherStates, !prefs.otherStates)}
           >
             <span className="pfset-swthumb" />
@@ -195,17 +222,17 @@ export function SettingsSection(props: SettingsSectionProps): React.ReactElement
       {snapshot.status === 'unavailable'
         ? (
           <p className="pfset-msg">
-            {`DSH 还没把 ${SETTINGS_NAMESPACE} 暴露成设置命名空间，这里的改动不会保存。`}
+            {t('settings.unavailable', { ns: SETTINGS_NAMESPACE })}
           </p>
         )
         : null}
       {/* This is the row shown when a write-back is refused: `mutate` returns only a `false`, the
           panel's `void …write(…)` call sites drop it, and all the reader sees is the control
-          snapping back. This sentence comes from the port's reading, shared by the settings page
-          and the panel. */}
-      {failure === null
-        ? null
-        : <p className="pfset-msg" role="status">{failure}</p>}
+          snapping back. The reason is a code on the port's reading, spelled here — the same refusal
+          the panel spells on its own note line. */}
+      {snapshot.refused
+        ? <p className="pfset-msg" role="status">{failureWord(t, { code: 'settings-refused' })}</p>
+        : null}
     </div>
   )
 }
@@ -230,8 +257,9 @@ export function SettingsSection(props: SettingsSectionProps): React.ReactElement
  * and yet everything is dead to mouse and keyboard.
  * @param ctx - The browser-half plugin context.
  * @param store - The settings port read by both the panel and the settings page.
+ * @param locale - The same language port the panel speaks through, handed to the page so the two do not drift.
  */
-export function registerSettingsSection(ctx: unknown, store: PrefsStore): void {
+export function registerSettingsSection(ctx: unknown, store: PrefsStore, locale: LocaleSource): void {
   injectAt(ctx, ['slots', 'configForms'], '设置那一页没接上', (owner) => {
     /* The returned withdrawer hangs on its own `effect`: the settings form belongs to ui-settings'
      * service, which outlives this plugin — every attached subscriber must be given back, or each
@@ -260,9 +288,12 @@ export function registerSettingsSection(ctx: unknown, store: PrefsStore): void {
           name: SECTION_SLOT,
           id: SETTINGS_NAMESPACE,
           order: SECTION_ORDER,
-          label: () => SECTION_LABEL,
+          /* Marked with the dictionary this outlet speaks, and the word is looked up per frame: DSH
+           * redraws the row on a language switch, the same way it does for its own rows. */
+          locale: LOCALE_NS,
+          label: () => localeOf(locale).t(SECTION_WORD),
           /* The reading binds only when the slot actually renders: this layer does not read it early on the slot's behalf. */
-          inject: () => ({ source: store }),
+          inject: () => ({ source: store, locale }),
         }, SettingsSection))
       } catch (error) {
         registration = null

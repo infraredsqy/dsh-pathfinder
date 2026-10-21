@@ -159,7 +159,7 @@ test('组归属由读数给出：全局在前，各线按记录次序，认不�
   const groups = groupInstructions(project, project.instructions)
 
   assert.deepEqual(groups.map((group) => group.key), ['global', 'cycle:c1', 'cycle:c9', 'cycle:', 'node'], '没有条目落进去的那条线不成组')
-  assert.deepEqual(groups.map((group) => group.label), ['全局', 'c1', 'cycle:c9', '未分组', '这一格'])
+  assert.equal(groups.every((group) => !Object.hasOwn(group, 'label')), true, '组头不再由模型给词：是哪一堆看 key')
   assert.deepEqual(groups[3].entries.map((entry) => entry.id), ['line-none'], '绑的那条线没写出来：未分组那一堆')
   assert.deepEqual(
     groups[4].entries.map((entry) => entry.id),

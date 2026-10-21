@@ -9,9 +9,11 @@
  * not drawn at all rather than standing in with a 0.
  */
 import * as React from 'react'
-import { ISSUE_STATE_WORDS } from '../model/index.ts'
 import type { IssueGroupReading, IssueReading, PoolReading, ProjectReading } from '../model/index.ts'
-import { NOT_ENABLED } from './constants.ts'
+import { useT } from './locale.ts'
+import type { Translate } from './locale.ts'
+import { issueWord } from './words.ts'
+import { NOT_ENABLED_WORD } from './constants.ts'
 import { Grip, Pill } from './widgets.tsx'
 
 /** How many pixels one weight unit occupies, and the gap between two units. */
@@ -28,10 +30,10 @@ function sevClass(severity: string | undefined): string {
   return `is-${severity ?? 'P3'}`
 }
 
-/** The record's three not-owed states, one sentence each: the "full" button and the combined pill say the same thing. */
-function otherStatesWord(pool: PoolReading): string {
+/** The record's three not-owed states, one phrase each: the "full" button and the combined pill say the same thing. */
+function otherStatesWord(t: Translate, pool: PoolReading): string {
   return (['acknowledged', 'rejected', 'resolved'] as const)
-    .map((key) => `${ISSUE_STATE_WORDS[key]} ${String(pool.census[key])}`)
+    .map((key) => `${issueWord(t, key)} ${String(pool.census[key])}`)
     .join(' · ')
 }
 
@@ -40,6 +42,7 @@ export function IssuePool(props: {
   readonly showOtherStates: boolean
   readonly onShowOtherStates: (on: boolean) => void
 }): React.ReactElement {
+  const t = useT()
   const { pool } = props.project
   const [picked, setPicked] = React.useState<string | null>(null)
   const [folds, setFolds] = React.useState<Readonly<Record<string, boolean>>>({})
@@ -131,48 +134,48 @@ export function IssuePool(props: {
    * collapses to one sentence — the same one the other five panes say. The ledger, the split between
    * the halves, and the "case" all speak what the record does not say about itself — nothing is
    * drawn for what does not exist. */
-  if (pool.rows.length === 0) return <p className="pf-innone">{NOT_ENABLED}</p>
+  if (pool.rows.length === 0) return <p className="pf-innone">{t(NOT_ENABLED_WORD)}</p>
 
   const splitStyle = left === null ? undefined : ({ ['--pf-left' as string]: `${String(left)}px` } as React.CSSProperties)
 
   return (
     <div className={`pf-page${dragging ? ' is-dragging' : ''}`}>
       <section className="pf-band">
-        <div className="pf-seg" role="group" aria-label="问题池的详略">
+        <div className="pf-seg" role="group" aria-label={t('pool.detail-level.aria')}>
           <button
             type="button"
             className="pf-segbtn"
             aria-pressed={!props.showOtherStates}
-            title={`${ISSUE_STATE_WORDS.open} ${String(pool.census.open)} 条`}
+            title={t('pool.lean.tip', { state: issueWord(t, 'open'), count: pool.census.open })}
             onClick={() => props.onShowOtherStates(false)}
           >
-            精简
+            {t('info.lean')}
           </button>
           <button
             type="button"
             className="pf-segbtn"
             aria-pressed={props.showOtherStates}
-            title={otherStatesWord(pool)}
+            title={otherStatesWord(t, pool)}
             onClick={() => props.onShowOtherStates(true)}
           >
-            完整
+            {t('pool.full')}
           </button>
         </div>
         {pool.weights === null || pool.line === null ? null : <Gauge pool={pool} />}
         <div className="pf-count">
           {pool.census.open > 0
-            ? <Pill cls="is-open" n={pool.census.open} label={ISSUE_STATE_WORDS.open} />
+            ? <Pill cls="is-open" n={pool.census.open} label={issueWord(t, 'open')} />
             : null}
           {props.showOtherStates
             ? (
               <React.Fragment>
-                {pool.census.acknowledged > 0 ? <Pill cls="is-acknowledged" n={pool.census.acknowledged} label={ISSUE_STATE_WORDS.acknowledged} /> : null}
-                {pool.census.rejected > 0 ? <Pill cls="is-rejected" n={pool.census.rejected} label={ISSUE_STATE_WORDS.rejected} /> : null}
-                {pool.census.resolved > 0 ? <Pill cls="is-resolved" n={pool.census.resolved} label={ISSUE_STATE_WORDS.resolved} /> : null}
+                {pool.census.acknowledged > 0 ? <Pill cls="is-acknowledged" n={pool.census.acknowledged} label={issueWord(t, 'acknowledged')} /> : null}
+                {pool.census.rejected > 0 ? <Pill cls="is-rejected" n={pool.census.rejected} label={issueWord(t, 'rejected')} /> : null}
+                {pool.census.resolved > 0 ? <Pill cls="is-resolved" n={pool.census.resolved} label={issueWord(t, 'resolved')} /> : null}
               </React.Fragment>
             )
             : (pool.census.acknowledged + pool.census.rejected + pool.census.resolved > 0
-              ? <Pill cls="" n={pool.census.acknowledged + pool.census.rejected + pool.census.resolved} label={otherStatesWord(pool)} />
+              ? <Pill cls="" n={pool.census.acknowledged + pool.census.rejected + pool.census.resolved} label={otherStatesWord(t, pool)} />
               : null)}
         </div>
       </section>
@@ -182,7 +185,7 @@ export function IssuePool(props: {
           className="pf-register"
           id="register"
           role="region"
-          aria-label="问题池"
+          aria-label={t('pool.scroll.aria')}
           tabIndex={0}
           onKeyDown={onRegisterKey}
         >
@@ -223,7 +226,7 @@ export function IssuePool(props: {
                     aria-expanded={open}
                     onClick={() => setFolds((table) => ({ ...table, [group.key]: !open }))}
                   >
-                    {open ? '收起' : `展开其余 ${String(group.count)} 条`}
+                    {open ? t('common.collapse') : t('common.expand-more', { count: group.count })}
                   </button>
                   <span className="pf-mod" />
                 </div>
@@ -237,7 +240,7 @@ export function IssuePool(props: {
         <Grip
           id="gutter"
           className="pf-gutter"
-          label="问题池与一案的宽度"
+          label={t('pool.grip.aria')}
           value={bar.now}
           min={bar.min}
           max={bar.max}
@@ -248,7 +251,7 @@ export function IssuePool(props: {
           onDragging={setDragging}
         />
 
-        <aside className="pf-case" id="case" role="region" aria-label="一案" tabIndex={0}>
+        <aside className="pf-case" id="case" role="region" aria-label={t('pool.case.aria')} tabIndex={0}>
           {selected === null ? null : <CaseFile issue={selected} />}
         </aside>
       </div>
@@ -258,6 +261,7 @@ export function IssuePool(props: {
 
 /** The weight gauge: one unit per slot, filled up to what is still owed, framed by the policy line. */
 function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
+  const t = useT()
   const { pool } = props
   const line = pool.line ?? 0
   const units = Math.max(line, pool.weight ?? 0)
@@ -271,7 +275,11 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
       blocks.push({
         severity: issue.severity,
         carried: issue.status === 'acknowledged',
-        title: `${issue.severity ?? ''} · 权重 ${String(issue.weight)} · ${issue.title ?? ''}`,
+        title: t('pool.weight.tip', {
+          severity: issue.severity ?? '',
+          weight: issue.weight,
+          title: issue.title ?? '',
+        }),
       })
     }
   }
@@ -283,7 +291,7 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
     return () => cancelAnimationFrame(frame)
   }, [])
   return (
-    <div className="pf-gauge" id="gauge" role="group" aria-label="问题池重量与策略线">
+    <div className="pf-gauge" id="gauge" role="group" aria-label={t('pool.gauge.aria')}>
       <div
         className="pf-scale"
         id="scale"
@@ -304,7 +312,7 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
       <i
         className="pf-line"
         style={{ left: `${String(line * (SLOT + SLOTS) - SLOTS)}px` }}
-        title={`策略线：issue_pool_weight_limit = ${String(line)}`}
+        title={t('pool.policy-line.tip', { value: line })}
       />
     </div>
   )
@@ -312,10 +320,11 @@ function Gauge(props: { readonly pool: PoolReading }): React.ReactElement {
 
 /** A pile on the ledger: how many in the side number, how heavy on the bar. */
 function RegisterHead(props: { readonly group: IssueGroupReading }): React.ReactElement {
+  const t = useT()
   return (
     <div className="pf-head">
       <span className="pf-lead" />
-      <span className="pf-head-label">{props.group.label}</span>
+      <span className="pf-head-label">{issueWord(t, props.group.key)}</span>
     </div>
   )
 }
@@ -325,6 +334,7 @@ function RegisterRow(props: {
   readonly current: boolean
   readonly onPick: (id: string) => void
 }): React.ReactElement {
+  const t = useT()
   const { issue } = props
   return (
     <button
@@ -338,7 +348,14 @@ function RegisterRow(props: {
         <i className={`pf-cell is-${issue.status}`} />
         {issue.severity === undefined
           ? null
-          : <span className={`pf-sev ${sevClass(issue.severity)}`} title={`${issue.severity} · 权重 ${String(issue.weight)}`}>{issue.severity}</span>}
+          : (
+            <span
+              className={`pf-sev ${sevClass(issue.severity)}`}
+              title={t('pool.severity.tip', { severity: issue.severity, weight: issue.weight })}
+            >
+              {issue.severity}
+            </span>
+          )}
       </span>
       <span className="pf-title" title={issue.title ?? ''}>{issue.title ?? ''}</span>
       {issue.module === undefined ? null : <span className="pf-mod" title={issue.module}>{issue.module}</span>}
@@ -347,27 +364,35 @@ function RegisterRow(props: {
 }
 
 function CaseFile(props: { readonly issue: IssueReading }): React.ReactElement {
+  const t = useT()
   const { issue } = props
   return (
     <React.Fragment>
       <div className="pf-case-head">
         {issue.severity === undefined
           ? null
-          : <span className={`pf-sev ${sevClass(issue.severity)}`} title={`${issue.severity} · 权重 ${String(issue.weight)}`}>{issue.severity}</span>}
+          : (
+            <span
+              className={`pf-sev ${sevClass(issue.severity)}`}
+              title={t('pool.severity.tip', { severity: issue.severity, weight: issue.weight })}
+            >
+              {issue.severity}
+            </span>
+          )}
         <h2 className="pf-case-title">{issue.title ?? ''}</h2>
       </div>
       <span className="pf-case-id" title={issue.id}>{issue.id}</span>
-      {issue.description === undefined ? null : <CaseSection label="现象" body={prose(issue.description)} />}
-      {issue.suggestion === undefined ? null : <CaseSection label="修法" body={prose(issue.suggestion)} />}
+      {issue.description === undefined ? null : <CaseSection label={t('pool.case.description')} body={prose(issue.description)} />}
+      {issue.suggestion === undefined ? null : <CaseSection label={t('pool.case.suggestion')} body={prose(issue.suggestion)} />}
       {issue.files.length === 0 ? null : (
         <section className="pf-case-sec">
-          <h3 className="pf-case-label">位置</h3>
+          <h3 className="pf-case-label">{t('pool.case.locations')}</h3>
           <ul className="pf-places">
             {issue.files.map((file) => <li className="pf-code" key={file} title={file}>{file}</li>)}
           </ul>
         </section>
       )}
-      {issue.planPath === undefined ? null : <CaseSection label="方案" body={issue.planPath} />}
+      {issue.planPath === undefined ? null : <CaseSection label={t('pool.case.plan')} body={issue.planPath} />}
     </React.Fragment>
   )
 }

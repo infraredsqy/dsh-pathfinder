@@ -4,6 +4,7 @@
  */
 import * as React from 'react'
 import type { InstructionReading } from '../model/index.ts'
+import { useT } from './locale.ts'
 import { ModalShell } from './widgets.tsx'
 
 /** Delete one entry: verbatim quote, second click to act. */
@@ -13,15 +14,16 @@ export function DeleteConfirm(props: {
   readonly onCancel: () => void
   readonly onConfirm: () => void
 }): React.ReactElement {
+  const t = useT()
   return (
-    <ModalShell labelId="ins-del-name" name="删除这一条" onClose={props.onCancel}>
+    <ModalShell labelId="ins-del-name" name={t('notes.delete.name')} onClose={props.onCancel}>
       <blockquote className="pf-del-said">{props.said}</blockquote>
       <div className="pf-del-warn">
-        <p>{'此次删除将移除该指令的存在痕迹。'}</p>
+        <p>{t('notes.delete.warning')}</p>
       </div>
       <div className="pf-modal-acts">
-        <button type="button" className="pf-btn" onClick={props.onCancel}>取消</button>
-        <button type="button" className="pf-btn" onClick={props.onConfirm}>删除</button>
+        <button type="button" className="pf-btn" onClick={props.onCancel}>{t('common.cancel')}</button>
+        <button type="button" className="pf-btn" onClick={props.onConfirm}>{t('common.delete')}</button>
       </div>
     </ModalShell>
   )

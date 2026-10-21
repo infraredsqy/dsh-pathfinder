@@ -34,20 +34,12 @@ const WEIGHT_LIMIT = 'issue_pool_weight_limit'
 const SEVERITY_RANK: Readonly<Record<string, number>> = { P0: 0, P1: 1, P2: 2, P3: 3 }
 
 /**
- * The word each of the four states reads as: this word list is written in
- * exactly one place in the model layer, and the ledger's group heads and the
- * row of numbers on the panel speak the same set. Empty piles stay out of
- * the reading's groups, but the words remain askable.
+ * The piles' order, along with whether each counts as still owed by the pool.
+ *
+ * Only the key and the standing flag: what a pile is called is a word, and words belong to the
+ * client's dictionary (`src/client/words.ts`), where the reader's language decides them.
  */
-export const ISSUE_STATE_WORDS: Readonly<Record<IssueState, string>> = {
-  open: '未解决',
-  acknowledged: '已承认',
-  rejected: '已驳回',
-  resolved: '已解决',
-}
-
-/** The piles' order, along with whether each counts as still owed by the pool; the words live in {@link ISSUE_STATE_WORDS}. */
-const GROUP_WORDS: readonly { readonly key: IssueState; readonly standing: boolean }[] = [
+const GROUPS: readonly { readonly key: IssueState; readonly standing: boolean }[] = [
   { key: 'open', standing: true },
   { key: 'acknowledged', standing: true },
   { key: 'rejected', standing: false },
@@ -102,15 +94,14 @@ export function readPool(
   }
 
   const groups: IssueGroupReading[] = []
-  for (const word of GROUP_WORDS) {
+  for (const pile of GROUPS) {
     const entries = rows
-      .filter((row) => row.status === word.key)
-      .sort(word.standing ? standingOrder : closedOrder)
+      .filter((row) => row.status === pile.key)
+      .sort(pile.standing ? standingOrder : closedOrder)
     if (entries.length === 0) continue
     groups.push({
-      key: word.key,
-      label: ISSUE_STATE_WORDS[word.key],
-      standing: word.standing,
+      key: pile.key,
+      standing: pile.standing,
       entries,
       count: entries.length,
       weight: sumWeight(entries),

@@ -1,21 +1,22 @@
-/* The formatting segment: invariants only — how durations and clock times are written, and what
- * is given when there is no such moment.
+/* The formatting segment: invariants only — which unit a duration falls in, which day a moment
+ * fell on, how far back it was, and what is given when there is no such moment. The model measures;
+ * the words are the client's.
  *
  *   node --test tests/
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, clock, dayLabel, duration, durationLong, elapsedSince, two } from '../src/model/format.ts'
+import { agoParts, clock, dayParts, duration, durationParts, elapsedSince, two } from '../src/model/format.ts'
 
 test('没有那一刻的时候给「没有」的样子，不写 0', () => {
   const at = new Date('2026-03-10T12:00:00.000Z')
 
   assert.equal(clock(null), '--')
   assert.equal(duration(null), '--')
-  assert.equal(durationLong(null), '没有记录')
+  assert.equal(durationParts(null), null)
   assert.equal(elapsedSince(null, at), '--')
-  assert.equal(ago(null, at), '')
-  assert.equal(dayLabel(null, at), '')
+  assert.equal(agoParts(null, at), null)
+  assert.equal(dayParts(null, at), null)
 })
 
 test('时长按档位写：秒 / 分钟 / 小时', () => {
@@ -28,11 +29,11 @@ test('时长按档位写：秒 / 分钟 / 小时', () => {
 })
 
 test('时长的长写法', () => {
-  assert.equal(durationLong(45), '45 秒')
-  assert.equal(durationLong(300), '5 分钟')
-  assert.equal(durationLong(3600), '1 小时')
-  assert.equal(durationLong(8040), '2 小时 14 分')
-  assert.equal(durationLong(-5), '没有记录')
+  assert.deepEqual(durationParts(45), { unit: 'seconds', value: 45, rest: 0 })
+  assert.deepEqual(durationParts(300), { unit: 'minutes', value: 5, rest: 0 })
+  assert.deepEqual(durationParts(3600), { unit: 'hours', value: 1, rest: 0 })
+  assert.deepEqual(durationParts(8040), { unit: 'hours', value: 2, rest: 14 }, '小时里剩下的整分钟一并带出来')
+  assert.equal(durationParts(-5), null, '那一刻还没到：没有时长这一档，也不写一个负的')
 })
 
 test('钟点走本地的钟点', () => {
@@ -44,10 +45,10 @@ test('钟点走本地的钟点', () => {
 test('日子按读到的那一刻算', () => {
   const at = new Date(2026, 2, 10, 12, 0)
 
-  assert.equal(dayLabel(new Date(2026, 2, 10, 9, 0), at), '今天')
-  assert.equal(dayLabel(new Date(2026, 2, 9, 23, 0), at), '昨天')
-  assert.equal(dayLabel(new Date(2026, 2, 8, 23, 0), at), '前天')
-  assert.equal(dayLabel(new Date(2026, 2, 1, 0, 0), at), '3月1日')
+  assert.deepEqual(dayParts(new Date(2026, 2, 10, 9, 0), at), { unit: 'today' })
+  assert.deepEqual(dayParts(new Date(2026, 2, 9, 23, 0), at), { unit: 'yesterday' }, '按日历日算，不按 24 小时算')
+  assert.deepEqual(dayParts(new Date(2026, 2, 8, 23, 0), at), { unit: 'before-yesterday' })
+  assert.deepEqual(dayParts(new Date(2026, 2, 1, 0, 0), at), { unit: 'date', month: 3, day: 1 }, '再远的给月份与日，不带年份')
 })
 
 test('过了多久：那一刻在读到的那一刻之后，就没有时长', () => {
@@ -60,18 +61,27 @@ test('过了多久：那一刻在读到的那一刻之后，就没有时长', ()
 test('相对这一刻的说法', () => {
   const at = new Date('2026-03-10T12:00:00.000Z')
 
-  assert.equal(ago(new Date('2026-03-10T11:59:50.000Z'), at), '刚刚')
-  assert.equal(ago(new Date('2026-03-10T11:30:00.000Z'), at), '30 分钟前')
-  assert.equal(ago(new Date('2026-03-10T08:00:00.000Z'), at), '4 小时前')
-  assert.equal(ago(new Date('2026-03-09T12:00:00.000Z'), at), '1 天前')
+  assert.deepEqual(agoParts(new Date('2026-03-10T11:59:50.000Z'), at), { unit: 'just-now' })
+  assert.deepEqual(agoParts(new Date('2026-03-10T11:30:00.000Z'), at), { unit: 'minutes', value: 30 })
+  assert.deepEqual(agoParts(new Date('2026-03-10T08:00:00.000Z'), at), { unit: 'hours', value: 4 })
+  assert.deepEqual(agoParts(new Date('2026-03-09T12:00:00.000Z'), at), { unit: 'days', value: 1 })
 })
 
 test('收窄出口：ago / durationLong / two 只有测试认得，不再从模型入口出', async () => {
   const entry = await import('../src/model/index.ts')
+  const format = await import('../src/model/format.ts')
 
   assert.equal(entry.ago, undefined)
   assert.equal(entry.durationLong, undefined)
   assert.equal(entry.two, undefined)
+  assert.equal(entry.dayLabel, undefined)
+  assert.equal(Object.hasOwn(format, 'ago'), false, '旧的写法已经整个没有了，不是收进模块里')
+  assert.equal(Object.hasOwn(format, 'durationLong'), false)
+  assert.equal(Object.hasOwn(format, 'dayLabel'), false)
+  assert.equal(typeof format.two, 'function', '两位补零只在本模块里用，不上入口')
   assert.equal(typeof entry.duration, 'function', '面板真在用的那几个照旧从入口出')
   assert.equal(typeof entry.elapsedSince, 'function')
+  assert.equal(typeof entry.durationParts, 'function')
+  assert.equal(typeof entry.dayParts, 'function')
+  assert.equal(typeof entry.agoParts, 'function')
 })

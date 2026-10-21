@@ -17,10 +17,11 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { bindTypertRemote, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import type { TypertGatewayBinding } from '@deepseek-ai/dsh-typert-protocol'
 import type { PathfinderReading, PathfinderReadOptions, PathfinderRecords } from './contract.ts'
+import type { PfOutcome } from './failure.ts'
 import { parseConfigList, type PathfinderConfigReading } from './project-config.ts'
 import { readReading } from './records.ts'
 import { readSessionNotes, type PathfinderSessionsReading } from './sessions.ts'
-import { runPf, type PfOutcome } from './write.ts'
+import { runPf } from './write.ts'
 
 /** The writable keys among a cycle's three policy numbers. */
 export type CyclePolicyKey = 'parallel' | 'test_seconds_limit' | 'issue_pool_weight_limit'
@@ -151,8 +152,8 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * @param node - Which node to bind, by node id; pass an empty string for other scopes.
    */
   async addInstruction(sessionId: SessionId, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<PfOutcome> {
-    if (!INSTRUCTION_SCOPES.includes(scope)) return { ok: false, text: `无法识别的范围：${scope}` }
-    if (typeof text !== 'string' || text.trim().length === 0) return { ok: false, text: '空话不落笔：先写一句原话。' }
+    if (!INSTRUCTION_SCOPES.includes(scope)) return { ok: false, code: 'scope-unknown', detail: scope }
+    if (typeof text !== 'string' || text.trim().length === 0) return { ok: false, code: 'empty-text' }
     const args = ['instruction', 'add', '--scope', scope]
     if (scope === 'cycle' && cycle.length > 0) args.push('--cycle', cycle)
     if (scope === 'node' && node.length > 0) args.push('--node', node)
@@ -197,7 +198,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * @param value - A positive integer; `off` means "this cycle sets no such limit".
    */
   async setCyclePolicy(sessionId: SessionId, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome> {
-    if (!CYCLE_POLICY_KEYS.includes(key)) return { ok: false, text: `无法识别的策略键：${key}` }
+    if (!CYCLE_POLICY_KEYS.includes(key)) return { ok: false, code: 'policy-key-unknown', detail: key }
     return this.#pf(sessionId, workspaceRoot, ['cycle', 'policy', cycle, key, value])
   }
 
@@ -216,11 +217,21 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   async readConfig(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderConfigReading> {
     const project = await rootFor(this.ctx, sessionId, workspaceRoot)
     const outcome = await runPf(this.ctx, project, ['config', 'list'], options?.signal ?? NEVER_ABORT)
+    if (!outcome.ok) {
+      return {
+        workspaceRoot: project,
+        ok: false,
+        text: '',
+        refusal: { code: outcome.code, ...(outcome.detail !== undefined ? { detail: outcome.detail } : {}) },
+        entries: {},
+      }
+    }
     return {
       workspaceRoot: project,
-      ok: outcome.ok,
+      ok: true,
       text: outcome.text,
-      entries: outcome.ok ? parseConfigList(outcome.text) : {},
+      refusal: null,
+      entries: parseConfigList(outcome.text),
     }
   }
 

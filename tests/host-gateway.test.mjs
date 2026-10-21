@@ -274,6 +274,10 @@ test('三个写端点与那条策略端点：网关也都叫得动', { skip: !wi
     const listed = await call('readConfig', { sessionId: 's1', workspaceRoot: '' })
     assert.equal(listed.ok, true, String(listed.message))
     assert.equal(listed.value.workspaceRoot, root)
+    assert.equal(listed.value.ok, true, '工具跑成了，读数落在成功那一支')
+    assert.equal(listed.value.refusal, null, '成功那一支不带拒绝理由')
+    assert.equal(listed.value.text, '', '这个替身命令没有输出，text 原样就是空串')
+    assert.deepEqual(listed.value.entries, {}, '空输出解析不出任何一行')
     const written = await call('setConfig', { sessionId: 's1', workspaceRoot: '', key: 'test_tier', value: 'minimal' })
     assert.equal(written.ok, true, String(written.message))
   } finally {

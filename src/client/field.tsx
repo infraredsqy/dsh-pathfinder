@@ -6,10 +6,13 @@
  * viewport (on show and on window resize) and renders the scene the engine computed.
  */
 import * as React from 'react'
-import { depsWord } from '../model/index.ts'
+import { readDeps } from '../model/index.ts'
 import { CARD_GEOM, CARD_ZOOM, sceneOf } from './field-layout.ts'
 import type { NodeReading, ProjectReading } from '../model/index.ts'
 import type { Zoom } from './field-layout.ts'
+import { useT } from './locale.ts'
+import type { Translate } from './locale.ts'
+import { depsSentence, nodeWord, unit } from './words.ts'
 import { nodeName, nodeHover } from './nodes.ts'
 
 /** The ruler used when the viewport cannot be measured: the field still draws before the panel shows, and readings never come out as 0. */
@@ -18,6 +21,8 @@ const FALLBACK_H = 720
 
 export function DependencyField(props: { readonly project: ProjectReading; readonly active: boolean }): React.ReactElement {
   const { graph, nodes } = props.project
+  /* Every word this pane prints comes from here; the translator reads the active language at call time. */
+  const t = useT()
   const fieldRef = React.useRef<HTMLDivElement | null>(null)
   const [box, setBox] = React.useState({ w: FALLBACK_W, h: FALLBACK_H })
   const [zoom, setZoom] = React.useState<Zoom>(0)
@@ -117,18 +122,20 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
       <div className="pf-bar">
         <div className="pf-figs">
           <b className="pf-num">{String(graph.layers.length)}</b>
-          {' 列 · '}
+          {unit(t, 'field.figures.columns.one', 'field.figures.columns.other', graph.layers.length)}
+          {' · '}
           <b className="pf-num">{String(nodes.length)}</b>
-          {' 节点 · '}
+          {unit(t, 'field.figures.nodes.one', 'field.figures.nodes.other', nodes.length)}
+          {' · '}
           <b className="pf-num">{String(graph.edges.length)}</b>
-          {' 边'}
+          {unit(t, 'field.figures.edges.one', 'field.figures.edges.other', graph.edges.length)}
         </div>
         <div className="pf-zoom">
           <button
             type="button"
             className="pf-zbtn"
             id="zoom-in"
-            aria-label="放大"
+            aria-label={t('field.zoom-in.aria')}
             disabled={zoom >= 3}
             onClick={() => setZoom((level) => Math.min(3, level + 1) as Zoom)}
           />
@@ -136,7 +143,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
             type="button"
             className="pf-zbtn"
             id="zoom-out"
-            aria-label="缩小"
+            aria-label={t('field.zoom-out.aria')}
             disabled={zoom <= 0}
             onClick={() => setZoom((level) => Math.max(0, level - 1) as Zoom)}
           />
@@ -144,7 +151,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
             type="button"
             className="pf-zbtn"
             id="zoom-cut"
-            aria-label="回到全图"
+            aria-label={t('field.zoom-reset.aria')}
             hidden={!cut}
             onClick={() => setCut(false)}
           />
@@ -154,7 +161,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
         className={`pf-field${zoom > 0 ? ' is-zoom' : ''}${zoom === 1 && !cut ? ' is-panx' : ''}`}
         id="field"
         role="region"
-        aria-label="依赖全景"
+        aria-label={t('field.region.aria')}
         ref={fieldRef}
         style={fieldStyle}
       >
@@ -179,7 +186,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
                 className={`pf-cell pf-node ${stateClass(mark.node)}${mark.dim}`}
                 key={mark.node.id}
                 data-id={mark.node.id}
-                title={hoverOf(mark.node)}
+                title={hoverOf(t, mark.node)}
                 style={{
                   left: `${String(mark.point.x - scene.placed.mark / 2)}px`,
                   top: `${String(mark.point.y - scene.placed.mark / 2)}px`,
@@ -193,7 +200,7 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
                 className={`pf-zcard${CARD_GEOM[card.full ? 3 : 2].full ? ' is-full' : ''}${card.lit ? ' is-lit' : ''}${card.marked ? ' is-focus' : ''}`}
                 key={card.node.id}
                 data-id={card.node.id}
-                title={hoverOf(card.node)}
+                title={hoverOf(t, card.node)}
                 style={{
                   left: `${String(card.point.x - CARD_GEOM[card.full ? 3 : 2].card / 2)}px`,
                   top: `${String(card.point.y - CARD_GEOM[card.full ? 3 : 2].row / 2)}px`,
@@ -219,29 +226,28 @@ export function DependencyField(props: { readonly project: ProjectReading; reado
 /**
  * The dependency line, wearing the same face in every view: ready to start, or N prerequisite nodes.
  *
- * Which sentence belongs to a cell and what the wording is are both decided by the reading
- * (`depsWord`) — the sentence is assembled in exactly one place in the repo, the model. Here the
- * number is threaded out of that sentence, the surrounding segments are placed back verbatim, and
- * only the threaded number gets its own mark styling (monospace, brighter) — styling is something
- * only the UI can provide.
+ * Whether a cell owes an answer at all is the reading's decision (`readDeps`); how that answer is
+ * worded is this panel's (`depsSentence`). The sentence arrives already split around its number, so
+ * the number gets its own mark styling (monospace, brighter) without cutting a finished sentence in
+ * two — a language is free to put the number first, and one of them does.
  */
 export function DepsChip(props: { readonly node: NodeReading }): React.ReactElement | null {
-  const { node } = props
-  const said = depsWord(node)
-  if (said === null) return null
-  const [head, tail] = said.count === null ? [said.word] : said.word.split(String(said.count))
+  const t = useT()
+  const deps = readDeps(props.node)
+  if (deps === null) return null
+  const said = depsSentence(t, deps)
   return (
-    <span className={`pf-deps${said.ready ? ' is-ready' : ''}`}>
-      {head}
-      {tail !== undefined ? <b className="pf-num">{String(said.count)}</b> : null}
-      {tail}
+    <span className={`pf-deps${deps.ready ? ' is-ready' : ''}`}>
+      {said.head}
+      {said.count === null ? null : <b className="pf-num">{String(said.count)}</b>}
+      {said.tail}
     </span>
   )
 }
 
 /** The line on a card: whether it still waits, and for how many. Settled, running, and shelved cells omit it. */
 function CardDeps(props: { readonly node: NodeReading }): React.ReactElement | null {
-  if (depsWord(props.node) === null) return null
+  if (readDeps(props.node) === null) return null
   return (
     <span className="pf-zmeta">
       <DepsChip node={props.node} />
@@ -257,16 +263,19 @@ function stateClass(node: NodeReading): string {
   return node.ready ? 'is-todo' : 'is-wait'
 }
 
-/** What one mark says: the name and 8-char handle (the shared node naming), plus the one thing the
- *  graphic cannot show — the dependency sentence, the same one as on the card, from the reading's wording. */
-function hoverOf(node: NodeReading): string {
+/**
+ * What one mark says: the name and 8-char handle (the shared node naming), plus the one thing the
+ * graphic cannot show — the dependency answer, worded exactly as it is on the card.
+ */
+function hoverOf(t: Translate, node: NodeReading): string {
   const parts = [nodeHover(node)]
-  if (node.state === 'completed') parts.push('已交付')
-  else if (node.state === 'shelved') parts.push('等待处理')
-  else if (node.running) parts.push('进行中')
+  /* A settled or parked cell says what it is, and a cell in someone's hands says so; only work not
+   * yet started owes the dependency answer. */
+  if (node.state === 'completed' || node.state === 'shelved') parts.push(nodeWord(t, node.state))
+  else if (node.running) parts.push(t('state.running'))
   else {
-    const said = depsWord(node)
-    if (said !== null) parts.push(said.word)
+    const deps = readDeps(node)
+    if (deps !== null) parts.push(depsSentence(t, deps).said)
   }
   return parts.join(' · ')
 }

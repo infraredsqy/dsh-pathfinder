@@ -42,6 +42,14 @@ function fakeCarrier(answer = { ok: true, value: { workspaceRoot: 'C:\\ws' } }) 
   }
 }
 
+/** The refusal a read rejected with: a code (plus the detail that rides with it), not a sentence. */
+function refusedWith(failure) {
+  return (error) => {
+    assert.deepEqual(error.failure, failure)
+    return true
+  }
+}
+
 test('装好了远程命名空间：走它，取数是 read(sessionId, 工作区根, {})', async () => {
   const { calls, namespace } = fakeNamespace()
   const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? namespace : undefined) })
@@ -119,15 +127,27 @@ test('远程那一层说没成：写面把它的话带回来，不假装成了',
   const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? namespace : undefined) })
   const outcome = await port.write('archive', 's1', '', 'i-1')
 
-  assert.equal(outcome.ok, false)
-  assert.match(outcome.text, /gateway\/internal: 工具拒了/u)
+  assert.deepEqual(
+    outcome,
+    { ok: false, code: 'transport-failed', detail: '工具拒了' },
+    '这一半不认识的码归到传输失败，宿主说的原话留在 detail 上',
+  )
+
+  /* 这一半认识的码原样穿过边界：工具拒了就是工具拒了，不必再把它当成别人的一句话去猜。 */
+  const known = fakeNamespace({ ok: false, error: { code: 'tool-refused', message: '没有 i-0007 这一条' } })
+  const carried = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? known.namespace : undefined) })
+  assert.deepEqual(
+    await carried.write('archive', 's1', '', 'i-1'),
+    { ok: false, code: 'tool-refused', detail: '没有 i-0007 这一条' },
+    '认识的码与它带的话都原样留下来',
+  )
 })
 
 test('远程那一层取数失败：读数照抛，不编一份空的', async () => {
   const { namespace } = fakeNamespace({ ok: false, error: { message: '读不动' } })
   const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? namespace : undefined) })
 
-  await assert.rejects(() => port.read('s1', ''), /读不动/u)
+  await assert.rejects(() => port.read('s1', ''), refusedWith({ code: 'transport-failed', detail: '读不动' }))
 })
 
 test('会话笔记那一条：端点叫 readSessions(sessionId, 工作区根)，搬回来的原样带回来', async () => {
@@ -181,13 +201,39 @@ test('两条都没接上：口子说实话，读不出来就是读不出来', as
   const port = createPanelPort({ get: () => undefined })
 
   assert.equal(port.source, 'none')
-  await assert.rejects(() => port.read('s1', ''), /未连接寻路记录服务/u)
-  await assert.rejects(() => port.readConfig('s1', ''), /未连接寻路记录服务/u)
-  await assert.rejects(() => port.readSessions('s1', ''), /未连接寻路记录服务/u)
+  await assert.rejects(() => port.read('s1', ''), refusedWith({ code: 'not-connected' }), '一条都没有可读的路')
+  await assert.rejects(() => port.readConfig('s1', ''), refusedWith({ code: 'not-connected' }))
+  await assert.rejects(() => port.readSessions('s1', ''), refusedWith({ code: 'not-connected' }))
   const outcome = await port.write('archive', 's1', '', 'i-1')
-  assert.equal(outcome.ok, false)
+  assert.deepEqual(outcome, { ok: false, code: 'no-write-channel' }, '写面没有通道，报的是它自己的码')
   const said = await port.say('s1', '', '一句话', 'global', '', '')
-  assert.equal(said.ok, false)
+  assert.deepEqual(said, { ok: false, code: 'no-write-channel' })
+  const policy = await port.setPolicy('s1', '', 'panel-to-plugin', 'parallel', '3')
+  assert.deepEqual(policy, { ok: false, code: 'no-write-channel' })
   const refused = await port.setConfig('s1', '', 'test_tier', 'minimal')
-  assert.equal(refused.ok, false)
+  assert.deepEqual(refused, { ok: false, code: 'no-write-channel' })
+})
+
+test('通道上没有这个端点：读写都报 no-operation，端点名放进 detail', async () => {
+  const partial = { read: async () => ({ ok: true, value: { workspaceRoot: 'C:\\ws' } }) }
+  const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? partial : undefined) })
+
+  assert.deepEqual(
+    await port.write('archive', 's1', '', 'i-1'),
+    { ok: false, code: 'no-operation', detail: 'archiveInstruction' },
+    '写面缺的是哪个端点就报哪个名字',
+  )
+  await assert.rejects(
+    () => port.readConfig('s1', ''),
+    refusedWith({ code: 'no-operation', detail: 'readConfig' }),
+    '读面缺端点时抛的也是这个码',
+  )
+})
+
+test('答案不是一份能读的东西：报 unparsable-answer，不编读数', async () => {
+  const { namespace } = fakeNamespace('不是对象')
+  const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? namespace : undefined) })
+
+  await assert.rejects(() => port.read('s1', ''), refusedWith({ code: 'unparsable-answer' }))
+  assert.deepEqual(await port.write('archive', 's1', '', 'i-1'), { ok: false, code: 'unparsable-answer' })
 })
