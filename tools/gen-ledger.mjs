@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Regenerate mock/ledger.js from a real .pf ledger: the mock is what the panel is
+/* Regenerate design/ledger.js from a real .pf ledger: the preview is what the panel is
  * judged against, and hand-copied titles drift.
  *
  *   node tools/gen-ledger.mjs [--ledger <path to .pf>]
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const OUT = path.resolve(HERE, '..', 'mock', 'ledger.js');
+const OUT = path.resolve(HERE, '..', 'design', 'ledger.js');
 
 const argv = process.argv.slice(2);
 const at = argv.indexOf('--ledger');
@@ -87,7 +87,7 @@ body.push(' *');
 body.push(' * Verbatim from a real .pf ledger: the node pool, the five cycles, the');
 body.push(' * steps each cycle actually walked, and the standing instructions. Nothing');
 body.push(' * in this file is invented, and no timestamp is adjusted; the only fiction in');
-body.push(' * the mock lives in data.js.');
+body.push(' * the preview lives in data.js.');
 body.push(' *');
 body.push(` *   source   ${LEDGER}`);
 body.push(` *   nodes    ${nodes.length}`);

@@ -1,0 +1,47 @@
+/* dsh-pathfinder · the selected line's node list in the detail pane: three tracks — state mark /
+ * title / what this row still owes.
+ *
+ * The column left of the line name has already said which line; this moment reads which cells are
+ * still on the line, who owes prerequisites, and which cell wants a person. Rows and group heads
+ * share these tracks; each group carries its own fold, and the number at the group head's right
+ * prints only while folded. */.pf-page .pf-row{
+  display: grid;
+  grid-template-columns: var(--pf-mark) minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: var(--dsw-radius-xs);
+  /* A row is also a node: clicking it jumps to that node's session in the real plugin; this page
+     cannot jump, but the press must be visible. Hover moves the row's ground; the card face is
+     other layers' business. */
+  height: var(--pf-row);
+  cursor: pointer;
+}.pf-page .pf-row:hover{ background: var(--dsw-alias-interactive-bg-hover); }.pf-page .pf-row:active{ background: var(--dsw-alias-interactive-bg-active); }.pf-page .pf-sec.is-folded .pf-row{ display: none; }.pf-page .pf-rowtitle{
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* The title is content and may be selected and carried off. */
+  user-select: text;
+}.pf-page .pf-row.is-todo .pf-rowtitle{ color: var(--dsw-alias-label-secondary); }.pf-page .pf-rowfigs{
+  min-width: 0;
+  text-align: right;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}/* A gated row stands a head taller than the others, with a line of small print below: the mark
+   says "this cell wants a person", and the word says which gate. The row height grows from here;
+   other rows are untouched. */.pf-page .pf-row.has-gate{
+  height: auto;
+  grid-template-rows: var(--pf-row) 18px;
+}.pf-page .pf-rowgate{
+  grid-column: 2 / -1;
+  grid-row: 2;
+}/* The number at a group head's right prints only while the group is folded: folded, it is the one
+   thing the group can still say; unfolded, the rows are in front of the reader and counting again
+   would say the same thing twice (the instructions pane's count is not this rule's business; it
+   always stands). */.pf-page .pf-sec:not(.is-folded) .pf-rowcount{ display: none; }

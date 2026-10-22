@@ -1,0 +1,36 @@
+/* dsh-pathfinder · settings —— this workspace's own four things: worktree tier / test tier / parallel
+ * subagent cap / issue switch, one control per row, a small tag at each row's end saying which
+ * layer the value lives in (default / project / global). The column is centered in the pane and its
+ * width is draggable (480 to 960, default 720), so it does not share the tab row's left edge. */.pf-page .pf-configwrap{
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+}/* The column width is written at this level (`--pf-config-w`): the grips move it, it is what
+   scrolls, and the four rows live inside it. */.pf-page .pf-configwrap .pf-scroll{
+  flex: 0 1 auto;
+  width: var(--pf-config-w, 720px);
+  max-width: 100%;
+}.pf-page .pf-config{
+  padding-bottom: 4px;
+}.pf-page .pf-config .pf-setrow{
+  grid-template-columns: minmax(0, 1fr) auto 56px;
+}.pf-page .pf-vlayer{ justify-self: end; }/* The settings page (h-settings) —— the same thing on another sheet. The skeleton copies DSH's own
+ * page: one rounded panel, a nav column at left (navigation is the heading), a column of rows at
+ * right. The panel is a floating sheet with its edges and ground inside the elevation shadow, so
+ * it writes `border: 0`. This is a mock page: the controls live only on this screen and a refresh
+ * restores them — except "show archived instructions" and "show other issue states", which govern
+ * how other panes read and are stored locally. */.pf-page .pf-stage{
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 0;
+}.pf-page .pf-frame{
+  position: relative;
+  width: var(--pf-frame-w, 800px);
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+}

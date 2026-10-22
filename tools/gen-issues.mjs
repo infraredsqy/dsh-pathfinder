@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Regenerate mock/issues.js from a real .pf ledger: the debt half of the mock, read
+/* Regenerate design/issues.js from a real .pf ledger: the debt half of the preview, read
  * verbatim out of the issue register, the cycle policy the pool is measured
  * against, and the readings the pipeline took of that measure.
  *
@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const OUT = path.resolve(HERE, '..', 'mock', 'issues.js');
+const OUT = path.resolve(HERE, '..', 'design', 'issues.js');
 
 const argv = process.argv.slice(2);
 const at = argv.indexOf('--ledger');

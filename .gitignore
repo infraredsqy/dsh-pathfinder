@@ -2,7 +2,8 @@
 .work*/
 lib/
 node_modules/
-mock/ledger.js
-mock/issues.js
+# The design blueprint, kept locally for reference only: a self-contained snapshot (page-shaped
+# sheets + the four pages + the generated data) that nothing builds, reads or ships. Delete it freely.
+design/
 # pnpm writes this allowlist itself at install time (publish age gate); it grows per install, so tracking it is pointless
 pnpm-workspace.yaml

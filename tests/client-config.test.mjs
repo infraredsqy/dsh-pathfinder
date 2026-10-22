@@ -42,7 +42,7 @@ test('已知的四个键都有说法：中文名、那一句话、控件形态�
 })
 
 test('行从读数长出来：读数里有的键才有行；已知的照表序摆，不跟着工具印的次序晃', () => {
-  /* The reading is deliberately given in the tool's print order: the rendered order is still the table's (mock) order. */
+  /* The reading is deliberately given in the tool's print order: the rendered order is still the table's own. */
   const rows = configRowsOf({
     max_agents: entry('1'),
     test_tier: entry('full'),

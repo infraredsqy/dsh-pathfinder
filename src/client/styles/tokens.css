@@ -1,0 +1,600 @@
+/* dsh-pathfinder — the panel's common ground: what more than one view says, on top
+ * of `theme.css`. No colour is named here (every ink is an alias, or a percentage of
+ * one); the two contrast floors at the top are the panel's own numbers. */
+/* Box sizing, the page's own height and its reading ink. The theme keeps the
+ * canvas, the palette, the focus ring and the scrollbar; a panel that re-states
+ * any of those is drawing a second theme. */.pf-page, .pf-page *, .pf-page::before, .pf-page *::before, .pf-page::after, .pf-page *::after{
+  box-sizing: border-box;
+}.pf-page{
+  margin: 0;
+  height: 100%;
+}.pf-page{
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-s-14);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}@media (prefers-reduced-motion: reduce){.pf-page, .pf-page *, .pf-page::before, .pf-page *::before, .pf-page::after, .pf-page *::after{
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}/* The panel's marks are drawn twice over: on the boards and the census they are
+ * a 7px cell, on the graph a 5–7px one, and every one of them has to survive
+ * both palettes. The theme has no tier between "reading text" and "structure",
+ * so this panel states one: the theme's own label ladder read downward from the
+ * reading ink, plus a fourth step mixed out of the third.
+ *
+ * The ladder stops at four because the ladder is what says how much is left:
+ * delivered is ink, running is the theme's link, and everything that is not in play is
+ * the same ink drawn hollow — a fifth value would buy nothing a shape cannot
+ * say.
+ *
+ *   --pf-ink-1  the reading ink itself. A mark that must lead.
+ *   --pf-ink-2  one step down. The panel's default fill.
+ *   --pf-ink-3  the dimmest alias step that still clears the floor below. The
+ *               hollow ring, and the quiet end of a ramp.
+ *   --pf-ink-4  half of the third, mixed toward the ground. Only for a mark read
+ *               as part of a dense row.
+ *
+ * The floors are ratios against the ground a mark sits on, and they are this
+ * panel's numbers, not the theme's — the theme has no such tier to point at:
+ *
+ *   --pf-mark-floor: 3
+ *     A mark the reader resolves on its own: one square, one ring, one letter.
+ *     DSH's non-text contrast figure. `--pf-ink-3` is the dimmest step of the
+ *     ladder that clears it in both palettes.
+ *
+ *   --pf-mark-floor-dense: 1.5
+ *     A mark inside a dense row read as aggregate mass, where nobody resolves
+ *     one tooth: the strip of weight blocks says "this pool is heavy", and no
+ *     single slot is asked to be legible. The theme draws its own idle state
+ *     dot at 1.48:1 in the light palette, which is where this number comes
+ *     from — read off the theme, not taken from it, because the theme publishes
+ *     no such floor. Below roughly 1.2:1 the mark stops being on screen at all.
+ *
+ * `node tools/css-check.mjs` prints both floors against every mark in both
+ * palettes. Change a number here and the readings change with it.
+ *
+ * The ladder is declared on `body`, and that is load-bearing: the theme puts
+ * `--dsw-alias-*` on `body`, custom properties inherit downward only, and a
+ * var() is substituted where its declaration sits. Declared on `:root` the
+ * ladder would resolve against `html`, find no alias there, and come out empty
+ * — every mark it feeds would paint nothing, in both palettes. */.pf-page{
+  --pf-mark-floor: 3;
+  --pf-mark-floor-dense: 1.5;
+
+  --pf-ink-1: var(--dsw-alias-label-primary);
+  --pf-ink-2: var(--dsw-alias-label-secondary);
+  --pf-ink-3: var(--dsw-alias-label-tertiary);
+  --pf-ink-4: color-mix(in srgb, var(--dsw-alias-label-tertiary) 50%, transparent);
+}/* One cell = one node. The census in the header, the graph's marks and the
+ * register's rows all read the same five values, so a reader who has learned
+ * one has learned all three:
+ *
+ *   filled ink      settled — delivered, or closed
+ *   hollow ring     not in play any more, or not started yet
+ *   link            in hand
+ *   warn ring       nobody has taken it; someone has to act
+ *
+ * A ring is an inset shadow, not a border: the mark keeps its box and the
+ * outline costs no layout. */.pf-page .pf-cell{
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--pf-ink-2);
+}.pf-page .pf-cell.is-done, .pf-page .pf-cell.is-resolved{
+  background: var(--pf-ink-2);
+}.pf-page .pf-cell.is-running{
+  background: var(--dsw-alias-link);
+}/* Awaiting handling on the boards, open in the register: the one mark that says a
+ * person has to move. */.pf-page .pf-cell.is-shelved, .pf-page .pf-cell.is-open{
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-warn-primary);
+}.pf-page .pf-cell.is-todo, .pf-page .pf-cell.is-rejected{
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--pf-ink-3);
+}/* On the books and still counted, but nobody owes it yet. */.pf-page .pf-cell.is-acknowledged{
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--pf-ink-2);
+}/* ---- the state mark -------------------------------------------------------
+ * The 14px drawing the boards put on a card and the detail list puts on a row:
+ * a spinning ring while a step is open, a glyph for what it ended as, a pause
+ * for a gate, a dashed ring for work that has not started. Two views, one
+ * drawing — a card and a row are two sizes of the same reading.
+ *
+ * The spinning ring's track is the one place a structure colour stands as a
+ * graphic (DSH's own spinner draws its track the same way) and the head of the
+ * ring is the mark's own ink, so the ring keeps its width. */.pf-page .pf-state{
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}.pf-page .pf-state svg{
+  display: block;
+}.pf-page .pf-state.is-run{
+  color: var(--dsw-alias-link);
+  border: 1.5px solid var(--dsw-alias-border-l3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  corner-shape: round;
+  animation: pf-spin 0.9s linear infinite;
+}.pf-page .pf-state.is-done{
+  color: var(--dsw-alias-state-success-primary);
+}.pf-page .pf-state.is-fail{
+  color: var(--dsw-alias-state-error-primary);
+}/* Human gate: amber, the color this layout reserves for "this cell wants a person". The
+   mark itself is a pause: it is not running and delivered nothing, it is waiting for a
+   person; which gate it is, the word right of the mark says. */.pf-page .pf-state.is-gate{
+  color: var(--dsw-alias-state-warn-primary);
+}/* Next in line: a dashed circle. It has not started and has not earned a state color, so it
+   drops to the ink ladder's third step. The circle is a drawn mark, so it takes the 1px
+   stroke tier; the half-pixel tier is left for edges on the flat. */.pf-page .pf-state.is-next{
+  border: 1px dashed var(--pf-ink-3);
+  border-radius: 50%;
+  corner-shape: round;
+}
+
+@keyframes pf-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}@media (prefers-reduced-motion: reduce){.pf-page .pf-state.is-run{
+    animation: none;
+    border-style: dashed;
+  }
+}/* A node a person has to act on. It carries the state colour as a ring, and on
+ * the panels it always stands first: it is the one reading that cannot move
+ * until someone moves it. Three gates wear it — out of play waiting to be
+ * revived, a manual node that lives in the conversation, and a checkpoint that
+ * just stopped the line — and the word beside the mark says which.
+ *
+ * The ring is for a gate the reader can move on now. A gate that is only coming
+ * up — a node no line has taken in hand — waits without it: the warn colour is
+ * what says "look here" on this panel, and spending it on a node the reader can
+ * do nothing about yet is how the one that can be acted on gets missed. */.pf-page .pf-card.is-shelved, .pf-page .pf-card.is-gate{
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-warn-primary);
+}/* ---- marks and readouts that ride along a name ---------------------------- */
+/* Anything with digits in it gets tabular figures — a column of timestamps is
+ * a column, and a proportional face makes it ragged. */.pf-page .pf-num{
+  font-family: var(--ds-font-family-code);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}/* The panel's nameplate voice. DSH reserves Montserrat for its wordmark, so a
+ * panel that wears it is claiming an identity, not borrowing a display face.
+ * One declaration, because the nameplate is the same object on every view: only
+ * its size follows the header it sits in. */.pf-page .pf-brand{
+  font-family: var(--dsw-font-family-brand);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}/* The word on a gate. On a card it sits right of the pause glyph; in the detail
+ * list it is the small line under the row. Loud where the reader can act, quiet
+ * where the node is still on its way in. */.pf-page .pf-gate{
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-warn-primary);
+  white-space: nowrap;
+}.pf-page .pf-gate.is-quiet{
+  color: var(--dsw-alias-label-caption);
+}/* ---- what a node is waiting on -------------------------------------------
+ * Reads as graph vocabulary, not as a deficit: ready-to-start is a node whose
+ * dependencies are all met, "N prerequisite nodes" counts the ones that are not. Never
+ * "N short" -- that describes a gap in an unknown process instead of naming the
+ * thing in the way, and the thing in the way is what the reader needs. */.pf-page .pf-deps{
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-caption);
+  white-space: nowrap;
+}.pf-page .pf-deps.is-ready{
+  color: var(--dsw-alias-label-tertiary);
+}.pf-page .pf-deps b{
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+}.pf-page .pf-deps.is-ready b{
+  color: var(--dsw-alias-label-secondary);
+}/* ---- how long something has been open ------------------------------------
+ * Static. A second hand turns a panel into a launch console and puts the reader
+ * under a clock they did not ask for; the panel is read between other work, and
+ * a number that changes while you read it is a number you cannot finish
+ * reading.
+ *
+ * `--` means the ledger does not know, which happens whenever a line has
+ * claimed a node whose step has not opened yet. Printing 0 there would be an
+ * assertion the data does not support. */.pf-page .pf-elapsed{
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-caption);
+  white-space: nowrap;
+}.pf-page .pf-elapsed.is-unknown{
+  color: var(--dsw-alias-label-dimmed);
+}/* A failed step is a real outcome in the ledger, so it gets a mark of its own
+ * rather than being folded into "completed". */.pf-page .pf-failed{
+  color: var(--dsw-alias-state-warn-primary);
+}/* ---- tags ------------------------------------------------------------------
+ * coding / writing / art are the ledger's own three kinds, and they are a
+ * filter set, not a category tree -- `maint:*` rides alongside them. A tag is
+ * a pill: rounded, a touch lighter than its ground, the whole word inside.
+ * A bare letter made the reader learn a second alphabet for three words.
+ *
+ * The same pill carries the settings row's layer chip (`data-layer`): it is the
+ * same small object — a word, quieter than the row it sits in. The three pages
+ * that show it each spell the factory tier after their own config key
+ * (`default` / `builtin`), so the selector names both. */.pf-page .pf-tag{
+  padding: 0 8px;
+  font: var(--dsw-font-xxxs-11);
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-radius: 999px;
+  corner-shape: round;
+  white-space: nowrap;
+}.pf-page .pf-tag[data-layer='default'], .pf-page .pf-tag[data-layer='builtin']{
+  color: var(--dsw-alias-label-caption);
+}/* The picker. Every view that offers a choice out of a list says it the same way,
+ * so the field is one object: the engine's own arrow is painted over by a caret
+ * of ours (the native arrow ignores the theme), and the field keeps its reading
+ * ink quiet — it is a control, not a reading. One wrapper, four call sites: the
+ * workspace in a header, the scope over the instruction list, a policy row in a
+ * line's own settings, a value in the panel's settings.
+ *
+ * The open list belongs to the engine, so the body colour goes back on every row
+ * through `option`. Without it the whole column follows the field's grey and
+ * only the row under the pointer is readable. */.pf-page .pf-pick{
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}.pf-page .pf-pick select{
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 5px 26px 5px 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+}.pf-page .pf-pick select:hover{
+  background: var(--dsw-alias-interactive-bg-hover);
+}.pf-page .pf-pick select option{
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}.pf-page .pf-pick::after{
+  content: '\25BE';
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--dsw-alias-label-caption);
+  pointer-events: none;
+}/* The counter in the header's right corner: one line of arithmetic, not one
+ * cell per node — a matrix that scales with the ledger stops being readable
+ * long before the ledger stops growing. The counts already live on the left;
+ * the right corner only totals. */.pf-page .pf-count{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 4px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-caption);
+}.pf-page .pf-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}.pf-page .pf-pill .pf-cell{
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}.pf-page .pf-pill b{
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+}/* ---- a segmented control --------------------------------------------------
+ * Two or three readings of one thing, all named, one of them in play. Geometry
+ * is DSH's shared control: a 4px inset track in the hover fill, 2px between R8
+ * segments, and the segment in play on a layer fill with the soft elevation
+ * material — which is where its hairline lives, so it takes no border of its
+ * own. Three views used to draw this object three ways; there is one now. */.pf-page .pf-seg{
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-interactive-bg-hover);
+}/* The segment's inset is one notch narrower than DSH's own copy (0 16px): the labels here are
+ * two CJK characters while DSH's are one English word; at 16px, three buttons at the 900-wide
+ * footprint tier push the board's third column out by 13px (column 173px, control 186px). 12px
+ * is the largest padding that fits this footprint tier at the same font size, weight, radius
+ * and inset. */.pf-page .pf-segbtn{
+  box-sizing: border-box;
+  height: 28px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}.pf-page .pf-segbtn:hover{
+  color: var(--dsw-alias-label-primary);
+}.pf-page .pf-segbtn[aria-pressed='true']{
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-elevation-soft);
+  color: var(--dsw-alias-label-primary);
+}.pf-page .pf-segbtn:focus-visible{
+  outline-offset: -2px;
+}/* A list's own scroller: it takes the height it is given and never lets the
+ * page scroll instead. */.pf-page .pf-scroll{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}.pf-page .pf-sec{
+  margin: 0;
+}.pf-page .pf-sec + .pf-sec{
+  margin-top: 14px;
+}/* A section head is a title bar: a shade above the page, four corners taken,
+ * and the title one step brighter than the rows under it. The word starts at
+ * the bar's own left edge and the fold glyph follows it — a glyph with a cell
+ * of its own used to push the title into the second column, where it read as
+ * one more option in the list. */.pf-page .pf-rowhead{
+  flex: none;
+  width: 100%;
+  height: 28px;
+  margin-bottom: 6px;
+  padding: 0 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: center;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  text-align: left;
+  cursor: pointer;
+}.pf-page .pf-rowhead:hover{
+  background: var(--dsw-alias-bg-layer-2);
+}.pf-page .pf-rowhead-key{
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: start;
+  font: var(--dsw-font-xs-strong-13);
+  color: var(--dsw-alias-label-primary);
+}/* The fold glyph follows the title: it points at what the section still holds
+ * back, so it belongs to the words, not to a column of its own. */.pf-page .pf-rowhead-key::after{
+  content: '\25BE';
+  margin-left: 8px;
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary);
+}.pf-page .pf-rowhead[aria-expanded='false'] .pf-rowhead-key::after{
+  content: '\25B8';
+}.pf-page .pf-rowhead-figs{
+  min-width: 0;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: end;
+  text-align: right;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-caption);
+  white-space: nowrap;
+}.pf-page .pf-rowhead-figs b{
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+}/* The tail's own expand control: it reports how many rows are still folded
+ * under it. Hover moves the fill under a row that is a control, never the
+ * surface of a card. */.pf-page .pf-trim{
+  flex: none;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  background: none;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-caption);
+  text-align: left;
+  cursor: pointer;
+}.pf-page .pf-trim:hover{
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-tertiary);
+}/* Name, one line saying what the number is, control at the right edge, and the
+ * hairline between two rows. The three views that show a setting — the panel's
+ * own settings cell, a line's own three numbers, and the standalone settings page —
+ * all read this one row. */.pf-page .pf-setrow{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 24px;
+  padding: 6px 0;
+}.pf-page .pf-setrow + .pf-setrow{
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+}/* The text column shrinks, so a long sentence wraps inside its track instead of
+ * pushing the control off the right edge. */.pf-page .pf-settext{
+  min-width: 0;
+}.pf-page .pf-setlabel{
+  font: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-primary);
+}/* The line under the name. It does not describe the interface: it says what the
+ * number is and what crossing it does — a reader should not have to guess where
+ * a value comes from or what it triggers. */.pf-page .pf-setcaption{
+  margin-top: 1px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}/* A number box, at the standard control's height and radius: one object in both
+ * settings views, so the two of them cannot drift apart. Digits go through the
+ * code face with tabular figures, and each view sets its own width. */.pf-page .pf-numin{
+  flex: none;
+  width: 76px;
+  height: 34px;
+  padding: 0 12px;
+  font-family: var(--ds-font-family-code);
+  font-size: 14px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-3);
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+}/* The line has never written this number: the box says so. It carries no digits,
+ * so it does not wear the code face. */.pf-page .pf-numin.is-unset{
+  font-family: var(--dsw-font-family);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}/* ---- a small action -------------------------------------------------------
+ * The panel's quiet button: a word, a hairline, R4. Three places used to draw it
+ * three times — the settings key at the end of a line's row, Close on a modal,
+ * and archive / restore / delete on an instruction. It owns nothing but its own drawing:
+ * a view that only reveals it under the pointer hides it from its own selector,
+ * so the same object can stand in a row that is always visible. */.pf-page .pf-mini{
+  flex: none;
+  padding: 1px 8px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  background: none;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  cursor: pointer;
+}.pf-page .pf-mini:hover{
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}/* Not the panel: in DSH the session rail, the seam and the page's outer gutter
+ * are DSH's own furniture, and the plugin's panel is born inside them. The mock
+ * has to stand one up to be read at all, so the two pages that need it (the main
+ * panel and the settings page) share one copy here instead of one apiece.
+ *
+ * The seam moves the rail's width and the panel takes what is left: the seam
+ * follows the pointer and the panel's right edge stays pinned to the window. The
+ * panel's own width is a result, not a setting.
+ */.pf-page .pf-shell{
+  height: 100%;
+  display: flex;
+}.pf-page .pf-side{
+  flex: 0 0 var(--rail-w, 208px);
+  padding: 14px 10px;
+  border-right: 0.5px solid var(--dsw-alias-border-l1);
+  user-select: none;
+  overflow: hidden;
+}.pf-page .pf-side-ws{
+  margin: 0 8px 14px;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-secondary);
+}.pf-page .pf-side-item{
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-xs);
+}.pf-page .pf-side-text{
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}.pf-page .pf-side-item.is-live .pf-side-text{
+  color: var(--dsw-alias-label-secondary);
+}/* The dot is a circle, so it states its own arc back to the superellipse. */.pf-page .pf-side-dot{
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-state-success-primary);
+}.pf-page .pf-side-time{
+  flex: none;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-dimmed);
+}.pf-page .pf-dock{
+  flex: none;
+  width: 6px;
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}.pf-page .pf-dock::after{
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+}.pf-page .pf-dock:hover::after, .pf-page .pf-dock:focus-visible::after, .pf-page .pf-dock.is-drag::after{
+  background: var(--dsw-alias-state-success-primary);
+}.pf-page .pf-main{
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border-right: 0.5px solid var(--dsw-alias-border-l1);
+}/* The appearance switch. Same object as the panel's segmented control — a word
+ * per reading of one thing, one of them in play — because DSH draws its own
+ * appearance choice that way; this rule only says where it stands. The window's
+ * own corner, off the panel's layout: the panel is read at both palettes, and
+ * turning the switch must not move a pixel of it.
+ *
+ * It sits above the panel's own editable layers rather than under them: the
+ * panel's modal dims the page it stands in, and the switch is the mock's own
+ * furniture, not part of that page. */.pf-page .pf-theme{
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+}/* ---- the width handle ------------------------------------------------------
+ * One object in three places: the pair beside the core module, the seam between
+ * the two halves of the detail pane, and the pair beside the settings column. The hit box
+ * is 10px wide, and what the reader sees is the edge of the thing it moves while
+ * what the pointer catches is the quiet ground beside it. Two stations, which is
+ * the only difference between them: a seam standing in the flow between two
+ * columns (the default), and the floating pair beside the core module, which
+ * sits 24px outside that module's own edge (`is-float`).
+ *
+ * The mark is one 2px segment: solid for ±8px around the pointer, fading out
+ * 28px each way, 72px in all. Nothing is drawn until the pointer lands, and
+ * while dragging it travels with the pointer. A solid segment is not a divider,
+ * so it is painted with the scrollbar ink rather than a border alpha. The side
+ * the line is drawn on follows `data-side`. */.pf-page .pf-grip{
+  flex: none;
+  position: relative;
+  width: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: col-resize;
+  touch-action: none;
+}.pf-page .pf-grip.is-float{
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}.pf-page .pf-grip.is-float[data-side='left']{
+  right: calc(100% + 24px);
+}.pf-page .pf-grip.is-float[data-side='right']{
+  left: calc(100% + 24px);
+}.pf-page .pf-grip::after{
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom,
+    transparent calc(var(--pf-handle-y, 50%) - 36px),
+    var(--dsw-alias-scrollbar-bg-l1) calc(var(--pf-handle-y, 50%) - 8px),
+    var(--dsw-alias-scrollbar-bg-l1) calc(var(--pf-handle-y, 50%) + 8px),
+    transparent calc(var(--pf-handle-y, 50%) + 36px));
+  opacity: 0;
+  pointer-events: none;
+}.pf-page .pf-grip[data-side='left']::after{
+  left: auto;
+  right: 4px;
+}.pf-page .pf-grip:hover::after, .pf-page .pf-grip:focus-visible::after, .pf-page .pf-grip.is-drag::after{
+  opacity: 1;
+}

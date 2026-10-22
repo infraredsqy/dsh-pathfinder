@@ -1,11 +1,18 @@
-// Build entry for the browser half's artifact: pull the sheets the panel needs from the mock
-// blueprint, scope the selectors, then bundle into `lib/client.js` for the shell.
-// Scoping rewrites selectors only — not one declaration byte changes: the sheets are written for
-// whole pages (`body`, `html`, `*`), while the panel occupies a single cell in DSH.
-// Comments between rules stay in the artifact and never enter the selector pass: commas inside a
-// comment would be parsed as selector separators, so a `:root` block would fail to match as a whole.
+// Build entry for the browser half's artifact: join the panel's stylesheets and bundle them with
+// its React half into `lib/client.js` for the shell.
 //
 //   node tools/build-client.mjs
+//
+// The sheets in `src/client/styles/` are written in the shape they ship in: every selector already
+// leads with its cell's layer class (`.pf-page` on the main panel, `.pf-wires` / `.pf-issue` on the
+// two embedded panes). That is what this entry used to rewrite at build time, and the reason it had
+// to: a sheet written for a document of its own carries `body { overflow: hidden }`, `:root` tokens
+// and a `*` reset, none of which belong on DSH's document — the `overflow` alone would hide the
+// shell. The rewrite happened once, when the sheets moved in here; the source is now the artifact,
+// so all this entry does with styles is read nine files in order and join them.
+//
+// One check stays at build time: a selector that escapes its layer lands on the host page, fails
+// silently inside the panel, and can break DSH's own shell. A leak stops the build.
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,67 +21,31 @@ import { rolldown } from 'rolldown'
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
-/**
- * A scoping layer: what prefix to add (`add`), where page-root rules land (`root`), and what the
- * sheet's own "embed" marker becomes (`marker`).
- *
- * The main panel layer only adds a prefix. The wires and issue sheets carry two extras, because in
- * the mock they are **two standalone documents** that each become one cell under the same tree:
- *
- * - The prefix is that cell's page marker (`.pf-wires` / `.pf-issue`), without `:where()`: in the
- *   mock each sheet is the only sheet in its document, but inside the panel it competes with the
- *   panel's own sheets for the same elements (`.pf-row` in the detail pane and the main panel's
- *   `.pf-head` share the names). It wins by "same specificity, later in order" — this sheet sits
- *   last. A bare prefix would drop specificity a notch and those same-named rules would overtake it.
- * - The sheet's own yield rules (`.is-embed X`) get bumped one notch, written as `.is-embed.pf-issue X`:
- *   the mock writes them to sit "one notch above the base rule"; lose that notch and the top padding returns.
- * - Each sheet carries its own marker, never shared: a shared marker would let one sheet's rules
- *   land on the other cell (the issue pool's `padding: 0` would override the wires page's bottom margin).
- *
- * The marker sits on the two `.pf-pane` elements, the same spot as each mock document's `is-embed`:
- * the `.is-embed` class stays, the page marker follows it.
- */
-const pageLayer = (root) => ({ root, add: root })
-const embedLayer = (root) => ({ root, add: root, marker: 'is-embed' })
+const STYLES = join(root, 'src', 'client', 'styles')
 
-/** Order mirrors the mock's `<link>` order. */
+/**
+ * The sheets that ship, in cascade order, each with the one layer class its selectors must lead
+ * with.
+ *
+ * Order is load-bearing. The two embedded sheets are standalone documents where they were drawn,
+ * and inside the panel they compete with the main panel's sheets for the same element names
+ * (`.pf-row` in the detail pane, the main panel's own `.pf-head`); they win those by "same
+ * specificity, later in order", so they follow the main panel's sheets here. The main panel's
+ * sheet order follows the layer order a reader sees.
+ */
 const SHEETS = [
-  { sheet: 'tokens.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/main.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/board.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/lines.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/detail.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/notes.css', scope: pageLayer('.pf-page') },
-  /* Both sheets define their own `.pf-head`; scoping them into `.pf-page` would restyle the main
-     panel's own header too. In the mock each is a standalone document that yields header and page
-     margins via `.is-embed`. */
-  { sheet: 'styles/field.css', scope: embedLayer('.pf-wires') },
-  { sheet: 'styles/register.css', scope: embedLayer('.pf-issue') },
+  { sheet: 'tokens.css', root: '.pf-page' },
+  { sheet: 'main.css', root: '.pf-page' },
+  { sheet: 'board.css', root: '.pf-page' },
+  { sheet: 'lines.css', root: '.pf-page' },
+  { sheet: 'detail.css', root: '.pf-page' },
+  { sheet: 'notes.css', root: '.pf-page' },
+  { sheet: 'field.css', root: '.pf-wires' },
+  { sheet: 'register.css', root: '.pf-issue' },
+  { sheet: 'settings.css', root: '.pf-page' },
 ]
 
-/** Linked last in the mock, but the sheet itself must not ship: only the rules landing on the main panel DOM are taken. */
-const CARRIED = [{
-  sheet: 'styles/settings.css',
-  selectors: ['.pf-stage', '.pf-frame', '.pf-configwrap', '.pf-configwrap .pf-scroll', '.pf-config', '.pf-config .pf-setrow', '.pf-vlayer'],
-}]
-
-const SCOPE = pageLayer('.pf-page')
-
-/** Every layer that ships: a selector landing on any of them counts as scoped. */
-const SCOPES = [...new Map(SHEETS.map((entry) => [entry.scope.root, entry.scope])).values()]
-
-const PAGE_SELECTORS = new Set([':root', 'html', 'body'])
-
-/**
- * What the ruler itself recognizes: selectors written at page level (`:root` / `html` / `body`) and
- * globally (`*`, its two pseudo-elements included) in the mock. Kept separate from `PAGE_SELECTORS` —
- * that set says "how to rewrite while scoping", this one says "which selectors belong at page
- * level". Merged into one, removing a selector from the former would make the ruler skip it too,
- * and this check could no longer catch it.
- */
-const PAGE_LEVEL_SELECTORS = new Set([':root', 'html', 'body', '*', '*::before', '*::after'])
-
-/** At-rules that contain rules: scoping descends one level into them. */
+/** At-rules that contain rules: the selector walk descends one level into them. */
 const NESTING_AT_RULES = ['@media', '@supports', '@layer']
 
 /** Comments never enter selectors; they are handled separately. */
@@ -141,7 +112,7 @@ function mapRules(css, rewrite) {
  *
  * A substring version (`part.includes('.pf-page')`) would treat names like `.pf-pagewrap` and
  * `.pf-pagefoot` as "already inside the panel layer", letting the whole rule escape onto the page
- * root; their tokens are `pf-pagewrap` and the like, unequal to `pf-page`, so the prefix still applies.
+ * root; their tokens are `pf-pagewrap` and the like, unequal to `pf-page`, so the leak is caught.
  */
 function hasScopeClass(part, className) {
   return part
@@ -150,86 +121,20 @@ function hasScopeClass(part, className) {
     .some((token) => token === className)
 }
 
-/** The sheet's own "embed" marker (`.is-embed`) is matched as a whole class name; names like `pf-embedx` do not count. */
-function markerPattern(marker) {
-  return new RegExp(`\\.${marker}(?![\\w-])`, 'gu')
-}
-
 /**
- * @param scope - The layer (see `pageLayer` / `embedLayer`).
- * @returns The scoped segments (`*` splits in two: the layer itself + descendants).
- */
-function scopeSelector(part, scope) {
-  /* Rules carrying the sheet's own "embed" marker: rewritten to "this marker + this cell's page
-     marker" — the mock relies on it sitting one notch above the base rule; two classes restore
-     that notch while landing only on this cell. */
-  if (scope.marker !== undefined && hasScopeClass(part, scope.marker)) {
-    return [part.replace(markerPattern(scope.marker), `.${scope.marker}${scope.root}`)]
-  }
-  if (hasScopeClass(part, scope.root.slice(1))) return [part]
-  if (PAGE_SELECTORS.has(part.toLowerCase())) return [scope.root]
-  if (part === '*') return [scope.root, `${scope.root} *`]
-  if (part.startsWith('*::')) return [`${scope.root}${part.slice(1)}`, `${scope.root} ${part}`]
-  return [`${scope.add} ${part}`]
-}
-
-function scopePrelude(prelude, scope) {
-  const parts = prelude
-    .split(',')
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
-    .flatMap((part) => scopeSelector(part, scope))
-  return [...new Set(parts)].join(', ')
-}
-
-/**
- * The first ruler: declarations pinned to the page root and globals in the mock must still land on
- * the layer's root itself after scoping — page-root rules land on `root`, `*` rules land on `root`
- * and its two pseudo-elements.
+ * The layer ruler: every selector that ships must lead with one of the layer classes — the first
+ * segment of a selector must genuinely carry it.
  *
- * A declaration missed by scoping fails silently and is invisible in the UI (that is how `--pf-*`
- * tokens and the `box-sizing` reset were lost), so this step flags the batch at build time.
+ * A wrong prefix, or a segment the split fails to recognize (classes like `.pf-pagewrap` that embed
+ * the panel root's name), escapes it. Rules that miss their layer fail silently on the page while
+ * styling DSH's shell, so this step stops the build instead.
  *
- * @param name - Sheet name, so failures report which sheet.
- * @param css - Sheet body, before scoping.
- * @param scope - The layer (see `pageLayer` / `embedLayer`).
- * @returns The misses (selector + what it looks like after scoping); empty list if none.
- */
-function assertRootLanding(name, css, scope) {
-  const stray = []
-  mapRules(css, (prelude) => {
-    for (const part of prelude.split(',').map((one) => one.trim()).filter((one) => one.length > 0)) {
-      const low = part.toLowerCase()
-      if (!PAGE_LEVEL_SELECTORS.has(low)) continue
-      const scoped = scopeSelector(part, scope)
-      const wanted = low.startsWith('*') ? `${scope.root}${low.slice(1)}` : scope.root
-      if (!scoped.includes(wanted)) stray.push(`${name}: ${part} → ${scoped.join(', ')}`)
-    }
-    return prelude
-  })
-  return stray
-}
-
-function scopeSheet(css, scope) {
-  return mapRules(css, (prelude) => scopePrelude(prelude, scope))
-}
-
-/**
- * The second ruler (product shape): every selector that ships must lead with a layer — the first
- * segment of a selector must genuinely carry one of the layer class names.
- *
- * The first ruler covers "do the page-root / global batch still cover this layer's root after
- * scoping", matching on the six whole-segment selectors in `PAGE_LEVEL_SELECTORS`; a wrong prefix,
- * or a segment it fails to recognize (classes like `.pf-pagewrap` that embed the panel root's
- * name), escapes it. Rules missed by scoping fail silently on the page while styling DSH's shell,
- * so this step flags the whole selector.
- *
- * @param css - Sheet body after scoping.
- * @param scopes - Every layer that ships.
+ * @param css - The joined sheet body.
+ * @param roots - Every layer class that ships (`.pf-page`, `.pf-wires`, `.pf-issue`).
  * @returns Selectors leading with no layer; empty list if none.
  */
-function assertScopedProduct(css, scopes) {
-  const classes = scopes.map((scope) => scope.root.slice(1))
+function assertScopedProduct(css, roots) {
+  const classes = roots.map((root) => root.replace(/^\./u, ''))
   const leaked = []
   mapRules(css, (prelude) => {
     for (const part of prelude.split(',').map((one) => one.trim()).filter((one) => one.length > 0)) {
@@ -241,30 +146,13 @@ function assertScopedProduct(css, scopes) {
   return [...new Set(leaked)]
 }
 
-function pickRules(css, selectors) {
-  const wanted = new Set(selectors)
-  return mapRules(css, (prelude) => {
-    const kept = prelude
-      .split(',')
-      .map((part) => part.trim())
-      .filter((part) => wanted.has(part))
-    return kept.length > 0 ? [...new Set(kept)].join(', ') : null
-  })
-}
-
-const sources = SHEETS.map(({ sheet, scope }) => ({ sheet, scope, css: readFileSync(join(root, 'mock', sheet), 'utf8') }))
-const strayed = sources.flatMap(({ sheet, css, scope }) => assertRootLanding(sheet, css, scope))
-if (strayed.length > 0) {
-  throw new Error(`build-client: 收拢之后有声明落不到面板根上（页面根 / 全局那一批）：\n  ${strayed.join('\n  ')}`)
-}
-const sheets = sources.map(({ css, scope }) => scopeSheet(css, scope))
-/* The two shared rules from the mock's last sheet: they genuinely apply on the mock's main panel, and keep the mock's last position in the order. */
-const carried = CARRIED.map(({ sheet, selectors }) =>
-  scopeSheet(pickRules(readFileSync(join(root, 'mock', sheet), 'utf8'), selectors), SCOPE))
-const css = [...sheets, ...carried].filter((part) => part.trim().length > 0).join('\n')
-const leaked = assertScopedProduct(css, [...SCOPES, SCOPE])
+const css = SHEETS
+  .map(({ sheet }) => readFileSync(join(STYLES, sheet), 'utf8'))
+  .filter((part) => part.trim().length > 0)
+  .join('\n')
+const leaked = assertScopedProduct(css, [...new Set(SHEETS.map(({ root }) => root))])
 if (leaked.length > 0) {
-  throw new Error(`build-client: 产物里有选择器没落在面板那一层上（收拢漏了）：\n  ${leaked.join('\n  ')}`)
+  throw new Error(`build-client: 产物里有选择器没落在面板那一层上（逃到宿主页面去了）：\n  ${leaked.join('\n  ')}`)
 }
 
 const bundle = await rolldown({

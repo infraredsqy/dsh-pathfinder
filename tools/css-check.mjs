@@ -23,13 +23,46 @@ const argOf = (flag) => {
 }
 const QUIET = argv.includes('--quiet')
 const ROOT = resolve(argOf('--root') ?? fileURLToPath(new URL('..', import.meta.url)))
-const MOCK = join(ROOT, 'mock')
-const THEME_SHEET = join(MOCK, 'theme.css')
+/* The design blueprint: a local, gitignored snapshot — the four hand-drawn pages and their own
+ * page-shaped sheets. Nothing here is required; with it absent the page-link section has nothing
+ * to check and the rest of this file runs unchanged. */
+const PREVIEW = join(ROOT, 'design')
+/* The sheets that ship, in the shape they ship in — the panel's own source. */
+const STYLES = join(ROOT, 'src', 'client', 'styles')
+/* DSH's own theme values, copied down so the two palettes and the contrast floors resolve offline.
+ * An input of this check, not a preview asset: it lives here, with the checker. */
+const THEME_SHEET = join(ROOT, 'tools', 'theme.css')
 
 /* ------------------------------------------------------------------ parsing */
 
 /** Strip comments so no rule is read out of a sentence. */
 const withoutComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+/* The layer classes the shipped sheets lead their selectors with — one per cell. */
+const LAYER_CLASSES = ['pf-page', 'pf-wires', 'pf-issue']
+
+/**
+ * Fold a shipped selector back into the page shape this checker asks its questions in.
+ *
+ * The sheets are stored in the shape they ship in, so a selector leads with its cell's layer class
+ * (`.pf-page .pf-cell`, `.is-embed.pf-wires .pf-bar`, and plain `.pf-page` for what used to be the
+ * page root). Every expectation downstream — the mark table's `.pf-cell` / `.is-P0`, the per-name
+ * rules, the palette map's `:root` / `body` — is written in the sheets' page shape, and those
+ * expectations are the check's whole point, so the shape is restored once here rather than rewritten
+ * in a dozen places. Only the first class comes off: `.pf-wires .pf-page` is a rule whose page
+ * prefix is real and whose subject is a `.pf-page` inside it.
+ *
+ * A selector that was nothing but the layer class becomes `body` — the page root the panel's own
+ * declarations were written on. (`:root` and `body` collapse into one layer class on the way in, so
+ * the checker reads them all as `body`, which is where the theme's aliases are declared too.)
+ */
+function bareSelector(selector) {
+  const one = new RegExp(`\\.(?:${LAYER_CLASSES.join('|')})(?![\\w-])`, 'u')
+  if (!one.test(selector)) return selector
+  const tidy = selector.replace(one, '').trim().replace(/^[>+~]\s*/u, '').replace(/\s+/gu, ' ')
+  if (tidy.length === 0) return 'body'
+  return tidy.startsWith('::') ? `*${tidy}` : tidy
+}
 
 /**
  * Every rule in a sheet, in source order, flattened across at-rules.
@@ -60,7 +93,7 @@ function parseRules(css) {
       if (prelude.startsWith('@')) walk(body, prelude)
       else {
         rules.push({
-          selectors: prelude.split(',').map(s => s.trim()).filter(Boolean),
+          selectors: prelude.split(',').map(s => bareSelector(s.trim())).filter(Boolean),
           declarations: body.split(';').map(p => p.trim()).filter(p => p.includes(':')).map((p) => {
             const colon = p.indexOf(':')
             return [p.slice(0, colon).trim(), p.slice(colon + 1).trim()]
@@ -173,15 +206,19 @@ const failures = []
 const fail = (section, detail) => failures.push(`${section}: ${detail}`)
 
 const read = (path) => readFileSync(path, 'utf8')
-const stylesDir = join(MOCK, 'styles')
+/* `tokens.css` first, then the rest in name order. The palette map reads last-wins, so this order
+ * is what decides whose `body` / `:root` declarations the map ends up holding. */
+const stylesDir = STYLES
 const moduleSheets = existsSync(stylesDir)
-  ? readdirSync(stylesDir).filter(n => n.endsWith('.css')).sort().map(n => join(stylesDir, n))
+  ? readdirSync(stylesDir).filter(n => n.endsWith('.css') && n !== 'tokens.css').sort().map(n => join(stylesDir, n))
   : []
-const panelSheets = [join(MOCK, 'tokens.css'), ...moduleSheets].filter(existsSync)
-const pages = readdirSync(MOCK).filter(n => n.endsWith('.html')).sort().map(n => join(MOCK, n))
+const panelSheets = [join(STYLES, 'tokens.css'), ...moduleSheets].filter(existsSync)
+const pages = existsSync(PREVIEW)
+  ? readdirSync(PREVIEW).filter(n => n.endsWith('.html')).sort().map(n => join(PREVIEW, n))
+  : []
 
 if (!existsSync(THEME_SHEET)) throw new Error(`no theme sheet at ${THEME_SHEET}`)
-if (panelSheets.length < 2) throw new Error('no panel sheets found under mock/')
+if (panelSheets.length < 2) throw new Error(`no panel sheets found under ${STYLES}`)
 
 const rel = (p) => relative(ROOT, p).split(sep).join('/')
 const themeRules = parseRules(read(THEME_SHEET))
@@ -202,7 +239,8 @@ function paletteMap(palette) {
   collect(themeRules, s => s === 'body')
   if (palette === 'dark') collect(themeRules, s => s.includes('data-ds-dark-theme'))
   // Panel sheets: `body` first (the panel's own ladder lives there, beside the
-  // theme's aliases), then `:root` numbers, then the per-state declarations.
+  // theme's aliases), then `:root` numbers, then the per-state declarations. The
+  // sheets are stored layer-prefixed; `bareSelector` folds them back to this shape.
   for (const file of panelFiles) collect(file.rules, s => s === 'body')
   for (const file of panelFiles) collect(file.rules, s => s === ':root')
   for (const file of panelFiles) collect(file.rules, s => /^\.pf-/.test(s) && s.includes('['))
@@ -641,20 +679,20 @@ for (const [selector, perFile] of [...bySelector].sort()) {
 
 /* ------------------------------------------------- 10. sheets and their pages */
 
+/* Every link a preview page writes must resolve. The other half this section used to hold — "every
+ * shipped sheet is linked by some page" — went with the arrangement it belonged to: the pages now
+ * link their own page-shaped sheets, so a shipped sheet missing from them says nothing. */
 const linked = new Set()
 let brokenHref = 0
 for (const page of pages) {
   for (const [, href] of read(page).matchAll(/<link[^>]+href="([^"]+)"/g)) {
-    const target = resolve(MOCK, href)
+    const target = resolve(PREVIEW, href)
     if (!existsSync(target) || !statSync(target).isFile()) {
       brokenHref += 1
       fail('link target missing', `${rel(page)} -> ${href}`)
     }
     linked.add(target)
   }
-}
-for (const sheet of panelSheets) {
-  if (!linked.has(sheet)) fail('module sheet nobody loads', rel(sheet))
 }
 
 /* ------------------------------------------------------------------- report */
@@ -663,7 +701,7 @@ const line = (text = '') => { if (!QUIET) console.log(text) }
 const pad = (text, width) => String(text).padEnd(width)
 
 line(`css-check · root ${ROOT}`)
-line(`sheets: theme 1, panel ${panelSheets.length} (${panelSheets.map(p => rel(p).replace('mock/', '')).join(', ')})`)
+line(`sheets: theme 1, panel ${panelSheets.length} (${panelSheets.map(p => rel(p).replace('src/client/styles/', '')).join(', ')})`)
 line('')
 line(`1  colours         literals ${literalCount}, raw palette steps ${rawStepCount}, theme selectors ${themeSelectorCount}`)
 line(`2  radii           off scale ${radiusOffScale}, unpaired full-round ${fullRoundUnpaired}`)
@@ -675,11 +713,11 @@ line(`7  theme aliases   read ${panelTokens.size}, undefined ${undefinedTokens}`
 line(`7b panel tokens    read ${panelTokens.size}, undeclared ${undeclaredPanelTokens}`)
 line(`8  marks           rows ${readings.length}, under floor ${markFailures}`)
 line(`9  class names     one selector two meanings ${collisions.size}`)
-line(`10 sheets linked   hrefs checked ${linked.size}, broken ${brokenHref}`)
+line(`10 page links      hrefs checked ${linked.size}, broken ${brokenHref}`)
 line(`11 card hover      face-ink declarations ${hoverPaintsFace}`)
 line(`12 panel tokens on html that read an alias (would paint nothing): ${rootTokensWithAlias}`)
 line('')
-line('floors, read from --pf-mark-floor / --pf-mark-floor-dense in mock/tokens.css:')
+line('floors, read from --pf-mark-floor / --pf-mark-floor-dense in src/client/styles/tokens.css:')
 line(`  a mark the reader resolves on its own >= ${FLOOR.A}:1 · one read as density >= ${FLOOR.B}:1`)
 line('')
 line('mark inks with a floor — all of these pass:')

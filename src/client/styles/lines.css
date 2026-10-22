@@ -1,0 +1,146 @@
+/* dsh-pathfinder · the line-name column left of the detail pane, and a line's own three numbers.
+ *
+ * The left column answers only "which line to look at": the mark is drawn left of the name, the row
+ * carries no numbers, and a "Settings" appears at the row's end only under the pointer. The three
+ * numbers live in the modal that Setting opens; start/stop and the numbers each go through a
+ * `pf cycle` command; this page is a mock and both acts live only on screen. */.pf-page .pf-detail{
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+}/* One line per row: mark + line name, the mark drawn left of the name. The row height matches the
+ * node rows (`--pf-row`), and the mark's cell is fixed-width so several lines' names align. The
+ * first is selected by default, ordered by the record's own line order (waiting-on-a-person first,
+ * then in-service, then stopped).
+ *
+ * This column answers only "which line to look at": the row carries no numbers (a line's own
+ * numbers live in its own settings) and no standing buttons. The name and the row-end "Settings"
+ * each take their own cell; two layouts share one row, so the name never re-flows under the
+ * pointer. The column width is draggable: the seam is `tokens.css`'s width grip (`.pf-grip`),
+ * except it stands in the flow — it moves this column's width, the body swaps, the window does not. */.pf-page .pf-lineside{
+  flex: 0 0 var(--pf-side-w, 176px);
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}.pf-page .pf-lineitem{
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: var(--pf-row);
+  padding: 0 8px;
+  border-radius: var(--dsw-radius-xs);
+}.pf-page .pf-linepick{
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}.pf-page .pf-lineitem:hover{ background: var(--dsw-alias-interactive-bg-hover); }/* The selected one: the ground brightens a tier (the same value as the board's three info buttons'
+ * selected state) and the name turns body-ink. The selected state lives on the inner name button
+ * (it is what gets picked), the ground belongs to the whole row — so the selector reads the state
+ * of the button inside the row, not the row's own. */.pf-page .pf-lineitem:has(.pf-linepick[aria-current='true']){
+  background: var(--dsw-alias-interactive-bg-active);
+}.pf-page .pf-lineitem:has(.pf-linepick[aria-current='true']) .pf-cycle{
+  color: var(--dsw-alias-label-primary);
+}/* The row-end "Settings": the `.pf-mini` small action, uninked unless the pointer is on it, but
+   always occupying its cell and always reachable — keyboard focus inside the row (`focus-within`)
+   reveals it too; a button that takes a pointer to touch is one a keyboard cannot reach. */.pf-page .pf-lineitem .pf-mini{
+  opacity: 0;
+  pointer-events: none;
+}.pf-page .pf-lineitem:hover .pf-mini, .pf-page .pf-lineitem:focus-within .pf-mini{
+  opacity: 1;
+  pointer-events: auto;
+}.pf-page .pf-linemain{
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}/* Line name: the record's id, in the monospace set. */.pf-page .pf-cycle{
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}.pf-page .pf-tags{ display: flex; gap: 6px; }/* The cell left of the line name: running wears the card spinner (the same animation), blocked
+   carries an amber dot — this layout's color reserved for "waiting for a person". Stopped draws
+   nothing but keeps its place, so the lines stay aligned. */.pf-page .pf-linemark{
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pf-mark);
+  height: var(--pf-mark);
+}.pf-page .pf-linemark.is-run{
+  color: var(--dsw-alias-link);
+  border: 1.5px solid var(--dsw-alias-border-l3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  corner-shape: round;
+  animation: pf-spin 0.9s linear infinite;
+}.pf-page .pf-linemark.is-blocked::before{
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-state-warn-primary);
+}/* The animation is not what these marks mean: with motion turned off at the OS, the ring becomes
+   dashed and says the same thing. */@media (prefers-reduced-motion: reduce){.pf-page .pf-linemark.is-run{
+    animation: none;
+    border-style: dashed;
+  }
+}/* The three-numbers block: one number per row — name, one sentence saying what the number is, the
+   control at the right end. The shape copies DSH's settings page: name a tier up, the sentence
+   below a tier down, the control against the right edge, a hairline between rows (`.pf-setrow`,
+   living in tokens.css). */.pf-page .pf-fold{
+  flex: none;
+  padding: 2px 14px 4px;
+  display: flex;
+  align-items: center;
+  column-gap: 18px;
+}.pf-page .pf-fold[hidden]{ display: none; }.pf-page .pf-set{
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}/* The three marks and the key at the right end: stopped is play (the brightest thing on this
+   page), running a square (retiring to a quiet one), blocked an up-right arrow — clicking it
+   enters that cell's session, the same act as the card above, so the glyph draws "going there"
+   too. The command and the cell's title stay on the title. */.pf-page .pf-act{
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  color: var(--dsw-alias-link);
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-link) 40%, transparent);
+  border-radius: var(--dsw-radius-xs);
+  cursor: pointer;
+}.pf-page .pf-act:hover{ background: color-mix(in srgb, var(--dsw-alias-link) 14%, transparent); }.pf-page .pf-act.is-off{
+  color: var(--dsw-alias-label-tertiary);
+  border-color: var(--dsw-alias-border-l2);
+}.pf-page .pf-act.is-off:hover{
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}.pf-page .pf-act.is-blocked{
+  color: var(--dsw-alias-state-warn-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 45%, transparent);
+}.pf-page .pf-act.is-blocked:hover{
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 14%, transparent);
+}.pf-page .pf-act svg{ display: block; }

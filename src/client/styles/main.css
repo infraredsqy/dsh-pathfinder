@@ -1,0 +1,228 @@
+/* dsh-pathfinder · main panel (f-main) —— this page's skeleton: the header's two-row grid, the tab
+ * row, the box shared by the six panes, and the modal shared by a line's own settings and "delete
+ * one". Each pane's own layout lives in the module stylesheet beside it; the page never touches
+ * vh / vw (headless screenshots re-wrap viewport-hooked sizes mid-shutter). */.pf-page{
+  --pf-pad: 24px;        /* header side padding */
+  --pf-row: 30px;        /* one row = one node */
+  --pf-mark: 14px;       /* the cell left of a line name: its state at this moment */
+}.pf-page{ overflow: hidden; }.pf-page{
+  /* The positioning base: the line-settings modal covers this footprint (not the whole window) and measures against it. */
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 12px var(--pf-pad) 12px;
+}/* ---- Stage: the core module centered ------------------------------------
+ * The header is pinned to both ends of this footprint; the middle block centers itself: a wider
+ * window widens it, a taller window centers it vertically too — when it cannot fill, the spare
+ * ground is shared above and below it rather than piling up at the bottom.
+ *
+ * The width is draggable, with DSH's pair of content-width grips (`.pf-grip`): by default nothing
+ * is drawn; on hover a short segment lights, drag inward to narrow and outward to widen,
+ * symmetric about a fixed center. */.pf-page .pf-stage{
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+  /* When the footprint is too short for the whole panel, what gives way is the footprint itself: it scrolls; the module does not shrink. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}/* Centering is `margin: auto` rather than the stage's `align-items: center`: the latter clips the
+   module's top when the footprint is short, and the clipped part cannot be scrolled to. Auto
+   margins center when there is room, and let the module grow past it — for the stage to scroll —
+   when there is not. */.pf-page .pf-frame{
+  position: relative;
+  width: var(--pf-frame-w, 1280px);
+  max-width: 100%;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+}/* The panes that need a whole footprint to read — detail, instructions, wires, issues, settings —
+   take the footprint's full width and height (that is exactly the ground they asked for), and the
+   overflow scrolls inside them; "Now" grows with its content. Once filling, each pane absorbs the
+   extra height itself — every pane is a direct child of the module, so `.pf-pane`'s own `flex` is
+   enough.
+
+   The grips are the pair for tuning "Now"'s width: the filling panes take their width from the
+   footprint with nothing to tune, so the floating pair outside the footprint
+   (`.pf-grip.is-float`) does not appear. The seam inside the detail pane stands in the flow and
+   has its own draggable width; it does not fall under this rule. */.pf-page .pf-frame.is-fill{
+  width: 100%;
+  height: 100%;
+}.pf-page .pf-frame.is-fill .pf-grip.is-float{ display: none; }/* ---- Header: nameplate · workspace · three numbers · a row of tabs --------
+ * Two grid rows, structured after DSH's session header (`ConversationRoot`'s `header`): the top
+ * row holds the footprint's two ends — nameplate and workspace at left (column one), the three
+ * numbers at right (column two); the whole second row is the tab row (`grid-column: 1/-1`).
+ *
+ * The header's 0.5px bottom edge is the tabs' rail: the `border-l3` tier, with the selected tab's
+ * 2px bar pressed onto it (DSH does the same with its header line). With tabs present the header
+ * adds no `padding-bottom` of its own; the 9px below is the tabs' own padding. */.pf-page .pf-head{
+  flex: none;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 32px;
+  row-gap: 10px;
+  align-items: start;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+}.pf-page .pf-head-left{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}/* The nameplate row starts at 26px and gives its height to what is inside: the workspace control
+   is a tier taller (H30), and a fixed row height would poke the control out at both ends. */.pf-page .pf-head-top{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 26px;
+}.pf-page .pf-head .pf-brand{
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}/* Top right: three numbers, each with a framed mark. The frame is the state's language
+ * (ink / blue / hollow), one frame per state, and the number follows it. Three numbers side by
+ * side, the proportions read themselves. Arithmetic nobody reads ("178 edges") does not enter here. */.pf-page .pf-count{
+  /* Header column two, against the right edge. `tokens.css` supplies this row's whole rhythm; this only says where it stands. */
+  grid-column: 2;
+  justify-self: end;
+}/* The views, for the reader to pick: one button per pane, each governing only its own pane; nothing else on the page moves with it.
+ *
+ * Both look and position follow DSH's pair above a conversation (conversation / trace) —
+ * `ConversationRoot`'s `tabs` / `tab` / `tabActive`: plain text, 13px medium, the selected one
+ * taking the business-tier blue, a 2px bar below (`bottom: -1px`) pressed onto the header's 0.5px
+ * hairline; it draws no line of its own and keeps no `margin-bottom` — the header's line is its
+ * rail. `margin-top: 10px` is the spacing under a DSH heading row, copied along.
+ *
+ * It stands on the header's own left edge, on the same vertical as the nameplate: no left inset —
+ * an inset would tie it to "how far the module is centered", and the reader would first see a row
+ * of words on no edge of the page at all. */.pf-page .pf-tabs{
+  position: relative;
+  z-index: 1;
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 36px;
+  margin-top: 10px;
+}.pf-page .pf-tab{
+  position: relative;
+  padding: 0 0 9px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}.pf-page .pf-tab::after{
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: none;
+}.pf-page .pf-tab[aria-selected='true']{ color: var(--dsw-alias-state-business-primary); }.pf-page .pf-tab[aria-selected='true']::after{
+  background: var(--dsw-alias-state-business-primary);
+}/* The views share one footprint: only one pane is the body at a time (the `hidden` others join no
+   layout), so the module's weight follows that pane — the board grows with its content and the
+   stage centers it; a pane that does not fit scrolls inside itself (`.pf-scroll`). */.pf-page .pf-pane{
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
+}.pf-page .pf-pane[hidden]{ display: none; }/* Wires and the issue pool are both whole-block things that need ground to spread on: they carry
+   a min-height of their own, the module fills the whole footprint, and the drawing grows with it. */.pf-page .pf-pane.is-frame{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}.pf-page .pf-pane.is-frame iframe{
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--dsw-alias-bg-base);
+}/* ---- This pane has nothing to say ------------------------------------------
+ * The panel reads the record of one workspace. When that workspace has no such record, or none of
+ * the four files parses, all six panes have nothing to say: a row of empty tabs over an empty
+ * board would read as a broken panel. This pane therefore collapses to one sentence, pinned to
+ * the middle of the footprint; the nameplate stays in the header — the reader must be able to
+ * confirm what they are looking at. */.pf-page .pf-none{
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}.pf-page .pf-none p{
+  margin: 0;
+  font: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-caption);
+}/* ---- One modal: a line's own settings / delete one ------------------------
+ * Two cells share this component (overlay, sheet, head, close, the action row at the foot), shaped
+ * after DSH's own dialog: an R28 sheet, `border: 0`, the prominent elevation tier, the sheet's own
+ * hairline painted inside the shadow; the overlay uses the theme's own thin ink
+ * (`--dsw-alias-bg-mask-1`) rather than picking another black.
+ *
+ * The overlay covers only the panel's footprint: this page is one cell in DSH, and dimming the
+ * neighbouring session rail would overstep. So it covers the `.pf-page` positioning base, and the
+ * ring outside is left to the host.
+ *
+ * The panel is itself that sheet, so the three numbers inside are not lifted a tier and need no
+ * vertical rule for the start/stop key — the thing to separate from already stands in the head. */.pf-page .pf-modal{
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--dsw-alias-bg-mask-1);
+}.pf-page .pf-modal[hidden]{ display: none; }.pf-page .pf-modal-panel{
+  width: 560px;
+  max-width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 12px 0 4px;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 0;
+  border-radius: var(--dsw-radius-panel);
+  box-shadow: var(--dsw-elevation-prominent);
+}.pf-page .pf-modal-head{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px 10px;
+}/* Line name: the record's id, in the monospace set (the same word in the sidebar, the same look). */.pf-page .pf-modal-name{
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--ds-font-family-code);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}/* -- The head's "Close" is `tokens.css`'s `.pf-mini`, the same object as the "Settings" at a
+   sidebar row's end, so it has no rule of its own here. */.pf-page .pf-modal-acts{
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 14px 4px;
+}/* A secondary action: 5px 16px, 13px, a border-l2, radius xs. The instruction row's "Add" and the
+   modal's foot row are the same object — the moment two places each write their own copy, they
+   have already started drifting apart. */.pf-page .pf-btn{
+  flex: none;
+  padding: 5px 16px;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  cursor: pointer;
+}.pf-page .pf-btn:hover{
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}/* ---- Selection and hover ---------------------------------------------------
+ * Interface words are not selectable; content is: tabs, controls and readings are interface; a
+ * title is content, and that rule follows the element that draws the title. */.pf-page{ user-select: none; }

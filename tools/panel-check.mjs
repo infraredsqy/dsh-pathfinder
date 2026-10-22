@@ -65,7 +65,7 @@ function detailReadings(scope) {
 
 /**
  * Which groups the instructions pane should show: recomputed from the record as of now, ordered by
- * the mock pane's reader order — global first, then the record's cycles, then unrecognized scopes,
+ * the panel pane's reader order — global first, then the record's cycles, then unrecognized scopes,
  * then the last group; empty groups are not drawn.
  *
  * The reading carries a key per group and nothing else; what that group is CALLED is the client's
@@ -1040,8 +1040,9 @@ await act(async () => { loneRoot.unmount() })
  * `.pf-page :root`), this reads an empty string — and the fallback-less `var(--pf-ink-2)` reads go
  * void with it.
  *
- * The same ruler covers the `box-sizing` reset from `mock/tokens.css`: written on `*` in the mock,
- * scoping it to `.pf-page *` would miss the panel root itself, at the cost of 24px extra below. */
+ * The same ruler covers the `box-sizing` reset in `src/client/styles/tokens.css`: written as
+ * `.pf-page, .pf-page *`, it must catch the panel root itself alongside its descendants — miss the
+ * root and 24px comes back below. */
 const TOKEN_VALUES = {
   '--pf-mark-floor': '3',
   '--pf-mark-floor-dense': '1.5',
@@ -1068,9 +1069,10 @@ check(
   `${tokenReadings.join(' ')} ｜ box-sizing=${rootWon['box-sizing'] === undefined ? '（没有规则落在它身上）' : `"${rootWon['box-sizing']}"`}`,
 )
 
-/* The mock's last-linked settings.css does not ship, but two of its rules unrelated to the settings
- * page layout (stage and frame) do apply on the mock: this walks DOM matching to see whose
- * declaration finally lands on `.pf-stage` / `.pf-frame`. */
+/* `settings.css` ships as the seven rules that land on the panel; the settings page's own furniture
+ * is drawing rather than shipping, and lives with the design snapshot outside this repo. Two of the
+ * seven (stage and frame) are what centres the pane: this walks DOM matching to see whose
+ * declaration lands on `.pf-stage` and `.pf-frame`. */
 const stageWon = winningDeclarations(container.querySelector('.pf-stage'), ['padding', 'align-items', 'height'])
 const frameWon = winningDeclarations(container.querySelector('.pf-frame'), ['width', 'max-height', 'min-height'])
 const carriedOk = stageWon.padding === '20px 0' && stageWon['align-items'] === 'center' && stageWon.height === '100%'
@@ -1081,301 +1083,14 @@ check(
   `stage padding=${JSON.stringify(stageWon.padding)} align-items=${JSON.stringify(stageWon['align-items'])} height=${JSON.stringify(stageWon.height)} ｜ frame width=${JSON.stringify(frameWon.width)} max-height=${JSON.stringify(frameWon['max-height'])} min-height=${JSON.stringify(frameWon['min-height'])}`,
 )
 
-/* ---- 3b. Product vs mock/ equivalence: sheet by sheet, rule by rule ------
- * The two readings above are point probes; they cannot catch "a whole group of rules went missing".
- * Here is a whole-sheet ruler: the shipped css is a mechanical rewrite of the `mock/` sheets
- * (selectors rewritten, declarations byte-identical), so sheet-by-sheet comparison works — wrapping
- * at-rules, selectors and declaration bodies must all match; the only allowed difference is the
- * explicitly listed `CARRIED` rules.
- *
- * The ruler carries its own sheet list and scoping map instead of importing the build entry's:
- * computing expectations with the code under test would make the ruler measure nothing.
- * Normalization: strip comments, fold whitespace runs to one space, trim ends on both sides;
- * declaration order is compared as-is, unsorted — order means something in CSS.
+/* The equivalence ruler lived here: it compared the shipped css against the blueprint's sheets rule by
+ * rule, sheet by sheet, and the two embedded panes' landing against a copy of those sheets. It
+ * existed to prove the build's scoping pass faithful, and that pass is gone — `src/client/styles/`
+ * is read in order as the shipped bytes, so there is nothing left to compare them to. The notches
+ * it guarded (`.is-embed.pf-wires X`, `.pf-issue .pf-register .pf-row`) are written out plainly in
+ * those sheets, where an editor sees them. What stands in its place: the build's own layer ruler (a
+ * selector escaping its layer stops the build), the token probe just above, and 4b / 4c below.
  */
-const SHEETS = [
-  { sheet: 'tokens.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/main.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/board.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/lines.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/detail.css', scope: pageLayer('.pf-page') },
-  { sheet: 'styles/notes.css', scope: pageLayer('.pf-page') },
-  /* The wires and issue sheets are each a standalone document in the mock, yielding header and page
-     margins to the host via `.is-embed`; inside the panel each carries its own page marker (the two
-     `.pf-pane` cells): the prefix is that cell's page marker, and the sheet's yield marker brings
-     the page marker along — both specificity gaps must survive, one covering the top band, the
-     other the rules sharing names with the panel. */
-  { sheet: 'styles/field.css', scope: embedLayer('.pf-wires') },
-  { sheet: 'styles/register.css', scope: embedLayer('.pf-issue') },
-]
-const CARRIED = [{
-  sheet: 'styles/settings.css',
-  selectors: ['.pf-stage', '.pf-frame', '.pf-configwrap', '.pf-configwrap .pf-scroll', '.pf-config', '.pf-config .pf-setrow', '.pf-vlayer'],
-}]
-const SCOPE = pageLayer('.pf-page')
-const PAGE_ROOTS = new Set([':root', 'html', 'body'])
-
-function closingBrace(css, open) {
-  let depth = 1
-  let k = open + 1
-  while (k < css.length && depth > 0) {
-    if (css[k] === '{') depth += 1
-    else if (css[k] === '}') depth -= 1
-    if (depth === 0) break
-    k += 1
-  }
-  return k
-}
-
-function normalize(text) {
-  return text.replace(/\/\*[\s\S]*?\*\//gu, ' ').replace(/\s+/gu, ' ').trim()
-}
-
-/** Split one css sheet into a rule list: each entry records its wrapping at-rules, selector and declaration body.
- * Wrapped ones (`@media` / `@supports` / `@layer`) descend a level; `@keyframes` and the like count as one entry. */
-function ruleEntries(css, wrap = []) {
-  const out = []
-  let i = 0
-  while (i < css.length) {
-    const open = css.indexOf('{', i)
-    if (open < 0) break
-    const close = closingBrace(css, open)
-    const prelude = normalize(css.slice(i, open))
-    const body = css.slice(open + 1, close)
-    if (prelude.startsWith('@media') || prelude.startsWith('@supports') || prelude.startsWith('@layer')) {
-      out.push(...ruleEntries(body, [...wrap, prelude]))
-    } else if (prelude.length > 0) {
-      out.push({ wrap, prelude, body: normalize(body) })
-    }
-    i = close + 1
-  }
-  return out
-}
-
-/** "This segment is already scoped into the layer" — compared per token, not by substring (`.pf-pagewrap` does not count). */
-function alreadyScoped(part, className) {
-  return part
-    .split(/[\s>+~]+/u)
-    .flatMap((segment) => segment.split(/[.#:[\]]/u))
-    .some((token) => token === className)
-}
-
-/** What this selector segment should become in the product — this sheet and the build entry each carry their own copy; nothing is imported. */
-function expectedPart(part, scope) {
-  const low = part.toLowerCase()
-  /* Segments carrying the sheet's own "embed" marker: rewritten to "this marker + this cell's page
-     marker", restoring the notch it holds above the base rule while landing only on this cell. */
-  if (scope.marker !== undefined && alreadyScoped(part, scope.marker)) {
-    return [part.replace(new RegExp(`\\.${scope.marker}(?![\\w-])`, 'gu'), `.${scope.marker}${scope.root}`)]
-  }
-  if (alreadyScoped(part, scope.root.slice(1))) return [part]
-  if (low === '*') return [scope.root, `${scope.root} *`]
-  if (low.startsWith('*::')) return [`${scope.root}${part.slice(1)}`, `${scope.root} ${part}`]
-  if (PAGE_ROOTS.has(low)) return [scope.root]
-  return [`${scope.add} ${part}`]
-}
-
-/** The main panel layer: prefix only. */
-function pageLayer(root) { return { root, add: root } }
-
-/** The two embedded cells' layer: the prefix is the cell's page marker, and the sheet's embed marker brings it along (one notch up). */
-function embedLayer(root) { return { root, add: root, marker: 'is-embed' } }
-
-function expectedPrelude(prelude, scope) {
-  const parts = prelude
-    .split(',')
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
-    .flatMap((part) => expectedPart(part, scope))
-  return [...new Set(parts)].join(', ')
-}
-
-/** The expected shape computed from the mock side: `@keyframes` blocks pass through as-is. */
-function expectedOf(entry, scope) {
-  return {
-    wrap: entry.wrap,
-    prelude: entry.prelude.startsWith('@') ? entry.prelude : expectedPrelude(entry.prelude, scope),
-    body: entry.body,
-  }
-}
-
-function diffOf(want, got) {
-  if (got === undefined) return `期望 ${JSON.stringify(want.prelude)}（${want.body.slice(0, 40)}）｜ 产物里没有这一条`
-  const same = got.prelude === want.prelude
-    && got.body === want.body
-    && JSON.stringify(got.wrap) === JSON.stringify(want.wrap)
-  if (same) return ''
-  const at = JSON.stringify(got.wrap) === JSON.stringify(want.wrap) ? '' : `（套着的 at-rule 不同：期望 ${want.wrap.join(' ')}｜产物 ${got.wrap.join(' ')}）`
-  return `期望 ${JSON.stringify(want.prelude)}{${want.body.slice(0, 56)}} ｜ 产物 ${JSON.stringify(got.prelude)}{${got.body.slice(0, 56)}}${at}`
-}
-
-function firstMismatch(expected, got) {
-  for (const [index, want] of expected.entries()) {
-    const reading = diffOf(want, got[index])
-    if (reading !== '') return { index, reading }
-  }
-  return null
-}
-
-const productEntries = ruleEntries(client.PANEL_CSS)
-let cursor = 0
-for (const { sheet, scope } of SHEETS) {
-  const expected = ruleEntries(readFileSync(join(root, 'mock', sheet), 'utf8')).map((entry) => expectedOf(entry, scope))
-  const got = productEntries.slice(cursor, cursor + expected.length)
-  cursor += expected.length
-  const bad = firstMismatch(expected, got)
-  check(
-    `产物里 ${sheet} 那一份与 mock/ 逐条等价（选择器 + 声明正文）`,
-    bad === null,
-    bad === null
-      ? `${String(expected.length)} 条对上`
-      : `第 ${String(bad.index + 1)}/${String(expected.length)} 条起对不上：${bad.reading}`,
-  )
-}
-const carriedWanted = CARRIED.flatMap(({ sheet, selectors }) => {
-  const wanted = new Set(selectors)
-  return ruleEntries(readFileSync(join(root, 'mock', sheet), 'utf8')).flatMap((entry) => {
-    const kept = entry.prelude.split(',').map((part) => part.trim()).filter((part) => wanted.has(part))
-    return kept.length > 0 ? [expectedOf({ ...entry, prelude: [...new Set(kept)].join(', ') }, SCOPE)] : []
-  })
-})
-const carriedGot = productEntries.slice(cursor, cursor + carriedWanted.length)
-cursor += carriedWanted.length
-const carriedBad = firstMismatch(carriedWanted, carriedGot)
-check(
-  '整张 settings.css 不进包，只按明写取进来的那几条（舞台、框、设置那一列的版面）与 mock/ 逐条等价',
-  carriedBad === null && carriedWanted.length === CARRIED[0].selectors.length,
-  `${String(carriedWanted.length)} 条对上 ｜ ${carriedBad === null ? '逐条相等' : carriedBad.reading}`,
-)
-check(
-  '产物里除了 mock/ 那几张表与明写的 CARRIED，没有别的规则',
-  cursor === productEntries.length,
-  `产物 ${String(productEntries.length)} 条 ｜ 八张表 + CARRIED 算出来 ${String(cursor)} 条`,
-)
-lines.push(`      等价性：mock/ 那 ${String(SHEETS.length)} 张表 + CARRIED ${String(carriedWanted.length)} 条 → 产物 ${String(productEntries.length)} 条规则，逐条比选择器与声明正文（上面每张表一条读数）`)
-
-/* ---- 3c. Landing: who wins in the product must match the mock side --------
- * 3b compares text (selectors and declarations exact), which cannot tell "of two rules on the same
- * property, who wins". The mock's two embedded sheets carry two specificity gaps; whichever one
- * scoping disturbs changes what actually reads out:
- *
- * - The sheets' own yield rules (`.is-embed X`) sit one notch above the base rule — lose that notch
- *   and the top band's padding returns;
- * - Elements whose names this sheet shares with **the panel's own sheets** (the detail pane's
- *   `.pf-row`, the main panel's `.pf-head`) have no rival in the mock — each lives in its own
- *   document — and win inside the panel only by "same specificity, later in order"; disturb that
- *   and the issue pool row's column width falls to the detail row.
- *
- * So this measures landing: the two panel cells' subtrees are moved verbatim into the mock's own
- * documents (page root tagged `is-embed`, only that one sheet attached), the same property is run
- * through the cascade on both sides, and the final winners are compared. jsdom does no cascading
- * and no shorthand expansion; both are done by hand here.
- */
-const SHORTHAND = {
-  padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
-  margin: ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
-}
-
-/** A selector's specificity: `::` excluded; anything inside `:where()` counts 0 (the product has none today; the ruler keeps the rule). */
-function specificityOf(selector) {
-  const bare = selector.replace(/:where\((?:[^()]|\([^()]*\))*\)/gu, '').replace(/::[\w-]+/gu, '')
-  const ids = (bare.match(/#[\w-]+/gu) ?? []).length
-  const classes = (bare.match(/\.[\w-]+/gu) ?? []).length
-  const attrs = (bare.match(/\[[^\]]*\]/gu) ?? []).length
-  const pseudos = (bare.match(/:(?!:)[\w-]+/gu) ?? []).length
-  const tags = (bare.match(/(?:^|[\s>+~])[a-zA-Z][\w-]*/gu) ?? []).length
-  return ids * 1e6 + (classes + attrs + pseudos) * 1e3 + tags
-}
-
-/** Expand a shorthand declaration: cssom keeps `padding: 14px 0 16px` verbatim and does not expand it for us. */
-function longhandsOf(name, value) {
-  const list = SHORTHAND[name]
-  if (list === undefined) return [[name, value]]
-  const parts = value.split(/\s+/u).filter((one) => one.length > 0)
-  const four = parts.length === 1 ? [parts[0], parts[0], parts[0], parts[0]]
-    : parts.length === 2 ? [parts[0], parts[1], parts[0], parts[1]]
-      : parts.length === 3 ? [parts[0], parts[1], parts[2], parts[1]]
-        : parts
-  return four.length === 4 ? list.map((one, at) => [one, four[at]]) : [[name, value]]
-}
-
-/** The final declarations landing on an element in one document: per property, (specificity, order) wins. */
-function cascadeWinner(win, element, properties) {
-  const won = {}
-  if (element === null) return won
-  let order = 0
-  const rules = [...win.document.styleSheets].flatMap((sheet) => [...(sheet.cssRules ?? [])])
-  for (const rule of rules.flatMap((one) => (one.cssRules === undefined ? [one] : [...one.cssRules]))) {
-    const selector = rule.selectorText
-    if (selector === undefined) continue
-    order += 1
-    let hit = false
-    try { hit = element.matches(selector) } catch { hit = false }
-    if (!hit) continue
-    const score = specificityOf(selector)
-    for (let at = 0; at < rule.style.length; at += 1) {
-      const name = rule.style[at]
-      const value = (rule.style.getPropertyValue(name) ?? '').replace(/\s+/gu, ' ').trim()
-      for (const [property, settled] of longhandsOf(name, value)) {
-        if (!properties.includes(property)) continue
-        const held = won[property]
-        if (held === undefined || score > held.score || (score === held.score && order > held.order)) {
-          won[property] = { value: settled, score, order }
-        }
-      }
-    }
-  }
-  return won
-}
-
-/** The mock side: this page's subtree goes into its own document — page root tagged `is-embed`, only its own sheet attached. */
-function blueprintWindow(pageRoot, sheet) {
-  const css = readFileSync(join(root, 'mock', sheet), 'utf8')
-  return new JSDOM(`<!doctype html><html class="is-embed"><head><style>${css}</style></head><body>${pageRoot.outerHTML}</body></html>`).window
-}
-
-/* Two probe groups: the top band (the yield rules pressing above the base rules) and the two page-root paddings (each sheet owning its own page). */
-const EMBED_PROBES = [
-  { pane: '#pane-issue', sheet: 'styles/register.css', group: '顶上那一段', at: '.pf-band', properties: ['padding-top'] },
-  { pane: '#pane-wires', sheet: 'styles/field.css', group: '顶上那一段', at: '.pf-bar', properties: ['margin-top'] },
-  { pane: '#pane-issue', sheet: 'styles/register.css', group: '页根那两条内边距', at: '.pf-page', properties: SHORTHAND.padding },
-  { pane: '#pane-wires', sheet: 'styles/field.css', group: '页根那两条内边距', at: '.pf-page', properties: SHORTHAND.padding },
-  /* Elements sharing names with the panel's own sheets: in the mock they have no rival inside their
-     own documents, but in the panel they compete with the detail row (`detail.css`'s `.pf-row`) and
-     the main panel's group head (`main.css`'s `.pf-head`) — this sheet wins by "same specificity,
-     later in order"; disturb that notch and the column width and that line change hands. */
-  { pane: '#pane-issue', sheet: 'styles/register.css', group: '同名规矩那一处', at: '.pf-register .pf-row', properties: ['grid-template-columns', 'column-gap', 'height', ...SHORTHAND.padding] },
-  { pane: '#pane-issue', sheet: 'styles/register.css', group: '同名规矩那一处', at: '.pf-register .pf-head', properties: ['grid-template-columns', 'column-gap', 'align-items', 'padding-top'] },
-]
-
-const embedReadings = []
-for (const probe of EMBED_PROBES) {
-  const pageRoot = container.querySelector(`${probe.pane} > .pf-page`)
-  /* The page-root probe measures the root itself: `querySelector` only sees descendants and would never find it from itself. */
-  const target = pageRoot === null ? null : (pageRoot.matches(probe.at) ? pageRoot : pageRoot.querySelector(probe.at))
-  const blueprint = blueprintWindow(pageRoot ?? window.document.createElement('div'), probe.sheet)
-  const product = cascadeWinner(window, target, probe.properties)
-  const want = cascadeWinner(blueprint, blueprint.document.querySelector(probe.at), probe.properties)
-  const rows = probe.properties.map((property) => {
-    const got = product[property]?.value ?? '（没有规矩落在它身上）'
-    const expected = want[property]?.value ?? '（没有规矩落在它身上）'
-    return { group: probe.group, same: got === expected, text: `${probe.at} ${property}=${got}${got === expected ? '' : `（蓝本 ${expected}）`}` }
-  })
-  embedReadings.push(...rows)
-}
-
-for (const [group, what] of [
-  ['顶上那一段', '嵌入那两格顶上那一段'],
-  ['页根那两条内边距', '嵌入那两格的页根内边距'],
-  ['同名规矩那一处', '嵌入那两格里与面板同名的那些规矩'],
-]) {
-  const rows = embedReadings.filter((one) => one.group === group)
-  check(
-    `${what}与蓝本落在同一处`,
-    rows.length > 0 && rows.every((one) => one.same),
-    rows.map((one) => one.text).join(' ｜ '),
-  )
-}
 
 /* ---- 4a. The settings section: a navigation row + the page it opens, reading the same settings form as the panel ----
  * This section lives in DSH's own settings panel, not in the main panel's tree, so the product's
@@ -1891,7 +1606,7 @@ check(
 )
 
 /* ---- 4d. The settings pane: this workspace's own project settings, read here and edited here ----
- * Four rows, three control kinds, a layer tag at each row's end, per the mock. Readings on both
+ * Four rows, three control kinds, a layer tag at each row's end, per the blueprint. Readings on both
  * sides: what the panel shows, and the four lines the real tool prints against the same workspace.
  * Each edit writes back to this project's layer and is read again — the reading lands on the record
  * file (`workspace/.pf/config.json`); what the panel reads back on its own does not count.
@@ -1906,7 +1621,7 @@ const listed = await runPf(hostCtx, workspace, ['config', 'list'], new AbortCont
 /* A run's outcome carries the tool's output on success and a code-plus-detail refusal otherwise: only
  * the success branch has a text stream to parse. */
 const truth = parseConfigList(listed.ok ? listed.text : '')
-/** The record's three layer names as the panel's three words (the mock's wording). */
+/** The record's three layer names as the panel's three words (the blueprint's wording). */
 const LAYER_WORD = { default: '默认', project: '本项目', global: '全局' }
 check(
   '设置那一格：真工具对着这份工作区印得出四行设置',
