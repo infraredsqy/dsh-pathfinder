@@ -82,7 +82,7 @@ export function readProject(input: RecordsAtMoment): ProjectReading {
 
   const cut = input.cycles.map((cycle) => cutCycle(cycle, at))
   const facts = readFacts(input.nodes, cut, at)
-  const nodes = facts.map((item) => readNode(item, facts, cut, at))
+  const nodes = facts.map((item) => readNode(item, facts, at))
   const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]))
   const cycles = cut.map((item) => finishCycle(item, nodes))
   const cycleById = Object.fromEntries(cycles.map((cycle) => [cycle.id, cycle]))
@@ -248,14 +248,10 @@ function readFacts(
   })
 }
 
-function readNode(
-  facts: NodeFacts,
-  all: readonly NodeFacts[],
-  cut: readonly CutCycle[],
-  at: Date,
-): NodeReading {
+function readNode(facts: NodeFacts, all: readonly NodeFacts[], at: Date): NodeReading {
   const { id, node, state, steps, held, firstStep, lastVerdict } = facts
   const completedAt = cutAt(toMoment(node.completed_at), at)
+  const approvedAt = cutAt(toMoment(node.approved_at), at)
   const startedAt = firstStep?.startedAt ?? null
   const endedAt = firstStep?.endedAt ?? null
   const heldByIDs: string[] = []
@@ -271,16 +267,14 @@ function readNode(
   const mode = text(node.mode)
   const title = text(node.title)
   const session = text(node.dsh_session)
-  const line = facts.walkedBy[0]
-  const lineLast = line === undefined ? undefined : cut.find((item) => item.id === line)?.lastStep ?? null
   const parkedSince = state === 'shelved' && lastVerdict !== undefined ? lastVerdict.endedAt : null
   const gate = gateOf({
-    id,
     state,
     mode,
     parkedSince,
     startedAt,
-    lineLast,
+    completedAt,
+    approvedAt,
   })
   return {
     id,
@@ -316,12 +310,12 @@ function readNode(
  * The kind is the whole answer — what a reader calls it is the client's word.
  */
 function gateOf(facts: {
-  readonly id: string
   readonly state: NodeState
   readonly mode: string | undefined
   readonly parkedSince: Date | null
   readonly startedAt: Date | null
-  readonly lineLast: StepReading | null | undefined
+  readonly completedAt: Date | null
+  readonly approvedAt: Date | null
 }): GateReading | null {
   if (facts.state === 'shelved') {
     return { kind: 'shelved', since: facts.parkedSince }
@@ -329,11 +323,22 @@ function gateOf(facts: {
   if (facts.mode === 'manual' && facts.state !== 'completed') {
     return { kind: 'manual', since: facts.startedAt }
   }
-  const last = facts.lineLast
-  if (facts.mode === 'checkpoint' && facts.state === 'completed' && last !== null && last !== undefined && last.node === facts.id) {
-    return { kind: 'checkpoint', since: last.endedAt }
+  /* A checkpoint's gate reads this node's own record only: delivered, and this delivery not approved. Where the line has walked since says nothing about it. */
+  if (facts.mode === 'checkpoint' && facts.state === 'completed' && !approvedDelivery(facts.completedAt, facts.approvedAt)) {
+    return { kind: 'checkpoint', since: facts.completedAt }
   }
   return null
+}
+
+/**
+ * Whether that delivery has been approved: both moments written down, and the
+ * approval not earlier than the delivery — compared as moments, since one
+ * record writes two shapes of timestamp text. Without a delivery moment there
+ * is no delivery for an approval to be about.
+ */
+function approvedDelivery(completedAt: Date | null, approvedAt: Date | null): boolean {
+  if (completedAt === null || approvedAt === null) return false
+  return approvedAt.getTime() >= completedAt.getTime()
 }
 
 function finishCycle(cycle: CutCycle, nodes: readonly NodeReading[]): CycleReading {

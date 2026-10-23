@@ -218,13 +218,30 @@ test('人闸：一个词 + 那一刻，不要人的格没有这个词', () => {
   assert.equal(hand.nodeById.m.gate.kind, 'manual')
   assert.equal(hand.nodeById.m.gate.since, null, '记录里没有那一刻：空着，不编一个')
 
+  /* A checkpoint's gate reads this node's own record alone: delivered, and this delivery not approved
+   * by a person. Where the line has walked since says nothing about that delivery. */
   const checkpoint = readProject(record({
-    nodes: { cp: node({ mode: 'checkpoint', status: 'completed', completed_at: '2026-03-10T09:00:00.000Z' }) },
+    nodes: { cp: node({ mode: 'checkpoint', status: 'completed', completed_at: '2026-03-10T09:20:00.000Z' }) },
     cycles: [cycle({ path: [step('cp', '2026-03-10T08:00:00.000Z', '2026-03-10T09:00:00.000Z', 'completed')] })],
   }))
-  assert.equal(checkpoint.nodeById.cp.gate.kind, 'checkpoint')
+  assert.equal(checkpoint.nodeById.cp.gate.kind, 'checkpoint', '交付了、没人批过：闸就亮着')
   assert.equal(Object.hasOwn(checkpoint.nodeById.cp.gate, 'word'), false, '闸不再带词：是哪一种只看 kind')
-  assert.equal(checkpoint.nodeById.cp.gate.since.getTime(), Date.parse('2026-03-10T09:00:00.000Z'))
+  assert.equal(
+    checkpoint.nodeById.cp.gate.since.getTime(),
+    Date.parse('2026-03-10T09:20:00.000Z'),
+    '那一刻＝交付那一刻；那一步何时落停与它无关',
+  )
+
+  const approved = readProject(record({
+    nodes: { cp: node({ mode: 'checkpoint', status: 'completed', completed_at: '2026-03-10T09:00:00.000Z', approved_at: '2026-03-10T10:00:00.000Z' }) },
+  }))
+  assert.equal(approved.nodeById.cp.gate, null, '批在交付之后：这次交付有人批过，闸消失')
+
+  const approvedEarly = readProject(record({
+    nodes: { cp: node({ mode: 'checkpoint', status: 'completed', completed_at: '2026-03-10T10:00:00.000Z', approved_at: '2026-03-10T09:00:00.000Z' }) },
+  }))
+  assert.equal(approvedEarly.nodeById.cp.gate.kind, 'checkpoint', '重交付把交付时刻推到那次批之后：旧批不算数，闸又回来')
+  assert.equal(approvedEarly.nodeById.cp.gate.since.getTime(), Date.parse('2026-03-10T10:00:00.000Z'))
 
   const moved = readProject(record({
     nodes: {
@@ -238,8 +255,29 @@ test('人闸：一个词 + 那一刻，不要人的格没有这个词', () => {
       ],
     })],
   }))
-  assert.equal(moved.nodeById.cp.gate, null, '这条线又往前走了：那一拍已经过去')
+  assert.equal(moved.nodeById.cp.gate.kind, 'checkpoint', '这条线又往前走了也不清闸：没有批过就还是闸')
   assert.equal(moved.nodeById.after.gate, null, '自动格不要人')
+
+  const shapes = readProject(record({
+    nodes: {
+      late: node({
+        mode: 'checkpoint', status: 'completed',
+        completed_at: '2026-03-10T09:00:44Z', approved_at: '2026-03-10T09:00:44.500000Z',
+      }),
+      early: node({
+        mode: 'checkpoint', status: 'completed',
+        completed_at: '2026-03-10T09:00:44.500000Z', approved_at: '2026-03-10T09:00:44Z',
+      }),
+    },
+  }))
+  assert.equal(shapes.nodeById.late.gate, null, '两种时刻形状混用：半秒之后的那次批按时刻比算批过')
+  assert.equal(shapes.nodeById.early.gate.kind, 'checkpoint', '半秒之前的那次批按字符串比会读反，按时刻比才是没批过')
+
+  const undated = readProject(record({
+    nodes: { cp: node({ mode: 'checkpoint', status: 'completed' }) },
+  }))
+  assert.equal(undated.nodeById.cp.gate.kind, 'checkpoint', '只说交付、没写交付那一刻：没有交付可批，闸仍然亮着')
+  assert.equal(undated.nodeById.cp.gate.since, null, '记录里没有那一刻：空着，不编一个')
 
   const running = readProject(record({
     nodes: { cp: node({ mode: 'checkpoint' }) },

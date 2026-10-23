@@ -33,6 +33,8 @@ export interface PathfinderNode {
   readonly dependencies?: readonly string[]
   readonly created_at?: string | null
   readonly completed_at?: string | null
+  /** The moment a human approved this delivery; it counts only at or after that delivery. */
+  readonly approved_at?: string | null
   readonly updated_at?: string | null
   /** Any other fields the record carries come along: no trimming at this step. */
   readonly [field: string]: unknown
