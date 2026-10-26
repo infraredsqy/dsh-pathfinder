@@ -1,5 +1,7 @@
 .tmp/
 .work*/
+# A record ledger lives on the author's machine only; the panel reads one through config, never ships one
+/.pf/
 lib/
 node_modules/
 # The design blueprint, kept locally for reference only: a self-contained snapshot (page-shaped
