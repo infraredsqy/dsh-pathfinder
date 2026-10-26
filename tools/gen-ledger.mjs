@@ -2,7 +2,7 @@
 /* Regenerate design/ledger.js from a real .pf ledger: the preview is what the panel is
  * judged against, and hand-copied titles drift.
  *
- *   node tools/gen-ledger.mjs [--ledger <path to .pf>]
+ *   node tools/gen-ledger.mjs --ledger <path to .pf>
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,10 +13,11 @@ const OUT = path.resolve(HERE, '..', 'design', 'ledger.js');
 
 const argv = process.argv.slice(2);
 const at = argv.indexOf('--ledger');
-const LEDGER =
-  at >= 0
-    ? argv[at + 1]
-: path.join(HERE, '..', '..', '.pf');
+if (at < 0 || argv[at + 1] === undefined) {
+  console.error('usage: node tools/gen-ledger.mjs --ledger <path to a .pf ledger>');
+  process.exit(2);
+}
+const LEDGER = path.resolve(argv[at + 1]);
 
 const ideas = JSON.parse(fs.readFileSync(path.join(LEDGER, 'ideas.json'), 'utf8'));
 const state = JSON.parse(fs.readFileSync(path.join(LEDGER, 'state.json'), 'utf8'));

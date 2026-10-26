@@ -3,7 +3,7 @@
  * verbatim out of the issue register, the cycle policy the pool is measured
  * against, and the readings the pipeline took of that measure.
  *
- *   node tools/gen-issues.mjs [--ledger <path to .pf>]
+ *   node tools/gen-issues.mjs --ledger <path to .pf>
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,10 +14,11 @@ const OUT = path.resolve(HERE, '..', 'design', 'issues.js');
 
 const argv = process.argv.slice(2);
 const at = argv.indexOf('--ledger');
-const LEDGER =
-  at >= 0
-    ? argv[at + 1]
-    : path.join(HERE, '..', '..', '.pf');
+if (at < 0 || argv[at + 1] === undefined) {
+  console.error('usage: node tools/gen-issues.mjs --ledger <path to a .pf ledger>');
+  process.exit(2);
+}
+const LEDGER = path.resolve(argv[at + 1]);
 
 const read = (p) => JSON.parse(fs.readFileSync(path.join(LEDGER, p), 'utf8'));
 const state = read('state.json');
