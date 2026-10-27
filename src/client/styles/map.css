@@ -222,8 +222,40 @@
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 8%, var(--dsw-alias-bg-layer-1));
 }
 
-.pf-page .pf-mnode:hover {
-  --edge-mix: 100%;
+/* Hover is said on the ground, not on the frame: the frame is already carrying this card's state,
+ * and a lit card has no headroom left on it — so a frame-only hover answered half the cards on the
+ * page and ignored the other half. The veil is the theme's own hover material laid over whatever
+ * ground the card has, so an inked card and a dim one answer the pointer by the same amount. */
+.pf-page .pf-mnode:hover,
+.pf-page .pf-mnode:focus-visible {
+  background-image: linear-gradient(var(--dsw-alias-interactive-bg-hover), var(--dsw-alias-interactive-bg-hover));
+}
+
+/* ---- One line picked ----------------------------------------------------
+ *
+ * Picking a line is the reader asking for that line, so only the line's own cards keep a frame: a
+ * frame says what state a cell is in, and every line saying its state at once is the noise the rail
+ * was pressed to silence. The ranks below it are carried by ground and ink:
+ *
+ *   in the line   the frame, the raised ground, the reading ink;
+ *   no line yet   the future this line may lead to — the opaque layer-1 ground, secondary ink;
+ *   another line  the plain page ground, tertiary ink — on the page, not speaking.
+ *
+ * In the light palette every layer is the same white, so the two lower ranks are carried by ink
+ * alone; the frame still says which line is picked, which is the one thing that must not be lost.
+ *
+ * Wires keep the rule they have everywhere: in ink only when both of their ends are lit.
+ */
+.pf-page .pf-field.is-scoped .pf-mnode:not(.is-lit) {
+  --edge-mix: 0%;
+}
+
+.pf-page .pf-field.is-scoped .pf-mnode.is-ahead {
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.pf-page .pf-field.is-scoped .pf-mnode.is-ahead .pf-mtitle {
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* Three lines: the cycle's own id, the title, and the row of marks and moments. */

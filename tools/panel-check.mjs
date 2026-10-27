@@ -1379,7 +1379,7 @@ const click = async (element) => {
   await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
   await settle()
 }
-const { fitView, focusView, litOf, place, rankedOf } = await import(pathToFileURL(join(root, 'src', 'client', 'map-layout.ts')).href)
+const { emphasisOf, fitView, focusView, place, rankedOf } = await import(pathToFileURL(join(root, 'src', 'client', 'map-layout.ts')).href)
 
 /** Before this section starts: how often the write face was called, and what the record looked like. */
 const writesBefore = writeCalls.length
@@ -1390,6 +1390,7 @@ await settle()
 
 const drawnCards = () => [...(mapPane()?.querySelectorAll('.pf-mnode') ?? [])]
 const litIds = () => drawnCards().filter((card) => card.classList.contains('is-lit')).map((card) => card.getAttribute('data-id'))
+const aheadIds = () => drawnCards().filter((card) => card.classList.contains('is-ahead')).map((card) => card.getAttribute('data-id'))
 const cardOf = (id) => drawnCards().find((card) => card.getAttribute('data-id') === id)
 const canvasOf = () => mapPane()?.querySelector('.pf-canvas')
 const scaleOf = () => Number(/scale\(([\d.]+)\)/u.exec(canvasOf()?.style.transform ?? '')?.[1] ?? Number.NaN)
@@ -1416,7 +1417,7 @@ check(
 const hub = project.graph.edges[0]?.from
 const hubCard = hub === undefined ? undefined : cardOf(hub)
 if (hubCard !== undefined) await click(hubCard)
-const wantLit = hub === undefined ? [] : [...litOf(placement, hub, null)].sort()
+const wantLit = hub === undefined ? [] : [...emphasisOf(placement, hub, null).lit].sort()
 check(
   '地图那一格：点一格，点亮它自己、它欠的、欠它的，加上全工作区的人闸',
   hubCard !== undefined && JSON.stringify(litIds().sort()) === JSON.stringify(wantLit),
@@ -1436,6 +1437,18 @@ check(
     && (lineNodes.length === project.nodes.length || litIds().length < project.nodes.length)
     && drawnCards().length === project.nodes.length,
   `这条线碰过 ${String(lineNodes.length)} 格 ｜ 点亮的 ${String(litIds().length)} 格 ｜ 图上 ${String(drawnCards().length)} 格（记录里 ${String(project.nodes.length)} 格）`,
+)
+
+/* The tiers below the picked line: a card no line has touched yet is "ahead", a card on another
+ * line is neither of the two — it keeps its state in its mark and its words, not in its frame. */
+const noLine = project.nodes.filter((node) => node.cycleIds.length === 0).map((node) => node.id)
+const otherLine = project.nodes.filter((node) => node.cycleIds.length > 0 && !node.cycleIds.includes(scopeLine?.id)).map((node) => node.id)
+check(
+  '地图那一格：选一条线，没有线的格子低一档，别的线的格子两档都不占',
+  lineNodes.every((id) => litIds().includes(id))
+    && noLine.every((id) => aheadIds().includes(id))
+    && otherLine.every((id) => !litIds().includes(id) && !aheadIds().includes(id)),
+  `选中的线碰过 ${String(lineNodes.length)} 格 ｜ 没有线的 ${String(noLine.length)} 格 ｜ 别的线的 ${String(otherLine.length)} 格 ｜ 面板上：墨 ${String(litIds().length)} / 未来 ${String(aheadIds().length)}`,
 )
 
 /* The overview: one press on the top-right magnifier, and the camera takes the engine's own fit. */
@@ -1469,8 +1482,8 @@ await act(async () => {
   if (field === null || field === undefined) return
   const at = (type, clientX, clientY) => field.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY }))
   at('pointerdown', 400, 300)
-  at('pointermove', 470, 340)
-  at('pointerup', 470, 340)
+  at('pointermove', 470, 300)
+  at('pointerup', 470, 300)
 })
 await settle()
 const afterDrag = transformOf()
@@ -1479,8 +1492,7 @@ check(
   beforeDrag !== null && afterDrag !== null
     && Math.abs(afterDrag.tx - beforeDrag.tx - 70) < 0.5
     && afterDrag.s === beforeDrag.s
-    /* This drawing is shorter than the viewport, so a drag has nowhere to go vertically: the camera
-     * keeps centring it there rather than showing empty ground. */
+    /* The drag is level: nothing asked the page to move vertically, so it must not. */
     && afterDrag.ty === beforeDrag.ty,
   `拖之前=${JSON.stringify(beforeDrag)} 拖之后=${JSON.stringify(afterDrag)}`,
 )

@@ -330,21 +330,52 @@ export function wirePath(from: Point, to: Point): string {
 }
 
 /**
- * The cards to keep in ink: the focus, what it owes and what owes it, plus the scope's own reading —
- * every gate when the scope is the whole workspace, every card one line has touched when it is that
- * line. Wires are drawn in ink only when both of their ends are lit.
+ * How loudly each card speaks on this page.
+ *
+ * `lit` is the reading the page is about; `ahead` is the one step below it, and exists only once a
+ * line is picked. No card outside a picked line wears a frame: a frame is this card's own state, and
+ * a reader who asked for one line would otherwise hear every other line's state just as loudly. So
+ * the ranks are carried by ink and ground instead — the picked line in full, the work no line has
+ * picked up yet in the middle (it is still the future this line may lead to), everything else dim.
  */
-export function litOf(placement: Placement, focus: string | null, scope: string | null): ReadonlySet<string> {
+export interface Emphasis {
+  /** Full ink: the focus's ring, or every card the picked line has touched. */
+  readonly lit: ReadonlySet<string>
+  /** One step down: cards no line has picked up yet. Empty unless a line is picked. */
+  readonly ahead: ReadonlySet<string>
+}
+
+/**
+ * What the page holds in ink, at one scope.
+ *
+ * With the whole workspace in scope, this is the focus and its ring plus every gate: the triage's own
+ * reading. With one line picked, the line's own cards are the reading, and a gate on another line is
+ * not: the reader asked for this line. The one exception is the card the reader pressed — it stays in
+ * ink wherever it belongs, because a press that changes nothing on the card the reader is looking at
+ * would be a control that does not answer.
+ */
+export function emphasisOf(placement: Placement, focus: string | null, scope: string | null): Emphasis {
+  if (scope === null) {
+    const lit = new Set<string>()
+    if (focus !== null && placement.pos[focus] !== undefined) {
+      lit.add(focus)
+      for (const id of placement.up[focus] ?? []) lit.add(id)
+      for (const id of placement.down[focus] ?? []) lit.add(id)
+    }
+    for (const node of placement.drawn) {
+      if (node.gate !== null) lit.add(node.id)
+    }
+    return { lit, ahead: new Set<string>() }
+  }
+
   const lit = new Set<string>()
-  if (focus !== null && placement.pos[focus] !== undefined) {
-    lit.add(focus)
-    for (const id of placement.up[focus] ?? []) lit.add(id)
-    for (const id of placement.down[focus] ?? []) lit.add(id)
-  }
+  const ahead = new Set<string>()
   for (const node of placement.drawn) {
-    if (scope === null ? node.gate !== null : node.cycleIds.includes(scope)) lit.add(node.id)
+    if (node.cycleIds.includes(scope)) lit.add(node.id)
+    else if (node.cycleIds.length === 0 && node.id !== focus) ahead.add(node.id)
   }
-  return lit
+  if (focus !== null && placement.pos[focus] !== undefined) lit.add(focus)
+  return { lit, ahead }
 }
 
 /**
@@ -359,6 +390,77 @@ export function clampView(view: View, size: Size, placement: Placement): View {
   const height = placement.height * view.s
   const tx = width <= size.w ? (size.w - width) / 2 : Math.min(0, Math.max(size.w - width, view.tx))
   const ty = height <= size.h ? (size.h - height) / 2 : Math.min(0, Math.max(size.h - height, view.ty))
+  return tx === view.tx && ty === view.ty ? view : { s: view.s, tx, ty }
+}
+
+/** The range one axis of the camera may travel, in screen pixels. */
+export interface Bounds {
+  readonly minX: number
+  readonly maxX: number
+  readonly minY: number
+  readonly maxY: number
+}
+
+/**
+ * Where a camera the reader moves may stand: the drawing's own edges, or as far as it takes to put
+ * the first or last card on either axis in the middle of the viewport.
+ *
+ * The second term is the whole point. A drawing taller than its viewport has its first card a short
+ * way down, and holding the camera at the drawing's edge leaves that card permanently above the
+ * middle: the reader pulls and the page stops. Letting the drawing travel until its edge card is
+ * centred is what makes every card reachable without a zoom-out-and-back-in dance, and the term is
+ * scaled by the camera, so zoomed in it is a small part of the viewport and zoomed out it is a nudge.
+ *
+ * A card is a box, not a point: the reach is measured to its centre, and never past the middle of
+ * the viewport — a wide viewport does not hand the drawing a half-screen of travel for free.
+ */
+export function panBounds(size: Size, placement: Placement, s: number): Bounds {
+  const width = placement.width * s
+  const height = placement.height * s
+  const edgeX = Math.min(PAD + CARD_W / 2, placement.width / 2, size.w / 2) * s
+  const edgeY = Math.min(PAD + CARD_H / 2, placement.height / 2, size.h / 2) * s
+  return {
+    minX: Math.min(size.w - width, size.w / 2 - width + edgeX),
+    maxX: Math.max(0, size.w / 2 - edgeX),
+    minY: Math.min(size.h - height, size.h / 2 - height + edgeY),
+    maxY: Math.max(0, size.h / 2 - edgeY),
+  }
+}
+
+/** The camera held inside {@link panBounds}: where a drag comes to rest. */
+export function panView(view: View, size: Size, placement: Placement): View {
+  const box = panBounds(size, placement, view.s)
+  const tx = Math.min(box.maxX, Math.max(box.minX, view.tx))
+  const ty = Math.min(box.maxY, Math.max(box.minY, view.ty))
+  return tx === view.tx && ty === view.ty ? view : { s: view.s, tx, ty }
+}
+
+/**
+ * How far past an edge a drag may still pull, as a fraction of the viewport, and how much of the
+ * pull it gives back before that. The page is elastic but not soft: past the edge it gives a little,
+ * then holds, and the moment the pointer lets go it comes back to the edge. A hard stop reads as
+ * "the page is finished"; this reads as "the edge is there".
+ */
+export const RUBBER_REACH = 0.22
+export const RUBBER_GIVE = 0.55
+
+/** One axis of a pull past its end: linear while it is small, asymptotic as it grows, so it never
+ * goes further than the reach however fast the pointer throws the page. */
+function rubber(over: number, reach: number): number {
+  return (over * reach * RUBBER_GIVE) / (reach + over * RUBBER_GIVE)
+}
+
+/** The camera during a drag: held inside {@link panBounds}, and past it by {@link rubber}'s damped give. */
+export function rubberView(view: View, size: Size, placement: Placement): View {
+  const box = panBounds(size, placement, view.s)
+  const reachX = size.w * RUBBER_REACH
+  const reachY = size.h * RUBBER_REACH
+  const tx = view.tx > box.maxX
+    ? box.maxX + rubber(view.tx - box.maxX, reachX)
+    : view.tx < box.minX ? box.minX - rubber(box.minX - view.tx, reachX) : view.tx
+  const ty = view.ty > box.maxY
+    ? box.maxY + rubber(view.ty - box.maxY, reachY)
+    : view.ty < box.minY ? box.minY - rubber(box.minY - view.ty, reachY) : view.ty
   return tx === view.tx && ty === view.ty ? view : { s: view.s, tx, ty }
 }
 

@@ -19,13 +19,14 @@ import {
   CAP,
   CARD_W,
   CARD_H,
-  clampView,
+  emphasisOf,
   fitView,
   focusView,
-  litOf,
   lodOf,
+  panView,
   place,
   rankedOf,
+  rubberView,
   wirePath,
   zoomAt,
   type Size,
@@ -37,6 +38,19 @@ import { gateWord } from './words.ts'
 
 /** The ruler used when the viewport cannot be measured: a hidden pane measures 0, and a reading never comes out as 0. */
 const FALLBACK: Size = { w: 1280, h: 720 }
+
+/** How long the page takes to come back from the rubber: quick enough to read as a snap. */
+const SETTLE_MS = 240
+
+/**
+ * The curve the page comes back on: an ease-out that runs a few percent past its rest and settles.
+ * A cut straight back to the edge reads as the pointer having been let go of; a little overshoot
+ * reads as the page having been pulled.
+ */
+function settleAt(t: number): number {
+  const left = t - 1
+  return 1 + left * left * (2 * left + 1)
+}
 
 /** What one press on a card may do: `targetOf` says where it goes, `open` takes it there. */
 export interface CardGo {
@@ -59,6 +73,9 @@ export function MapPane(props: {
   const view = React.useRef<View>({ s: 1, tx: 0, ty: 0 })
   const dragged = React.useRef(false)
   const panning = React.useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean; captured: boolean } | null>(null)
+  /* The frame of the bounce-back: cancelled by any new gesture, so a wheel or a second drag never
+     fights the one in flight. */
+  const settling = React.useRef<number | null>(null)
   const [size, setSize] = React.useState<Size>(FALLBACK)
   const [camera, setCamera] = React.useState<View>(view.current)
   /* The page opens at the focus: the card the triage puts first, with the ring it owes and is owed
@@ -91,12 +108,47 @@ export function MapPane(props: {
     () => place({ nodes, edges, cap: CAP, focus: focusId }),
     [nodes, edges, focusId],
   )
-  const lit = React.useMemo(() => litOf(placement, focusId, liveScope), [placement, focusId, liveScope])
+  const emphasis = React.useMemo(() => emphasisOf(placement, focusId, liveScope), [placement, focusId, liveScope])
 
   const commit = React.useCallback((next: View): void => {
     view.current = next
     setCamera(next)
   }, [])
+
+  const stopSettle = React.useCallback((): void => {
+    if (settling.current === null) return
+    cancelAnimationFrame(settling.current)
+    settling.current = null
+  }, [])
+
+  /* A pull past the edge is let go of, not cut: the camera runs back to where {@link panView} holds it,
+   * overshooting the rest by a few percent. The rest is a hard edge only in the sense that it is where
+   * the page stops once the spring has settled. */
+  const springBack = React.useCallback((rest: View): void => {
+    stopSettle()
+    const from = view.current
+    const dx = rest.tx - from.tx
+    const dy = rest.ty - from.ty
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+      commit(rest)
+      return
+    }
+    const started = performance.now()
+    const step = (now: number): void => {
+      const t = Math.min(1, (now - started) / SETTLE_MS)
+      const k = settleAt(t)
+      commit({ s: from.s, tx: from.tx + dx * k, ty: from.ty + dy * k })
+      if (t < 1) {
+        settling.current = requestAnimationFrame(step)
+        return
+      }
+      settling.current = null
+      commit(rest)
+    }
+    settling.current = requestAnimationFrame(step)
+  }, [commit, stopSettle])
+
+  React.useEffect(() => stopSettle, [stopSettle])
 
   const measure = React.useCallback((): void => {
     const held = field.current
@@ -121,13 +173,18 @@ export function MapPane(props: {
 
   /* The camera is derived, not stored per gesture: an overview is re-fitted whenever the drawing or
      the viewport changes, a focus camera is re-aimed whenever the focus moves, and a camera the
-     reader moved themselves is only ever held inside the drawing. */
+     reader moved themselves is only ever held inside {@link panBounds}. A drag in flight and its
+     bounce-back are the reader's own doing, so this leaves those two alone. */
   React.useLayoutEffect(() => {
     if (props.project === null) return
-    if (mode === 'fit') commit(fitView(size, placement))
-    else if (mode === 'focus') commit(focusView(size, placement, focusId))
-    else commit(clampView(view.current, size, placement))
-  }, [props.project, placement, mode, focusId, size, commit])
+    if (mode === 'fit') {
+      stopSettle()
+      commit(fitView(size, placement))
+    } else if (mode === 'focus') {
+      stopSettle()
+      commit(focusView(size, placement, focusId))
+    } else if (panning.current === null && settling.current === null) commit(panView(view.current, size, placement))
+  }, [props.project, placement, mode, focusId, size, commit, stopSettle])
 
   /* The wheel zooms around the pointer: a listener of its own, because the page must not scroll
      under the drawing and React's own wheel handler cannot cancel it. */
@@ -137,17 +194,19 @@ export function MapPane(props: {
     const onWheel = (event: WheelEvent): void => {
       if (event.ctrlKey) return
       event.preventDefault()
+      stopSettle()
       const rect = held.getBoundingClientRect()
       const next = zoomAt(view.current, { x: event.clientX - rect.left, y: event.clientY - rect.top }, view.current.s * Math.exp(-event.deltaY * 0.0015))
-      commit(clampView(next, size, placement))
+      commit(panView(next, size, placement))
       setMode('free')
     }
     held.addEventListener('wheel', onWheel, { passive: false })
     return () => held.removeEventListener('wheel', onWheel)
-  }, [commit, size, placement, props.active])
+  }, [commit, size, placement, props.active, stopSettle])
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
     if ((event.target as Element).closest('.pf-tools') !== null) return
+    stopSettle()
     panning.current = { x: event.clientX, y: event.clientY, tx: view.current.tx, ty: view.current.ty, moved: false, captured: false }
     dragged.current = false
   }
@@ -173,7 +232,9 @@ export function MapPane(props: {
     held.moved = true
     dragged.current = true
     setGrabbing(true)
-    commit(clampView({ s: view.current.s, tx: held.tx + dx, ty: held.ty + dy }, size, placement))
+    /* Past the edge the pointer still moves the page a little — the rubber takes the rest of the pull
+       — so the drawing does not stop dead under the hand. */
+    commit(rubberView({ s: view.current.s, tx: held.tx + dx, ty: held.ty + dy }, size, placement))
     setMode('free')
   }
 
@@ -188,6 +249,9 @@ export function MapPane(props: {
         /* The pointer was already gone: nothing was captured, nothing to give back. */
       }
     }
+    if (held === null) return
+    const rest = panView(view.current, size, placement)
+    if (rest !== view.current) springBack(rest)
   }
 
   /** One press on a card: the first comes close to it, and the press after that goes to its session. */
@@ -263,7 +327,7 @@ export function MapPane(props: {
         </aside>
 
         <div
-          className={`pf-field is-lod-${lod}${grabbing ? ' is-panning' : ''}`}
+          className={`pf-field is-lod-${lod}${grabbing ? ' is-panning' : ''}${liveScope === null ? '' : ' is-scoped'}`}
           ref={field}
           role="region"
           aria-label={t('map.region.aria')}
@@ -280,7 +344,7 @@ export function MapPane(props: {
                   .map((edge) => (
                     <path
                       key={`${edge.from}:${edge.to}`}
-                      className={`pf-mwire${lit.has(edge.from) && lit.has(edge.to) ? ' is-lit' : ''}`}
+                      className={`pf-mwire${emphasis.lit.has(edge.from) && emphasis.lit.has(edge.to) ? ' is-lit' : ''}`}
                       data-from={edge.from}
                       data-to={edge.to}
                       d={wirePath(placement.pos[edge.from] as { x: number; y: number }, placement.pos[edge.to] as { x: number; y: number })}
@@ -297,7 +361,8 @@ export function MapPane(props: {
                     key={node.id}
                     node={node}
                     point={at}
-                    lit={lit.has(node.id)}
+                    lit={emphasis.lit.has(node.id)}
+                    ahead={emphasis.ahead.has(node.id)}
                     focused={node.id === focusId}
                     go={props.go}
                     at={props.project === null ? new Date() : props.project.at}
@@ -369,12 +434,15 @@ function RailItem(props: {
  *
  * A card carries two readings at once and they must not borrow each other's paint: the frame says
  * what state the cell is in, the ground and the title's ink say whether this is the card the reader
- * is looking at.
+ * is looking at. Once a line is picked the frame leaves every card outside that line — so the rank
+ * between "this line", "no line yet" and "another line" is carried by ground and ink alone.
  */
 function Card(props: {
   readonly node: NodeReading
   readonly point: { readonly x: number; readonly y: number }
   readonly lit: boolean
+  /** A card in the picked line's future: one step below lit, and never framed. */
+  readonly ahead: boolean
   readonly focused: boolean
   readonly go: CardGo | null
   /** The moment the reading was taken: every stamp on this page is read against it. */
@@ -390,7 +458,7 @@ function Card(props: {
   return (
     <button
       type="button"
-      className={`pf-mnode ${edgeOf(node)}${props.lit ? ' is-lit' : ''}`}
+      className={`pf-mnode ${edgeOf(node)}${props.lit ? ' is-lit' : ''}${!props.lit && props.ahead ? ' is-ahead' : ''}`}
       data-id={node.id}
       style={{ left: `${String(props.point.x)}px`, top: `${String(props.point.y)}px` }}
       title={props.focused && canGo ? `${hover} · ${t('map.card.go')}` : hover}

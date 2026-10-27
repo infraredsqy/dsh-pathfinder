@@ -18,12 +18,15 @@ import {
   ROW_GAP,
   TITLE_AT,
   clampView,
+  emphasisOf,
   fitView,
   focusView,
-  litOf,
   lodOf,
+  panBounds,
+  panView,
   place,
   rankedOf,
+  rubberView,
   wirePath,
   zoomAt,
 } from '../src/client/map-layout.ts'
@@ -177,11 +180,41 @@ test('上墨：焦点、它欠的、欠它的，再加命中范围自己那一�
     cycles: [{ id: 'w', path: [{ node: 'elsewhere', started_at: '2026-03-10T08:00:00.000Z', ended_at: '2026-03-10T09:00:00.000Z', result: 'completed' }] }],
   })
   const placement = place({ nodes: reading.nodes, edges: reading.graph.edges })
+  const global = emphasisOf(placement, 'focus', null)
 
-  assert.deepEqual([...litOf(placement, 'focus', null)].sort(), ['after', 'before', 'focus', 'gate'].sort(),
+  assert.deepEqual([...global.lit].sort(), ['after', 'before', 'focus', 'gate'].sort(),
     '全局这一档点亮的是全工作区的人闸，加上焦点和它的直接前后')
-  assert.deepEqual([...litOf(placement, 'focus', 'w')].sort(), ['before', 'elsewhere', 'focus', 'after'].sort(),
-    '选中一条线时点亮的是那条线碰过的格子，人闸不再单独点亮')
+  assert.equal(global.ahead.size, 0, '全局没有「未来的节点」这一档')
+
+  const scoped = emphasisOf(placement, 'focus', 'w')
+  assert.deepEqual([...scoped.lit].sort(), ['focus', 'elsewhere'].sort(),
+    '选中一条线时点亮的是那条线碰过的格子，加上读者自己按过的那一格；人闸和前后不再单独点亮')
+})
+
+test('上墨：选中一条线，线上的全亮，没有线的低一档，别的线一档都不占', () => {
+  const reading = readingOf({
+    nodes: {
+      mine: node(),
+      future: node(),
+      other: node(),
+      gate: node({ mode: 'manual', status: 'todo' }),
+    },
+    cycles: [
+      { id: 'w', path: [{ node: 'mine', started_at: '2026-03-10T08:00:00.000Z', ended_at: '2026-03-10T09:00:00.000Z', result: 'completed' }] },
+      { id: 'v', path: [
+        { node: 'other', started_at: '2026-03-10T08:00:00.000Z', ended_at: '2026-03-10T09:00:00.000Z', result: 'completed' },
+        { node: 'gate', started_at: '2026-03-10T09:00:00.000Z', ended_at: '2026-03-10T10:00:00.000Z', result: 'completed' },
+      ] },
+    ],
+  })
+  const placement = place({ nodes: reading.nodes, edges: reading.graph.edges })
+  const emphasis = emphasisOf(placement, 'mine', 'w')
+
+  assert.ok(emphasis.lit.has('mine'), '这条线上的格子全在墨里')
+  assert.ok(emphasis.ahead.has('future'), '哪条线都还没碰过的，是这条线的未来：低一档')
+  assert.ok(!emphasis.lit.has('other') && !emphasis.ahead.has('other'), '别的线上的格子两档都不占')
+  assert.ok(!emphasis.lit.has('gate') && !emphasis.ahead.has('gate'), '别的线的人闸不因为它是人闸就亮起来')
+  assert.ok(emphasisOf(placement, 'mine', null).lit.has('gate'), '退回全局，人闸又回到墨里')
 })
 
 test('全览：整张图放进视口，小的那一边留出余量，图上屏是居中的', () => {
@@ -211,6 +244,53 @@ test('相机不越出图：图比视口大的方向被夹在边上，比视口�
   assert.equal(clampView({ s: 1, tx: -9999, ty: -9999 }, size, placement).tx, size.w - placement.width * 1)
   assert.equal(clampView({ s: 0.01, tx: 500, ty: 500 }, size, placement).tx,
     (size.w - placement.width * 0.01) / 2, '缩到比视口还小就居中')
+})
+
+test('平移：图边上那一格也能被拖到视口正中，上下两头都到得了', () => {
+  const reading = readingOf({
+    nodes: Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`n${String(index)}`, node()])),
+  })
+  const placement = place({ nodes: reading.nodes, edges: reading.graph.edges })
+  const size = { w: 900, h: 700 }
+  const box = panBounds(size, placement, 1)
+  const top = panView({ s: 1, tx: 0, ty: size.h / 2 - placement.pos['n0'].y }, size, placement)
+  const bottom = panView({ s: 1, tx: 0, ty: size.h / 2 - placement.pos['n9'].y }, size, placement)
+
+  assert.ok(placement.height > size.h, '这张图比视口高：旧规则下边上的格子永远到不了正中')
+  assert.ok(Math.abs(placement.pos['n0'].y + top.ty - size.h / 2) < 1e-9, '最上面那一格站在正中')
+  assert.ok(Math.abs(placement.pos['n9'].y + bottom.ty - size.h / 2) < 1e-9, '最下面那一格也站在正中')
+  assert.ok(top.ty <= box.maxY && bottom.ty >= box.minY, '这两个位置都在平移范围里，不用越过边界')
+})
+
+test('平移：横向同理，左右两头的格子都到得了正中；再往外的位置被夹住', () => {
+  const { placement } = chainOf(6)
+  const size = { w: 900, h: 640 }
+  const first = panView({ s: 1, tx: size.w / 2 - placement.pos['n0'].x, ty: 0 }, size, placement)
+  const last = panView({ s: 1, tx: size.w / 2 - placement.pos['n5'].x, ty: 0 }, size, placement)
+  const beyond = panView({ s: 1, tx: 99999, ty: -99999 }, size, placement)
+  const box = panBounds(size, placement, 1)
+
+  assert.ok(Math.abs(placement.pos['n0'].x + first.tx - size.w / 2) < 1e-9, '第一格站到正中')
+  assert.ok(Math.abs(placement.pos['n5'].x + last.tx - size.w / 2) < 1e-9, '最后一格站到正中')
+  assert.equal(beyond.tx, box.maxX, '往外拖，停在平移范围的头上')
+  assert.equal(beyond.ty, box.minY, '往上拖，停在平移范围的头上')
+})
+
+test('橡皮筋：越界只让出一小截，越拉越短，松手的落点就是边界', () => {
+  const { placement } = chainOf(6)
+  const size = { w: 900, h: 640 }
+  const box = panBounds(size, placement, 1)
+  const pull = (by) => rubberView({ s: 1, tx: box.maxX + by, ty: box.minY - by }, size, placement)
+  const small = pull(120)
+  const large = pull(1200)
+  const reachX = size.w * 0.22
+
+  assert.ok(small.tx > box.maxX && small.tx < box.maxX + 120, '越界之后还在动，但没有指针走得快')
+  assert.ok(large.tx > small.tx, '拉得越远让得越多')
+  assert.ok(large.tx - box.maxX < reachX, '让出的那一截有上限，图不会被整张拖出视口')
+  assert.ok(large.ty < box.minY && box.minY - large.ty < size.h * 0.22, '两个方向同一套阻尼')
+  assert.deepEqual(panView({ s: 1, tx: small.tx, ty: small.ty }, size, placement),
+    { s: 1, tx: box.maxX, ty: box.minY }, '松手回到边界上')
 })
 
 test('滚轮：缩放之后，指针底下那一点还是原来那一点', () => {
