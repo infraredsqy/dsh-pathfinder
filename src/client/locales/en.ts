@@ -130,9 +130,13 @@ export const en: Readonly<Record<WordKey, string>> = {
   'pool.case.plan': 'Plan',
 
   /* ── Project settings ─────────────────────────────────────────────────────────────────────── */
+  'config.categories.aria': 'Settings groups',
+  'config.file.term': 'Settings file',
+  'config.group.general': 'General',
+  'config.group.issue': 'Issues',
+  'config.group.test': 'Tests',
   'config.toggle.on': 'On',
   'config.toggle.off': 'Off',
-  'config.grip.aria': 'Resize the settings column',
   'config.unregistered-caption': 'No description is on file for this key; the tool judges whether the value is legal',
   'config.layer.default': 'Default',
   'config.layer.project': 'This project',
@@ -144,6 +148,14 @@ export const en: Readonly<Record<WordKey, string>> = {
   'config.row.max_agents.caption': 'How many subagents one session may have in flight at once',
   'config.row.issue_repair.name': 'issue repair',
   'config.row.issue_repair.caption': 'Adds a repair node automatically once the pool crosses the line; off means it never does',
+  'config.row.issue_pool.name': 'Insert a repair node past the pool line',
+  'config.row.issue_pool.caption': 'When a node closes and the pool’s weighted sum is past the limit, a repair node is inserted; off means it never is',
+  'config.row.issue_pool_weight_limit.name': 'Pool weighted-sum limit',
+  'config.row.issue_pool_weight_limit.caption': 'The sum the record’s per-tier weight table adds up to; the next close must stay below it. Blank means no judgement.',
+  'config.row.test_audit.name': 'Insert a lean test node past the time limit',
+  'config.row.test_audit.caption': 'When a node closes and the suite took longer than the limit, a lean-test node is inserted; off means it never is',
+  'config.row.test_seconds_limit.name': 'Test suite time limit (seconds)',
+  'config.row.test_seconds_limit.caption': 'How long the whole suite took; the next close must stay below it. Blank means no judgement.',
 
   /* ── A line's own policy numbers ──────────────────────────────────────────────────────────── */
   'line.row.parallel.name': 'Parallel session cap',

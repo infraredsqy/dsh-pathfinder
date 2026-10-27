@@ -1,7 +1,7 @@
 /**
  * The reading face of the settings view: how known keys are described (display name, caption,
- * control kind, a copy of the dropdown candidates); the rows themselves grow out of the
- * `pf config list` reading.
+ * control kind, the category it belongs in, a copy of the dropdown candidates); the rows themselves
+ * grow out of the `pf config list` reading.
  *
  * No JSX and no DOM here, so it can be measured standalone where no browser is installed. The tool
  * is the single source of settings keys, so this file does not declare "which keys the tool has":
@@ -9,14 +9,30 @@
  * ones show the key name directly with a text box; keys absent from the reading get no row here —
  * nothing is drawn for what does not exist.
  *
- * The two words a row carries are dictionary KEYS, never the words themselves: which language they
- * read in is decided where the row is drawn, by the translator handed to {@link rowWords}.
+ * A row's category is part of its description here, not a reading-time guess: the settings page
+ * stands an index down its left edge, one line per category, and each line's count is how many rows
+ * that category holds.
+ *
+ * The names a row carries are dictionary KEYS, never the words themselves: which language they read
+ * in is decided where the row is drawn, by the translator handed to {@link rowWords}.
  */
 import type { ConfigEntry, ConfigLayer } from '../host/project-config.ts'
 import type { Translate } from './locale.ts'
 import type { WordKey } from './locales/index.ts'
 
 export type ControlKind = 'pick' | 'num' | 'toggle' | 'text'
+
+/** The categories the index names, in the order they stand there. */
+export type ConfigGroup = 'general' | 'issue' | 'test'
+
+export const CONFIG_GROUPS: readonly ConfigGroup[] = ['general', 'issue', 'test']
+
+/** Each category's name, as a dictionary key. */
+export const GROUP_WORDS: Readonly<Record<ConfigGroup, WordKey>> = {
+  general: 'config.group.general',
+  issue: 'config.group.issue',
+  test: 'config.group.test',
+}
 
 export interface ConfigRow {
   readonly key: string
@@ -30,6 +46,8 @@ export interface ConfigRow {
   /** The one sentence under the name, as a dictionary key. */
   readonly caption: WordKey
   readonly kind: ControlKind
+  /** The category whose section this row stands in. */
+  readonly group: ConfigGroup
   /** Only the dropdown kind has it: the words the tool accepts, in blueprint order. */
   readonly options?: readonly string[]
 }
@@ -40,6 +58,9 @@ export interface ConfigRow {
  * the candidates are copied here. When the tool side adds a word, the reading will carry an
  * off-table value; {@link pickState} then promotes it to an option on the spot instead of silently
  * falling to the first one.
+ *
+ * `issue_repair` is the older reading of the two issue switches: tools that print it still get a
+ * name and a sentence here, and a reading prints one switch or the other, never both.
  */
 export const KNOWN_CONFIG_ROWS: Readonly<Record<string, ConfigRow>> = {
   worktree_mode: {
@@ -47,6 +68,7 @@ export const KNOWN_CONFIG_ROWS: Readonly<Record<string, ConfigRow>> = {
     name: 'config.row.worktree_mode.name',
     caption: 'config.row.worktree_mode.caption',
     kind: 'pick',
+    group: 'general',
     options: ['off', 'fork', 'reuse'],
   },
   test_tier: {
@@ -54,6 +76,7 @@ export const KNOWN_CONFIG_ROWS: Readonly<Record<string, ConfigRow>> = {
     name: 'config.row.test_tier.name',
     caption: 'config.row.test_tier.caption',
     kind: 'pick',
+    group: 'general',
     options: ['full', 'minimal'],
   },
   max_agents: {
@@ -61,17 +84,59 @@ export const KNOWN_CONFIG_ROWS: Readonly<Record<string, ConfigRow>> = {
     name: 'config.row.max_agents.name',
     caption: 'config.row.max_agents.caption',
     kind: 'num',
+    group: 'general',
   },
   issue_repair: {
     key: 'issue_repair',
     name: 'config.row.issue_repair.name',
     caption: 'config.row.issue_repair.caption',
     kind: 'toggle',
+    group: 'issue',
+  },
+  issue_pool: {
+    key: 'issue_pool',
+    name: 'config.row.issue_pool.name',
+    caption: 'config.row.issue_pool.caption',
+    kind: 'toggle',
+    group: 'issue',
+  },
+  issue_pool_weight_limit: {
+    key: 'issue_pool_weight_limit',
+    name: 'config.row.issue_pool_weight_limit.name',
+    caption: 'config.row.issue_pool_weight_limit.caption',
+    kind: 'num',
+    group: 'issue',
+  },
+  test_audit: {
+    key: 'test_audit',
+    name: 'config.row.test_audit.name',
+    caption: 'config.row.test_audit.caption',
+    kind: 'toggle',
+    group: 'test',
+  },
+  test_seconds_limit: {
+    key: 'test_seconds_limit',
+    name: 'config.row.test_seconds_limit.name',
+    caption: 'config.row.test_seconds_limit.caption',
+    kind: 'num',
+    group: 'test',
   },
 }
 
 /** The caption under unregistered keys: the key name is already in the name cell, so this only says who judges the value. */
 const UNREGISTERED_CAPTION: WordKey = 'config.unregistered-caption'
+
+/**
+ * Which category an unregistered key falls under: its prefix is the only thing this side knows
+ * about it, and `issue_` / `test_` are the two plugins' own naming — a key they add later files
+ * itself under the same category its siblings stand in.
+ * @param key - A key printed by the tool that this table does not describe.
+ */
+export function groupOfUnregistered(key: string): ConfigGroup {
+  if (key.startsWith('issue_')) return 'issue'
+  if (key.startsWith('test_')) return 'test'
+  return 'general'
+}
 
 /**
  * Grow this view's rows out of a reading: only keys present in the reading get rows, none are added.
@@ -88,9 +153,29 @@ export function configRowsOf(entries: Readonly<Record<string, ConfigEntry>>): re
     if (entries[known.key] !== undefined) rows.push(known)
   }
   for (const key of Object.keys(entries)) {
-    if (KNOWN_CONFIG_ROWS[key] === undefined) rows.push({ key, name: null, caption: UNREGISTERED_CAPTION, kind: 'text' })
+    if (KNOWN_CONFIG_ROWS[key] === undefined) {
+      rows.push({ key, name: null, caption: UNREGISTERED_CAPTION, kind: 'text', group: groupOfUnregistered(key) })
+    }
   }
   return rows
+}
+
+export interface ConfigSection {
+  readonly group: ConfigGroup
+  readonly rows: readonly ConfigRow[]
+}
+
+/**
+ * The page under the index: one section per category that has at least one row, in the index's own
+ * order. An empty category is not drawn — no head over nothing, and no line in the index to a place
+ * with nothing in it.
+ * @param entries - The key to "value + layer" table read out of `pf config list`.
+ */
+export function configSectionsOf(entries: Readonly<Record<string, ConfigEntry>>): readonly ConfigSection[] {
+  const rows = configRowsOf(entries)
+  return CONFIG_GROUPS
+    .map((group) => ({ group, rows: rows.filter((row) => row.group === group) }))
+    .filter((section) => section.rows.length > 0)
 }
 
 /**
@@ -144,15 +229,4 @@ export const LAYER_WORDS: Readonly<Record<ConfigLayer, WordKey>> = {
   default: 'config.layer.default',
   project: 'config.layer.project',
   global: 'common.global',
-}
-
-/** That column's width bounds, default, and two step sizes, per the blueprint. */
-export const CONFIG_WIDTH = 720
-export const CONFIG_WIDTH_MIN = 480
-export const CONFIG_WIDTH_MAX = 960
-export const CONFIG_WIDTH_STEP = 24
-export const CONFIG_WIDTH_BIG = 48
-
-export function clampConfigWidth(px: number): number {
-  return Math.round(Math.max(CONFIG_WIDTH_MIN, Math.min(CONFIG_WIDTH_MAX, px)))
 }

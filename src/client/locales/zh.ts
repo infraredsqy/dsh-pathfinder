@@ -142,9 +142,13 @@ export const zh = {
   'pool.case.plan': '方案',
 
   /* ── Project settings ─────────────────────────────────────────────────────────────────────── */
+  'config.categories.aria': '设置分组',
+  'config.file.term': '设置文件',
+  'config.group.general': '常规',
+  'config.group.issue': '问题',
+  'config.group.test': '测试',
   'config.toggle.on': '开',
   'config.toggle.off': '关',
-  'config.grip.aria': '调整设置那一列的宽度',
   'config.unregistered-caption': '这一键还没有它的说法，值合不合法由工具判',
   'config.layer.default': '默认',
   'config.layer.project': '本项目',
@@ -156,6 +160,14 @@ export const zh = {
   'config.row.max_agents.caption': '一个 session 同时在飞的 subagent 数量上限',
   'config.row.issue_repair.name': 'issue 开关',
   'config.row.issue_repair.caption': '问题池越线时自动加入解决问题的节点；关了就不自动加',
+  'config.row.issue_pool.name': '问题池越线插节点',
+  'config.row.issue_pool.caption': '关单时问题池的加权和越过上限，就插一个修问题的节点；关掉就不插',
+  'config.row.issue_pool_weight_limit.name': '问题池加权和上限',
+  'config.row.issue_pool_weight_limit.caption': '各等级按记录里的重量表折算出的总和，下一次关单要低于这个数；留空就不判',
+  'config.row.test_audit.name': '测试耗时越线插节点',
+  'config.row.test_audit.caption': '关单时整套测试的实际耗时越过上限，就插一个精简测试的节点；关掉就不插',
+  'config.row.test_seconds_limit.name': '测试耗时上限（秒）',
+  'config.row.test_seconds_limit.caption': '整套测试的实际耗时，下一次关单要低于这个秒数；留空就不判',
 
   /* ── A line's own policy numbers ──────────────────────────────────────────────────────────── */
   'line.row.parallel.name': '可并行的会话数上限',

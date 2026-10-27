@@ -838,7 +838,8 @@ check(
     && bareHost.querySelector('#pane-now .pf-boardbar') !== null
     && bareHost.querySelectorAll('#pane-now .pf-card').length > 0
     && bareHost.querySelector('#census .pf-pill') !== null
-    && bareHost.querySelector('#pane-config .pf-configwrap') !== null
+    && bareHost.querySelector('#pane-config') !== null
+    && bareHost.querySelector('#pane-config .pf-innone') === null
     && bareSaid === '当前工作区尚未启用 Pathfinder。'
     && bareHost.querySelector('#pane-issue .pf-split') === null,
   `工作区=${bareWorkspace.replace(root, '.')}（管线在、问题池那一份不在） ｜ 看板 ${String(bareHost.querySelectorAll('#pane-now .pf-card').length)} 张卡 ｜ 问题那一格说=${JSON.stringify(bareSaid)}`,
@@ -1069,18 +1070,16 @@ check(
   `${tokenReadings.join(' ')} ｜ box-sizing=${rootWon['box-sizing'] === undefined ? '（没有规则落在它身上）' : `"${rootWon['box-sizing']}"`}`,
 )
 
-/* `settings.css` ships as the seven rules that land on the panel; the settings page's own furniture
- * is drawing rather than shipping, and lives with the design snapshot outside this repo. Two of the
- * seven (stage and frame) are what centres the pane: this walks DOM matching to see whose
- * declaration lands on `.pf-stage` and `.pf-frame`. */
-const stageWon = winningDeclarations(container.querySelector('.pf-stage'), ['padding', 'align-items', 'height'])
-const frameWon = winningDeclarations(container.querySelector('.pf-frame'), ['width', 'max-height', 'min-height'])
-const carriedOk = stageWon.padding === '20px 0' && stageWon['align-items'] === 'center' && stageWon.height === '100%'
-  && frameWon.width === 'var(--pf-frame-w, 800px)' && frameWon['max-height'] === '100%' && frameWon['min-height'] === '0'
+/* The settings pane's column belongs to the main panel's skeleton, which is where this reads the
+ * stage and the frame it fills: the stage takes the pane at the middle of its top and scrolls when
+ * the footprint is short, and the frame takes a width and centres itself. */
+const stageWon = winningDeclarations(container.querySelector('.pf-stage'), ['padding', 'overflow-y', 'justify-content'])
+const frameWon = winningDeclarations(container.querySelector('.pf-frame'), ['width', 'margin', 'display'])
 check(
   '舞台与框在蓝本里的有效值进了包',
-  carriedOk,
-  `stage padding=${JSON.stringify(stageWon.padding)} align-items=${JSON.stringify(stageWon['align-items'])} height=${JSON.stringify(stageWon.height)} ｜ frame width=${JSON.stringify(frameWon.width)} max-height=${JSON.stringify(frameWon['max-height'])} min-height=${JSON.stringify(frameWon['min-height'])}`,
+  stageWon.padding === '8px 0' && stageWon['overflow-y'] === 'auto' && stageWon['justify-content'] === 'center'
+    && frameWon.width === 'var(--pf-frame-w, 1280px)' && frameWon.margin === 'auto' && frameWon.display === 'flex',
+  `stage padding=${JSON.stringify(stageWon.padding)} overflow-y=${JSON.stringify(stageWon['overflow-y'])} justify-content=${JSON.stringify(stageWon['justify-content'])} ｜ frame width=${JSON.stringify(frameWon.width)} margin=${JSON.stringify(frameWon.margin)} display=${JSON.stringify(frameWon.display)}`,
 )
 
 /* The equivalence ruler lived here: it compared the shipped css against the blueprint's sheets rule by
@@ -1606,10 +1605,13 @@ check(
 )
 
 /* ---- 4d. The settings pane: this workspace's own project settings, read here and edited here ----
- * Four rows, three control kinds, a layer tag at each row's end, per the blueprint. Readings on both
- * sides: what the panel shows, and the four lines the real tool prints against the same workspace.
- * Each edit writes back to this project's layer and is read again — the reading lands on the record
- * file (`workspace/.pf/config.json`); what the panel reads back on its own does not count.
+ * One row per key the tool prints, grouped under a category index down the left edge: a row is the
+ * key's name over its one sentence, its control, and a layer tag at the end. Readings on both sides:
+ * what the panel shows, and the lines the real tool prints against the same workspace; the expected
+ * rows, their categories, and their order are derived from that reading and the shipped table, never
+ * written out by hand here. Each edit writes back to this project's layer and is read again — the
+ * reading lands on the record file (`workspace/.pf/config.json`); what the panel reads back on its
+ * own does not count.
  *
  * Two invalid-value cases: an out-of-range number (typed into the number box for real) and a tier
  * not in the option list (a forged option injected into the dropdown, then picked). Both must land
@@ -1617,6 +1619,7 @@ check(
  */
 
 const { parseConfigList } = await import(pathToFileURL(join(root, 'src', 'host', 'project-config.ts')).href)
+const { configSectionsOf } = await import(pathToFileURL(join(root, 'src', 'client', 'config-rows.ts')).href)
 const listed = await runPf(hostCtx, workspace, ['config', 'list'], new AbortController().signal)
 /* A run's outcome carries the tool's output on success and a code-plus-detail refusal otherwise: only
  * the success branch has a text stream to parse. */
@@ -1624,15 +1627,31 @@ const truth = parseConfigList(listed.ok ? listed.text : '')
 /** The record's three layer names as the panel's three words (the blueprint's wording). */
 const LAYER_WORD = { default: '默认', project: '本项目', global: '全局' }
 check(
-  '设置那一格：真工具对着这份工作区印得出四行设置',
-  listed.ok && Object.keys(truth).length === 4,
+  '设置那一格：真工具对着这份工作区印得出设置行',
+  listed.ok && Object.keys(truth).length > 0,
   listed.ok
     ? listed.text.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).join(' ｜ ')
     : outcomeText(listed),
 )
 
 const storedConfig = () => JSON.parse(readFileSync(join(record, 'config.json'), 'utf8'))
-const configReadings = (scope) => [...(scope?.querySelectorAll('#pane-config .pf-setrow') ?? [])].map((row) => {
+
+/* What the page should hold, derived from the tool's own reading and the shipped layout table: the
+ * fixture never states "these seven keys" by hand — the tool says which keys exist, and the table
+ * says which category each one stands in and in what order. */
+const expectedSections = configSectionsOf(truth)
+const expectedRows = expectedSections.flatMap((section) => section.rows)
+const expectedKeys = expectedRows.map((row) => row.key)
+const GROUP_WORD = { general: '常规', issue: '问题', test: '测试' }
+const LAYER_OF = (key) => (truth[key] === undefined || truth[key].layer === null ? '（没有层签）' : LAYER_WORD[truth[key].layer])
+/* What a row should show for a value the record holds: the tool marks a limit nobody filled in with a
+ * dash, and a number box shows nothing there — the box says "unset" instead of carrying the mark. */
+const shownValueOf = (row, config) => {
+  const value = String(config[row.key] ?? '（记录里没有这个键）')
+  return row.kind === 'num' && value === '-' ? '' : value
+}
+
+const configReadings = (scope) => [...(scope?.querySelectorAll('#pane-config .pf-cfgrow') ?? [])].map((row) => {
   const pick = row.querySelector('select')
   const box = row.querySelector('input')
   const pressed = [...row.querySelectorAll('.pf-segbtn')].find((button) => button.getAttribute('aria-pressed') === 'true')
@@ -1641,38 +1660,76 @@ const configReadings = (scope) => [...(scope?.querySelectorAll('#pane-config .pf
     name: row.querySelector('.pf-setlabel')?.textContent ?? '',
     value: pick !== null ? pick.value : box !== null ? box.value : pressed?.textContent === '开' ? 'on' : pressed === undefined ? '（未设置）' : 'off',
     layer: row.querySelector('.pf-vlayer')?.textContent ?? '（没有层签）',
+    section: row.closest('.pf-cfgsec')?.getAttribute('data-cat') ?? '（没有段）',
   }
 })
+const configNav = (scope) => [...(scope?.querySelectorAll('#pane-config .pf-cfgitem') ?? [])].map((item) => ({
+  group: item.getAttribute('data-cat'),
+  name: item.querySelector('.pf-cfgitem-name')?.textContent ?? '',
+  count: item.querySelector('.pf-cfgitem-count')?.textContent ?? '',
+  current: item.getAttribute('aria-current'),
+}))
 
 await act(async () => { tabs[5].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 await settle()
 const configPane = container.querySelector('#pane-config')
 const shownFirst = configReadings(container)
-const wantedFirst = ['worktree_mode', 'test_tier', 'max_agents', 'issue_repair'].map((key) => ({
-  key,
-  value: truth[key]?.value ?? '（工具没印这一行）',
-  layer: truth[key] === undefined || truth[key].layer === null ? '（没有层签）' : LAYER_WORD[truth[key].layer],
+const truthValues = Object.fromEntries(Object.entries(truth).map(([key, entry]) => [key, entry.value]))
+const wantedFirst = expectedRows.map((row) => ({
+  key: row.key,
+  value: shownValueOf(row, truthValues),
+  layer: LAYER_OF(row.key),
+  section: expectedSections.find((section) => section.rows.some((one) => one.key === row.key))?.group ?? '（没有段）',
 }))
 check(
-  '设置那一格：四行的值与层签逐行与真工具印的那份对上',
-  JSON.stringify(shownFirst.map((row) => [row.key, row.value, row.layer]))
-    === JSON.stringify(wantedFirst.map((row) => [row.key, row.value, row.layer])),
-  `工具那边：${wantedFirst.map((row) => `${row.key}=${row.value}(${row.layer})`).join(' ')} ｜ 面板这边：${shownFirst.map((row) => `${row.key}=${row.value}(${row.layer})`).join(' ')}`,
+  '设置那一格：每个键一行，值与层签逐行与真工具印的那份对上，行落在它的分组里',
+  JSON.stringify(shownFirst.map((row) => [row.key, row.value, row.layer, row.section]))
+    === JSON.stringify(wantedFirst.map((row) => [row.key, row.value, row.layer, row.section])),
+  `工具那边：${wantedFirst.map((row) => `${row.key}=${row.value}(${row.layer}/${row.section})`).join(' ')} ｜ 面板这边：${shownFirst.map((row) => `${row.key}=${row.value}(${row.layer}/${row.section})`).join(' ')}`,
 )
 check(
-  '设置那一格：四行、三种控件、四枚层签都在',
-  shownFirst.length === 4
-    && configPane?.querySelectorAll('select').length === 2
-    && configPane?.querySelectorAll('input.pf-numin').length === 1
-    && configPane?.querySelectorAll('.pf-seg').length === 1
-    && configPane?.querySelectorAll('.pf-vlayer').length === 4,
+  '设置那一格：一行一个控件（下拉、数字框、开-关各照表），层签一枚不少',
+  shownFirst.length === expectedKeys.length
+    && configPane?.querySelectorAll('select').length === expectedRows.filter((row) => row.kind === 'pick').length
+    && configPane?.querySelectorAll('input.pf-numin').length === expectedRows.filter((row) => row.kind === 'num' || row.kind === 'text').length
+    && configPane?.querySelectorAll('.pf-seg').length === expectedRows.filter((row) => row.kind === 'toggle').length
+    && configPane?.querySelectorAll('.pf-vlayer').length === expectedKeys.filter((key) => LAYER_OF(key) !== '（没有层签）').length,
   `行=${String(shownFirst.length)} 下拉=${String(configPane?.querySelectorAll('select').length)} 数字框=${String(configPane?.querySelectorAll('input.pf-numin').length)} 开-关=${String(configPane?.querySelectorAll('.pf-seg').length)} 层签=${String(configPane?.querySelectorAll('.pf-vlayer').length)} ｜ 名字=${shownFirst.map((row) => row.name).join('/')}`,
+)
+check(
+  '设置那一格：每一行的名字都是自己的说法，键名只在悬停时给出',
+  shownFirst.every((row) => row.name.length > 0 && row.name !== row.key),
+  `名字=${shownFirst.map((row) => row.name).join(' / ')}`,
+)
+check(
+  '设置那一格：左边的索引一栏一个分组，数目就是那一栏的行数，落笔那一栏点着',
+  JSON.stringify(configNav(container))
+    === JSON.stringify(expectedSections.map((section, index) => ({
+      group: section.group,
+      name: GROUP_WORD[section.group],
+      count: String(section.rows.length),
+      current: index === 0 ? 'true' : 'false',
+    }))),
+  `索引=${configNav(container).map((item) => `${item.group}:${item.name}(${item.count})${item.current === 'true' ? '·点着' : ''}`).join(' ')}`,
+)
+check(
+  '设置那一格：索引脚下写着这些值住的那个文件',
+  configPane?.querySelector('.pf-cfgnavfoot-path')?.textContent === '.pf/config.json'
+    && (configPane?.querySelector('.pf-cfgnavfoot-term')?.textContent ?? '').length > 0,
+  `脚下=${String(configPane?.querySelector('.pf-cfgnavfoot-term')?.textContent)} / ${String(configPane?.querySelector('.pf-cfgnavfoot-path')?.textContent)}`,
+)
+check(
+  '设置那一格：那一列顶满格子，宽度跟着格子走（把手和外框都退场了）',
+  configPane?.querySelectorAll('.pf-grip').length === 0
+    && configPane?.querySelector('.pf-configwrap') === null
+    && configPane?.style.getPropertyValue('--pf-config-w') === '',
+  `把手=${String(configPane?.querySelectorAll('.pf-grip').length)} 外框=${configPane?.querySelector('.pf-configwrap') === null ? '没有' : '还在'}`,
 )
 
 /* Each row's control gets its own driver: dropdown and number box go through the **prototype
  * setter** (React remembers the last value on the node itself; assigning `element.value` directly
  * would read as unchanged), and the on-off toggle just needs a click. */
-const rowIn = (scope, key) => [...(scope?.querySelectorAll('#pane-config .pf-setrow') ?? [])]
+const rowIn = (scope, key) => [...(scope?.querySelectorAll('#pane-config .pf-cfgrow') ?? [])]
   .find((row) => row.getAttribute('data-key') === key)
 const setSelect = async (row, value) => {
   const select = row.querySelector('select')
@@ -1703,6 +1760,17 @@ const noteLine = () => [...container.querySelectorAll('.pf-innone')].map((node) 
 const other = (list, current) => list.find((one) => one !== current) ?? current
 
 const wrote = []
+/* The tool's own mark for a limit nobody filled in is a dash; the box states "unset" instead of
+ * standing empty, which could be read as a zero. */
+const unsetRows = expectedRows.filter((row) => row.kind === 'num' && truthValues[row.key] === '-')
+check(
+  '设置那一格：工具印「-」的那个上限，框里挂「未设置」的灰字',
+  unsetRows.length > 0 && unsetRows.every((row) => {
+    const box = rowIn(container, row.key)?.querySelector('input.pf-numin')
+    return box !== null && box !== undefined && box.classList.contains('is-unset') && box.getAttribute('placeholder') === '未设置'
+  }),
+  `- 的上限=${unsetRows.map((row) => `${row.key}:${String(rowIn(container, row.key)?.querySelector('input.pf-numin')?.getAttribute('placeholder'))}`).join(' ')}`,
+)
 const worktreeRow = rowIn(container, 'worktree_mode')
 const worktreeNext = other([...worktreeRow.querySelectorAll('option')].map((option) => option.value), worktreeRow.querySelector('select').value)
 await setSelect(worktreeRow, worktreeNext)
@@ -1733,23 +1801,33 @@ check(
   `记录里=${String(storedConfig().max_agents)} 框里=${rowIn(container, 'max_agents').querySelector('input').value}`,
 )
 
-const issueRow = rowIn(container, 'issue_repair')
+const switchedRow = expectedRows.find((row) => row.group === 'issue' && row.kind === 'toggle')
+const issueRow = rowIn(container, switchedRow?.key ?? 'issue_pool')
 await pressToggle(issueRow, '关')
-wrote.push('issue_repair → off')
+wrote.push(`${switchedRow?.key ?? 'issue_pool'} → off`)
 check(
-  'issue 开关改一次：记录里真的是那个值，面板上跟着换成它',
-  storedConfig().issue_repair === 'off' && rowIn(container, 'issue_repair').querySelector('.pf-segbtn[aria-pressed="true"]')?.textContent === '关',
-  `记录里=${String(storedConfig().issue_repair)} 面板上按下的是=${String(rowIn(container, 'issue_repair').querySelector('.pf-segbtn[aria-pressed="true"]')?.textContent)}`,
+  '问题池那个开关改一次：记录里真的是那个值，面板上跟着换成它',
+  storedConfig()[switchedRow?.key ?? 'issue_pool'] === 'off'
+    && rowIn(container, switchedRow?.key ?? 'issue_pool').querySelector('.pf-segbtn[aria-pressed="true"]')?.textContent === '关',
+  `记录里=${String(storedConfig()[switchedRow?.key ?? 'issue_pool'])} 面板上按下的是=${String(rowIn(container, switchedRow?.key ?? 'issue_pool').querySelector('.pf-segbtn[aria-pressed="true"]')?.textContent)}`,
 )
-lines.push(`      设置那一格四行各改一次：${wrote.join(' ｜ ')}`)
+lines.push(`      设置那一格改了 ${String(wrote.length)} 行：${wrote.join(' ｜ ')}`)
 
-/* After writing all four rows: all four values live in this project's layer, and the layer tags flip with their real home. */
+/* After writing those rows: their values live in this project's layer and their tags say so; the
+ * keys nothing was written to still read the layer the tool printed for them. */
+const written = new Set(['worktree_mode', 'test_tier', 'max_agents', switchedRow?.key ?? 'issue_pool'])
 const shownAfter = configReadings(container)
 const configNow = storedConfig()
+/* What a row should show once the writes landed: the written keys read the record's own file; every
+ * other key keeps the value the tool printed before, the writes never touched it. */
+const expectedAfterWrite = (row) => (written.has(row.key)
+  ? shownValueOf(row, configNow)
+  : shownValueOf(row, truthValues))
 check(
-  '写完这四行：层签四枚全读作「本项目」（写的永远是这一层），值与记录里那四个值一致',
-  shownAfter.length === 4 && shownAfter.every((row) => row.layer === '本项目')
-    && shownAfter.every((row) => row.value === String(configNow[row.key])),
+  '写完这几行：动过的那几枚层签读作「本项目」（写的永远是这一层），其余照工具印的层，值与记录里一致',
+  shownAfter.length === expectedKeys.length
+    && shownAfter.every((row) => row.layer === (written.has(row.key) ? '本项目' : LAYER_OF(row.key)))
+    && shownAfter.every((row) => row.value === expectedAfterWrite(expectedRows.find((one) => one.key === row.key))),
   `层签=${shownAfter.map((row) => `${row.key}=${row.layer}`).join(' ')} ｜ 面板上=${JSON.stringify(shownAfter.map((row) => row.value))} ｜ 记录里=${JSON.stringify(configNow)}`,
 )
 
@@ -1791,62 +1869,7 @@ check(
   `记的是 partial ｜ 记录里=${String(storedConfig().test_tier)} 下拉里=${rowIn(container, 'test_tier').querySelector('select').value} 提示行=${noteLine() === '' ? '（空）' : noteLine()} ｜ 工具那句=${tierRefusal}`,
 )
 
-/* The column's two grips: one per edge, dragging changes the column width, double-click restores the default. */
-const wrap = configPane?.querySelector('.pf-configwrap')
-const configWidth = () => wrap?.style.getPropertyValue('--pf-config-w') ?? ''
-const grips = () => [...(configPane?.querySelectorAll('.pf-grip') ?? [])]
-check(
-  '那一列：默认 720，左右各一枚把手，标签与上下限都在',
-  configWidth() === '720px' && grips().length === 2
-    && grips()[0].getAttribute('data-side') === 'left' && grips()[1].getAttribute('data-side') === 'right'
-    && grips()[0].getAttribute('aria-valuemin') === '480' && grips()[0].getAttribute('aria-valuemax') === '960',
-  `宽度=${configWidth()} 把手=${grips().map((grip) => `${String(grip.getAttribute('data-side'))}/min=${String(grip.getAttribute('aria-valuemin'))}/max=${String(grip.getAttribute('aria-valuemax'))}`).join(' ')}`,
-)
-const arrow = async (grip, key, shift = false) => {
-  await act(async () => {
-    grip.dispatchEvent(new window.KeyboardEvent('keydown', { key, shiftKey: shift, bubbles: true }))
-  })
-}
-await arrow(grips()[1], 'ArrowRight')
-const afterStep = configWidth()
-await arrow(grips()[1], 'ArrowRight', true)
-const afterBig = configWidth()
-await arrow(grips()[0], 'ArrowLeft')
-const afterLeft = configWidth()
-for (let round = 0; round < 20; round += 1) await arrow(grips()[1], 'ArrowRight')
-const afterClamp = configWidth()
-await act(async () => { grips()[1].dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })) })
-check(
-  '那一列的把手：一步 24、按住 shift 一步 48、左边那一枚往左推是放宽、拖到 960 就停、双击回 720',
-  afterStep === '744px' && afterBig === '792px' && afterLeft === '816px'
-    && afterClamp === '960px' && configWidth() === '720px',
-  `默认 720px → 右一步 ${afterStep} → shift 一步 ${afterBig} → 左扳手往左 ${afterLeft} → 顶到头 ${afterClamp} → 双击 ${configWidth()}`,
-)
-/* A real drag: jsdom lacks the three pointer-capture methods, so stubs are patched in first (same measurement as the detail split). */
-const dragged = grips()[1]
-const configCaptured = new Set()
-dragged.setPointerCapture = (id) => { configCaptured.add(id) }
-dragged.hasPointerCapture = (id) => configCaptured.has(id)
-dragged.releasePointerCapture = (id) => { configCaptured.delete(id) }
-const configPointerAt = (type, clientX) => {
-  const event = new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 0, button: 0 })
-  Object.defineProperty(event, 'pointerId', { value: 1 })
-  return event
-}
-await act(async () => {
-  dragged.dispatchEvent(configPointerAt('pointerdown', 100))
-  dragged.dispatchEvent(configPointerAt('pointermove', 140))
-})
-const afterDrag = configWidth()
-await act(async () => { dragged.dispatchEvent(configPointerAt('pointerup', 140)) })
-check(
-  '那一列真拖得动：右侧缘往右挪 40px，列宽 +80（两侧对称、中心不动）',
-  afterDrag === '800px',
-  `拖前 720px ｜ 指针挪 +40px 后列宽=${afterDrag}`,
-)
-await act(async () => { grips()[1].dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })) })
-
-/* Reopen a panel (same record, same session): the four rows' readings still match the four values just written. */
+/* Reopen a panel (same record, same session): every row still matches the value the record holds. */
 const reopenHost = window.document.createElement('div')
 window.document.body.appendChild(reopenHost)
 const reopenRoot = createRoot(reopenHost)
@@ -1859,14 +1882,14 @@ await settle()
 const reopened = configReadings(reopenHost)
 const storedAfter = storedConfig()
 check(
-  '重开一份面板：设置那一格的四行与记录里那四个值还对得上',
-  reopened.length === 4
-    && reopened.every((row) => row.value === String(storedAfter[row.key]))
-    && reopened.every((row) => row.layer === '本项目'),
+  '重开一份面板：设置那一格的每一行与记录里的值还对得上',
+  reopened.length === expectedKeys.length
+    && reopened.every((row) => row.value === expectedAfterWrite(expectedRows.find((one) => one.key === row.key)))
+    && reopened.every((row) => row.layer === (written.has(row.key) ? '本项目' : LAYER_OF(row.key))),
   `重开后面板上=${JSON.stringify(reopened.map((row) => `${row.key}=${row.value}`))} ｜ 记录里=${JSON.stringify(storedAfter)}`,
 )
 await act(async () => { reopenRoot.unmount() })
-lines.push(`      设置那一格收尾时记录里那四个值：${JSON.stringify(storedAfter)}`)
+lines.push(`      设置那一格收尾时记录里那几个键：${JSON.stringify(storedAfter)}`)
 
 /* ---- 5. The detail split: really present, really draggable, still there after reopening ---- */
 

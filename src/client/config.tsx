@@ -1,28 +1,30 @@
 /**
- * The sixth pane of the main panel: this workspace's own project settings. One key per row, one
- * control per row, with a small tag at the row's end saying which layer the value lives on.
+ * The sixth pane of the main panel: this workspace's own project settings.
+ *
+ * Two objects, side by side: an index down the left edge naming one category per line (with how many
+ * rows each holds), and the page the rows stand on. A row is the key's name over its one sentence,
+ * the value at the right, and a small tag saying which layer the value lives on. The page is read in
+ * two columns while it can hold them and one full-width column when it cannot — the width decides
+ * that, not the window, so a narrow panel is not left with a stranded column.
  *
  * Both reading and writing go through the tool: which keys exist, the valid values, and "which
- * layer a value comes from" are all printed by the tool; row order follows the reading, and writes
- * land on this project's layer. This layer makes no second set of judgments — the tool says whether
- * keys and values are valid. No optimistic updates on the page: controls always show the most
- * recently read-back reading; a change is written, then read again, and when the tool refuses, the
- * control returns to its place on its own.
+ * layer a value comes from" are all printed by the tool; row order and category follow this side's
+ * table, and writes land on this project's layer. This layer makes no second set of judgments — the
+ * tool says whether keys and values are valid. No optimistic updates on the page: controls always
+ * show the most recently read-back reading; a change is written, then read again, and when the tool
+ * refuses, the control returns to its place on its own.
  */
 import * as React from 'react'
 import type { ConfigEntry, PathfinderConfigReading } from '../host/project-config.ts'
 import {
-  clampConfigWidth,
-  CONFIG_WIDTH,
-  CONFIG_WIDTH_BIG,
-  CONFIG_WIDTH_MAX,
-  CONFIG_WIDTH_MIN,
-  CONFIG_WIDTH_STEP,
-  configRowsOf,
+  configSectionsOf,
+  GROUP_WORDS,
   LAYER_WORDS,
   pickState,
   rowWords,
+  type ConfigGroup,
   type ConfigRow,
+  type ConfigSection,
 } from './config-rows.ts'
 import { NOT_ENABLED_WORD } from './constants.ts'
 import type { PanelPort } from './data.ts'
@@ -30,7 +32,7 @@ import type { Failure } from './failure.ts'
 import { failureOf } from './failure.ts'
 import { useT } from './locale.ts'
 import type { WordKey } from './locales/index.ts'
-import { CommitNumberInput, Grip } from './widgets.tsx'
+import { CommitNumberInput } from './widgets.tsx'
 
 /** The two words of the on / off control, as keys; the pressed one states the value the tool holds. */
 const SIDES: readonly (readonly [WordKey, boolean])[] = [['config.toggle.on', true], ['config.toggle.off', false]]
@@ -73,7 +75,15 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
   const t = useT()
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
   const [tick, setTick] = React.useState(0)
-  const [width, setWidth] = React.useState(CONFIG_WIDTH)
+  /* Which category the index is pointing at. `null` until the reader picks one or scrolls: the
+     first category is the answer then, so a reading arriving later does not have to be written to
+     this state from an effect. */
+  const [at, setAt] = React.useState<ConfigGroup | null>(null)
+  const page = React.useRef<HTMLDivElement>(null)
+  /* A jump moves the page itself, and the browser reports that move as a scroll like any other. This
+     flag swallows that one report so the index does not wander back to the category the reader just
+     left — a category the page could not quite bring to the top keeps its line lit. */
+  const jumped = React.useRef(false)
   /* Who left the last note on the note line: a failed read's note is retracted by the next
      successful read; a failed write's by the next successful write. A note left by other parts
      of the panel is not touched by this pane. */
@@ -141,6 +151,41 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
   }, [port, sessionId, workspaceRoot, note])
 
   const reading = load.phase === 'ok' ? load.reading : null
+  const sections = reading === null ? [] : configSectionsOf(reading.entries)
+  /* The index points at the picked category while it still has rows; otherwise at the first one. */
+  const pointed = at === null ? sections[0]?.group : sections.find((section) => section.group === at)?.group
+
+  /* A line in the index: bring that category's head to the top of the page. Measured off the two
+     rectangles rather than `offsetTop`, so the pane's own padding cannot put the head under the
+     page's edge. */
+  const jump = React.useCallback((group: ConfigGroup): void => {
+    const box = page.current
+    const head = box?.querySelector<HTMLElement>(`.pf-cfgsec[data-cat="${group}"]`) ?? null
+    if (box === null || head === null) return
+    const from = box.scrollTop
+    box.scrollTop = from + (head.getBoundingClientRect().top - box.getBoundingClientRect().top)
+    if (box.scrollTop !== from) jumped.current = true
+  }, [])
+
+  /* Scrolling the page by hand moves the index to the category whose head is the last one above the
+     page's top edge. At the very top of the page no head has crossed that edge yet — the first
+     section is the answer then, not "the category before this one". */
+  const track = React.useCallback((): void => {
+    if (jumped.current) {
+      jumped.current = false
+      return
+    }
+    const box = page.current
+    if (box === null) return
+    const edge = box.getBoundingClientRect().top + 4
+    let seen: ConfigGroup | null = null
+    for (const head of box.querySelectorAll<HTMLElement>('.pf-cfgsec')) {
+      const group = head.getAttribute('data-cat') as ConfigGroup | null
+      if (group === null) continue
+      if (seen === null || head.getBoundingClientRect().top <= edge) seen = group
+    }
+    if (seen !== null) setAt(seen)
+  }, [])
 
   return (
     <div
@@ -152,28 +197,79 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
       data-fill=""
       hidden={!active}
     >
-      {noNodes ? <p className="pf-innone">{t(NOT_ENABLED_WORD)}</p> : (
-      <div className="pf-configwrap" style={{ ['--pf-config-w' as string]: `${String(width)}px` }}>
-        <ConfigGrip side="left" value={width} onChange={setWidth} />
-        <div className="pf-scroll" role="region" aria-label={t('common.settings')} tabIndex={0}>
-          {reading === null ? null : (
-            <div className="pf-config">
-              {configRowsOf(reading.entries).map((row) => (
-                <Row
-                  key={row.key}
-                  row={row}
-                  entry={reading.entries[row.key]}
-                  revision={tick}
-                  onWrite={(next) => send(row.key, next)}
-                />
-              ))}
-            </div>
-          )}
+      {noNodes ? <p className="pf-innone">{t(NOT_ENABLED_WORD)}</p> : reading === null || sections.length === 0 ? null : (
+      <div className="pf-cfg">
+        <nav className="pf-cfgnav" aria-label={t('config.categories.aria')}>
+          <div className="pf-cfglist">
+            {sections.map((section) => (
+              <button
+                key={section.group}
+                type="button"
+                className="pf-cfgitem"
+                data-cat={section.group}
+                aria-current={pointed === section.group}
+                onClick={() => { jump(section.group); setAt(section.group) }}
+              >
+                <span className="pf-cfgitem-name">{t(GROUP_WORDS[section.group])}</span>
+                <span className="pf-cfgitem-count">{section.rows.length}</span>
+              </button>
+            ))}
+          </div>
+          <div className="pf-cfgnavfoot">
+            <span className="pf-cfgnavfoot-term">{t('config.file.term')}</span>
+            <code className="pf-cfgnavfoot-path">.pf/config.json</code>
+          </div>
+        </nav>
+        <div
+          className="pf-cfgpage"
+          ref={page}
+          role="region"
+          aria-label={t('common.settings')}
+          tabIndex={0}
+          onScroll={track}
+        >
+          {sections.map((section) => (
+            <Section
+              key={section.group}
+              section={section}
+              entries={reading.entries}
+              revision={tick}
+              onWrite={send}
+            />
+          ))}
         </div>
-        <ConfigGrip side="right" value={width} onChange={setWidth} />
       </div>
       )}
     </div>
+  )
+}
+
+function Section(props: {
+  readonly section: ConfigSection
+  readonly entries: Readonly<Record<string, ConfigEntry>>
+  readonly revision: number
+  readonly onWrite: (key: string, value: string) => void
+}): React.ReactElement {
+  const t = useT()
+  const { section } = props
+  return (
+    <section className="pf-cfgsec" data-cat={section.group}>
+      <header className="pf-cfgsechead">
+        <h2 className="pf-cfgsecname">{t(GROUP_WORDS[section.group])}</h2>
+        <span className="pf-cfgserule" aria-hidden="true" />
+      </header>
+      <div className="pf-cfgrows">
+        {section.rows.map((row) => (
+          <Row
+            key={row.key}
+            row={row}
+            entry={props.entries[row.key]}
+            revision={props.revision}
+            onWrite={(next) => { props.onWrite(row.key, next) }}
+          />
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -188,10 +284,11 @@ function Row(props: {
   const noteId = `cfg-note-${row.key}`
   const words = rowWords(t, row)
   return (
-    <div className="pf-setrow" data-key={row.key}>
-      <div className="pf-settext">
-        <div className="pf-setlabel">{words.name}</div>
-        <div className="pf-setcaption" id={noteId}>{words.caption}</div>
+    <div className="pf-cfgrow" data-key={row.key}>
+      <div className="pf-cfgrowname">
+        {/* The key itself rides along as the hint: the name is the reader's word, the record's word is what the tool takes. */}
+        <span className="pf-setlabel" title={row.name === null ? undefined : row.key}>{words.name}</span>
+        <span className="pf-setcaption" id={noteId}>{words.caption}</span>
       </div>
       {row.kind === 'pick'
         ? <Pick row={row} entry={entry} noteId={noteId} onWrite={props.onWrite} />
@@ -239,6 +336,10 @@ function Pick(props: {
  *
  * `revision` flips on every write, and on each flip the box swaps to the re-read copy — a refused
  * number does not squat in the box.
+ *
+ * The tool marks a limit nobody has filled in with its own word (a dash); a number box cannot hold
+ * that, and showing an empty box without saying so would read as "the value is zero". Such a row
+ * draws as unset instead — the reading says no number stands there, and the box says the same.
  */
 function NumberBox(props: {
   readonly row: ConfigRow
@@ -249,10 +350,11 @@ function NumberBox(props: {
 }): React.ReactElement {
   const t = useT()
   const held = props.entry?.value ?? ''
+  const numeric = held.length > 0 && Number.isFinite(Number(held))
   return (
     <CommitNumberInput
       held={held}
-      unset={props.entry === undefined}
+      unset={!numeric}
       label={rowWords(t, props.row).name}
       describedBy={props.noteId}
       revision={props.revision}
@@ -329,37 +431,5 @@ function Toggle(props: {
         </button>
       ))}
     </div>
-  )
-}
-
-/**
- * The pair of column-edge grips: drag, keyboard, and double-click all live on the shared Grip; this
- * only states how the pair is measured — one edge moving Δ changes the width by 2Δ with the center
- * fixed, and the pointer stays grabbed on the column edge. The left grip's `out` is -1: the arrow
- * keys move that side's edge.
- */
-function ConfigGrip(props: {
-  readonly side: 'left' | 'right'
-  readonly value: number
-  readonly onChange: (px: number) => void
-}): React.ReactElement {
-  const t = useT()
-  const { side, value, onChange } = props
-  const out = side === 'left' ? -1 : 1
-  return (
-    <Grip
-      label={t('config.grip.aria')}
-      value={value}
-      min={CONFIG_WIDTH_MIN}
-      max={CONFIG_WIDTH_MAX}
-      clamp={clampConfigWidth}
-      dragGain={out * 2}
-      keyGain={out}
-      step={CONFIG_WIDTH_STEP}
-      bigStep={CONFIG_WIDTH_BIG}
-      onChange={onChange}
-      resetTo={CONFIG_WIDTH}
-      attributes={{ 'data-side': side, 'data-width': String(value) }}
-    />
   )
 }

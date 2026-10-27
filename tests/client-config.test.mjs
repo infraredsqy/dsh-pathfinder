@@ -1,5 +1,5 @@
 /* Layout table for the config section: locks in how rows grow out of readings, how known keys are
- * described, and where that column can be dragged to.
+ * described, which category each row falls under, and how the page's sections come out.
  *
  * The tool is the single source of truth for config keys; this side never declares "which keys the
  * tool has": rows grow out of `pf config list` readings, registered keys render per the table, and
@@ -13,11 +13,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  clampConfigWidth,
-  CONFIG_WIDTH,
-  CONFIG_WIDTH_MAX,
-  CONFIG_WIDTH_MIN,
+  CONFIG_GROUPS,
   configRowsOf,
+  configSectionsOf,
+  GROUP_WORDS,
+  groupOfUnregistered,
   KNOWN_CONFIG_ROWS,
   LAYER_WORDS,
   pickState,
@@ -33,11 +33,15 @@ function entry(value, layer = 'project') {
   return { value, layer }
 }
 
-test('已知的四个键都有说法：中文名、那一句话、控件形态一件不缺', () => {
-  assert.deepEqual([...Object.keys(KNOWN_CONFIG_ROWS)].sort(), ['issue_repair', 'max_agents', 'test_tier', 'worktree_mode'])
+test('登记过的键都有说法：中文名、那一句话、分组，一件不缺', () => {
+  assert.deepEqual(
+    [...Object.keys(KNOWN_CONFIG_ROWS)].sort(),
+    ['issue_pool', 'issue_pool_weight_limit', 'issue_repair', 'max_agents', 'test_audit', 'test_seconds_limit', 'test_tier', 'worktree_mode'],
+  )
   for (const row of Object.values(KNOWN_CONFIG_ROWS)) {
     const words = rowWords(t, row)
     assert.ok(words.name.length > 0 && words.caption.length > 0, `${row.key} 缺名字或缺那一句话`)
+    assert.ok(CONFIG_GROUPS.includes(row.group), `${row.key} 落在了三个分组之外`)
   }
 })
 
@@ -132,12 +136,55 @@ test('读数里有值：在表里就摆它自己，不在表里就把它自己�
   }
 })
 
-test('那一列的宽窄：默认 720，横向收在 480–960，落点是整数', () => {
-  assert.equal(CONFIG_WIDTH, 720)
-  assert.equal(clampConfigWidth(CONFIG_WIDTH), 720)
-  assert.equal(clampConfigWidth(1), CONFIG_WIDTH_MIN)
-  assert.equal(clampConfigWidth(100000), CONFIG_WIDTH_MAX)
-  assert.equal(clampConfigWidth(720.4), 720)
-  assert.equal(clampConfigWidth(719.6), 720)
-  assert.ok(CONFIG_WIDTH_MIN < CONFIG_WIDTH && CONFIG_WIDTH < CONFIG_WIDTH_MAX)
+test('三个分组各有各的名字，按索引里的次序摆着', () => {
+  assert.deepEqual(CONFIG_GROUPS, ['general', 'issue', 'test'])
+  assert.deepEqual(
+    CONFIG_GROUPS.map((group) => t(GROUP_WORDS[group])),
+    ['常规', '问题', '测试'],
+  )
+})
+
+test('页子从行分成段：常规 / 问题 / 测试，段内照表序，空的分组连段带索引项都不出现', () => {
+  const sections = configSectionsOf({
+    max_agents: entry('1'),
+    test_seconds_limit: entry('-', 'default'),
+    worktree_mode: entry('off'),
+    issue_pool: entry('on', 'default'),
+    test_tier: entry('full'),
+    issue_pool_weight_limit: entry('-', 'default'),
+    test_audit: entry('on', 'default'),
+  })
+
+  assert.deepEqual(sections.map((section) => section.group), ['general', 'issue', 'test'])
+  assert.deepEqual(sections.map((section) => section.rows.map((row) => row.key)), [
+    ['worktree_mode', 'test_tier', 'max_agents'],
+    ['issue_pool', 'issue_pool_weight_limit'],
+    ['test_audit', 'test_seconds_limit'],
+  ])
+  /* Only keys the reading printed: a group whose keys are all absent is dropped, not drawn empty. */
+  assert.deepEqual(
+    configSectionsOf({ max_agents: entry('1') }).map((section) => [section.group, section.rows.length]),
+    [['general', 1]],
+  )
+  assert.deepEqual(configSectionsOf({}), [])
+})
+
+test('没登记的键照前缀归堆：issue_ 进问题、test_ 进测试、其余进常规', () => {
+  assert.equal(groupOfUnregistered('issue_pool'), 'issue')
+  assert.equal(groupOfUnregistered('test_audit'), 'test')
+  assert.equal(groupOfUnregistered('spawner'), 'general')
+  assert.equal(groupOfUnregistered('max_workers'), 'general')
+
+  assert.deepEqual(
+    configSectionsOf({
+      test_shard: entry('4', 'default'),
+      spawner: entry('dsh'),
+      issue_scan: entry('on', 'default'),
+    }).map((section) => [section.group, section.rows.map((row) => row.key)]),
+    [
+      ['general', ['spawner']],
+      ['issue', ['issue_scan']],
+      ['test', ['test_shard']],
+    ],
+  )
 })
