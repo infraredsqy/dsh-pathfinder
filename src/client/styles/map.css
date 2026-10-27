@@ -1,0 +1,336 @@
+/* dsh-pathfinder · map — one drawing that carries both "who owes whom" and "which card to look at".
+ *
+ * The horizontal axis is one the record really has (a card stands one column right of its deepest
+ * prerequisite); the vertical axis is typography. Emphasis is not painted on with another colour: it
+ * comes from three things — which cards are in ink, how large a card is on screen (the LOD tiers),
+ * and how far it stands from the focus. The reader lands on the card that wants a person first and
+ * the rest falls back to structure.
+ *
+ * The camera is one continuous scale, so a frame's width is divided by it: the script writes `--s` on
+ * the canvas, and `1px / --s` is what one pixel measures on screen. Wires take `vector-effect` for
+ * the same reason. */
+
+/* ---- Across: the rail, then the drawing ---------------------------------- */
+
+.pf-page .pf-map-pane {
+  overflow: hidden;
+}
+
+.pf-page .pf-map {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  /* One card's box is stated in `map-layout.ts` and written onto this element; the sheet reads the
+     same pair of numbers rather than keeping a second copy that could drift. */
+  --card-w: 380px;
+  --card-h: 96px;
+}
+
+/* The hit scope: the whole workspace plus each line. It only says "search under here first" — the
+ * whole drawing stays on screen, whichever row is pressed. A line that has touched nothing in this
+ * workspace is greyed out and holds no press: the row itself is the reading. */
+.pf-page .pf-rail {
+  flex: none;
+  width: 176px;
+  /* The 18px on the right is the ground between the list and the drawing: pressed any closer, the
+     list reads as a column of labels laid on top of the map. */
+  padding: 12px 18px 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.pf-page .pf-rail-item {
+  appearance: none;
+  flex: none;
+  padding: 5px 10px;
+  overflow: hidden;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  cursor: pointer;
+}
+
+.pf-page .pf-rail-item:hover:not(:disabled):not([aria-pressed='true']) {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.pf-page .pf-rail-item[aria-pressed='true'] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.pf-page .pf-rail-item:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+/* ---- The drawing --------------------------------------------------------- */
+
+.pf-page .pf-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.pf-page .pf-field.is-panning {
+  cursor: grabbing;
+}
+
+/* A fade at each end: a drawing wider than the viewport is cut at its edges, and a hard edge reads as
+ * "the drawing stops here". The fade turns that cut into the page's own ground, which reads as "there
+ * is more, just out of sight". It lies over the drawing and takes no pointer, so pan and zoom are
+ * untouched. */
+.pf-page .pf-field::before,
+.pf-page .pf-field::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 56px;
+  pointer-events: none;
+}
+
+.pf-page .pf-field::before {
+  left: 0;
+  background: linear-gradient(to right, var(--dsw-alias-bg-base), transparent);
+}
+
+.pf-page .pf-field::after {
+  right: 0;
+  background: linear-gradient(to left, var(--dsw-alias-bg-base), transparent);
+}
+
+/* The canvas is one absolutely positioned plane: everything is placed in canvas coordinates and
+ * transformed in one go. Zooming changes no layout, so there is no reflow and no scrollbar — the
+ * wheel is the zoom itself. */
+.pf-page .pf-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.pf-page .pf-wires,
+.pf-page .pf-mnodes {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.pf-page .pf-wires {
+  overflow: visible;
+}
+
+/* One wire: 1px on screen, always (it narrows with the scale inside the canvas and `vector-effect`
+ * pins it back to one pixel). */
+.pf-page .pf-mwire {
+  fill: none;
+  stroke: var(--dsw-alias-border-l2);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Both ends lit: this wire belongs to the chain being read, so it takes ink. */
+.pf-page .pf-mwire.is-lit {
+  stroke: var(--dsw-alias-border-l4);
+}
+
+/* ---- One card ------------------------------------------------------------
+ *
+ * A card says two things at once: what state this cell is in (its frame's colour) and whether it is
+ * the one being read at this moment (its ground, and its title's ink). The frame and the ground are
+ * therefore two separate channels — neither can stand in for the other, because the frame's colour is
+ * this card's own mark.
+ *
+ * The frame scales with the drawing (1.6px in canvas pixels) but never falls below 0.9px on screen:
+ * at the overview it becomes a hairline that still circles every card, and zoomed in it does not grow
+ * until it swallows half the box. */
+.pf-page .pf-mnode {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: var(--card-w);
+  height: var(--card-h);
+  padding: 13px 17px;
+  overflow: hidden;
+  font-family: var(--dsw-font-family);
+  text-align: left;
+  /* The state's colour lands on --edge; whether this card is the one being read lands on --edge-mix.
+     The two never overwrite each other. */
+  --edge: var(--dsw-alias-border-l2);
+  --edge-mix: 100%;
+  background: var(--dsw-alias-bg-layer-1);
+  border-style: solid;
+  border-width: clamp(calc(0.9px / var(--s, 1)), 1.6px, calc(2.4px / var(--s, 1)));
+  border-color: color-mix(in srgb, var(--edge) var(--edge-mix), var(--dsw-alias-bg-base));
+  border-radius: var(--dsw-radius-md);
+  /* The anchor is the centre: when the scale changes, this card's centre does not move. */
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+
+/* Delivered: a green frame. */
+.pf-page .pf-mnode.is-done {
+  --edge: var(--dsw-alias-state-success-primary);
+}
+
+/* In hand: the link colour, the one colour on this page that means "moving". */
+.pf-page .pf-mnode.is-run {
+  --edge: var(--dsw-alias-link);
+}
+
+/* Waiting for a person (a checkpoint, a parked cell, a manual step): an amber frame, and the card a
+   reader meets first on the page. */
+.pf-page .pf-mnode.is-gate {
+  --edge: var(--dsw-alias-state-warn-primary);
+}
+
+/* Everything outside the focus: the frame keeps a third of its colour and the ground falls back to
+ * the canvas's own layer. The title drops one tier too, but only as far as it still reads — secondary
+ * is said with light and position; said with "invisible", it is simply not said.
+ *
+ * The ground is opaque throughout: wires run beneath the cards, and a half-transparent card leaks a
+ * wire across its face. */
+.pf-page .pf-mnode:not(.is-lit) {
+  --edge-mix: 32%;
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 55%, var(--dsw-alias-bg-base));
+}
+
+.pf-page .pf-mnode.is-lit {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.pf-page .pf-mnode.is-gate.is-lit {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 8%, var(--dsw-alias-bg-layer-1));
+}
+
+.pf-page .pf-mnode:hover {
+  --edge-mix: 100%;
+}
+
+/* Three lines: the cycle's own id, the title, and the row of marks and moments. */
+.pf-page .pf-mtag {
+  flex: none;
+  overflow: hidden;
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--dsw-alias-label-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-page .pf-mtitle {
+  flex: none;
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 26px;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-page .pf-mnode.is-lit .pf-mtitle {
+  color: var(--dsw-alias-label-primary);
+}
+
+.pf-page .pf-mmeta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  margin-top: auto;
+  font-size: 11px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.pf-page .pf-mtime {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* ---- Semantic zoom: one drawing, three readings --------------------------
+ *
+ * The overview is the same map scaled until the whole of it fits: the cards are those cards, the
+ * frames are still there, only the words leave. Scaled below the size at which a title reads, what
+ * remains is the frame and the ground — and the ground is the state itself.
+ *
+ * The middle tier keeps the title alone, centred in the box: a single line pinned to the top of the
+ * box reads as the top of something that was cut off. */
+
+.pf-page .pf-field.is-lod-dot .pf-mtag,
+.pf-page .pf-field.is-lod-dot .pf-mtitle,
+.pf-page .pf-field.is-lod-dot .pf-mmeta {
+  display: none;
+}
+
+.pf-page .pf-field.is-lod-mid .pf-mnode {
+  justify-content: center;
+}
+
+.pf-page .pf-field.is-lod-mid .pf-mtag,
+.pf-page .pf-field.is-lod-mid .pf-mmeta {
+  display: none;
+}
+
+/* ---- The two buttons at the top right ------------------------------------ */
+
+.pf-page .pf-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+
+.pf-page .pf-tool {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--dsw-alias-label-secondary);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 88%, transparent);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  cursor: pointer;
+}
+
+.pf-page .pf-tool:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-3);
+  border-color: var(--dsw-alias-border-l4);
+}
+
+.pf-page .pf-tool[aria-pressed='true'] {
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l4);
+}
+
+.pf-page .pf-tool svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

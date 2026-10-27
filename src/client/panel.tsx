@@ -1,11 +1,11 @@
 /**
- * The main panel's shell: the six-pane tab row, switching between views, the fetch lines for
+ * The main panel's shell: the five-pane tab row, switching between views, the fetch lines for
  * readings and preferences, and the assembly of each pane.
  *
- * Each pane's own layout is its own document: board `board.tsx`, detail `detail.tsx`, instruction
- * book `notes.tsx`, project settings `config.tsx`, and the dependency and issue panes in `field.tsx`
- * / `pool.tsx`; the two modals are `line-settings.tsx` and `delete-confirm.tsx`; the reading widgets
- * shared by board, detail, and instruction book are in `marks.tsx`.
+ * Each pane's own layout is its own document: the map `map.tsx` (with its layout engine in
+ * `map-layout.ts`), detail `detail.tsx`, instruction book `notes.tsx`, project settings `config.tsx`,
+ * and the issue pane `pool.tsx`; the two modals are `line-settings.tsx` and `delete-confirm.tsx`; the
+ * reading widgets shared by the map, detail, and instruction book are in `marks.tsx`.
  *
  * Not a single reading is computed here: the four records arrive through the port, and the pure
  * functions in `src/model` read them into the reading for this moment; this layer only draws it. The
@@ -16,21 +16,19 @@ import * as React from 'react'
 import type { PathfinderReading } from '../host/contract.ts'
 import type { InstructionReading, ProjectReading } from '../model/index.ts'
 import { everySourceIs, readProject, readSessions } from '../model/index.ts'
-import type { InfoLevel, PrefField, PrefsSource, ViewId } from './prefs.ts'
+import type { PrefField, PrefsSource, ViewId } from './prefs.ts'
 import { clampSide, DEFAULT_SOURCE, PANEL_PREF_FIELDS, VIEW_WORDS } from './prefs.ts'
 import { useT } from './locale.ts'
-import { NOT_ENABLED_WORD } from './constants.ts'
 import { failureWord } from './words.ts'
 import type { Failure, Outcome } from './failure.ts'
 import { failureOf } from './failure.ts'
 import type { PanelPort } from './data.ts'
 import { bucketOf, NO_WORKSPACES, type WorkspaceSource } from './workspaces.ts'
 import { Pill } from './widgets.tsx'
-import { BoardPane, type CardGo } from './board.tsx'
+import { MapPane, type CardGo } from './map.tsx'
 import { ConfigPane } from './config.tsx'
 import { DeleteConfirm } from './delete-confirm.tsx'
 import { DetailPane } from './detail.tsx'
-import { DependencyField } from './field.tsx'
 import { LineSettings } from './line-settings.tsx'
 import { NotesPane } from './notes.tsx'
 import { IssuePool } from './pool.tsx'
@@ -44,18 +42,12 @@ interface View {
 /* Only the layout is stated here; the word on each tab is looked up when the tab row is drawn, so
  * the settings dropdown and the tab row cannot drift apart and neither knows the language. */
 const VIEWS: readonly View[] = [
-  { id: 'now', fill: false },
+  { id: 'map', fill: true },
   { id: 'detail', fill: true },
   { id: 'notes', fill: true },
-  { id: 'wires', fill: true },
   { id: 'issue', fill: true },
   { id: 'config', fill: true },
 ]
-
-/** The three levels of cards per column, and the fallback when "full" cannot reach the ruler. */
-const INFO_CAPS: Readonly<Record<Exclude<InfoLevel, 'full'>, number>> = { lean: 1, three: 3 }
-const FULL_MAX = 8
-const FULL_FALLBACK = 3
 
 export interface PanelProps {
   readonly port: PanelPort
@@ -152,7 +144,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const preferences = React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const stored = preferences.prefs
   const [tab, setTab] = usePreference<ViewId>(stored.tab)
-  const [info, setInfo] = usePreference<InfoLevel>(stored.info)
   const [sideWidth, setSideWidth] = usePreference<number>(stored.sideWidth)
   const [otherStates, setOtherStates] = usePreference<boolean>(stored.otherStates)
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
@@ -165,9 +156,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const [lineId, setLineId] = React.useState<string | null>(null)
   const [settingsFor, setSettingsFor] = React.useState<string | null>(null)
   const [deleting, setDeleting] = React.useState<InstructionReading | null>(null)
-  const stageRef = React.useRef<HTMLDivElement | null>(null)
-  const colsRef = React.useRef<HTMLDivElement | null>(null)
-  const [fullCap, setFullCap] = React.useState<number>(FULL_FALLBACK)
 
   /* Fetching: read once on the pass this view becomes visible; again when the workspace changes or
    * after a write lands (`tick` is that pass's marker). */
@@ -194,11 +182,11 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   }, [port, sessionId, workspaceRoot, tick, pickedNone])
 
   /* Session notes: the host half carries the notes directory back verbatim, and the model layer
-   * reads "which session each cell should go to" against it. Only the current pane (the board) has
-   * cards to click, so the read happens only on the passes that pane is visible; an unreadable one
-   * draws as empty. The write-side verbs cannot touch the notes, so `tick` does not follow them. */
+   * reads "which session each cell should go to" against it. Only the map has cards to click, so
+   * the read happens only on the passes that pane is visible; an unreadable one draws as empty. The
+   * write-side verbs cannot touch the notes, so `tick` does not follow them. */
   React.useEffect(() => {
-    if (pickedNone || tab !== 'now' || sessionId === undefined || sessionId.length === 0) {
+    if (pickedNone || tab !== 'map' || sessionId === undefined || sessionId.length === 0) {
       setNotes(NO_NOTES)
       return undefined
     }
@@ -249,22 +237,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
    * that says nothing. The invariant "the four sources are disjoint and together the whole" holds in
    * one place, the model layer; it is not re-derived here by summing column lengths. */
   const noNodes = project !== null && project.nodes.length === 0
-
-  /* "Full" is computed on the spot: when the viewport cannot be measured, fall back to the previous
-   * pass's number, and failing that to the fixed level. */
-  React.useLayoutEffect(() => {
-    if (info !== 'full' || tab !== 'now') return
-    const stage = stageRef.current
-    const cols = colsRef.current
-    if (stage === null || cols === null) return
-    const card = cols.querySelector('.pf-card') as HTMLElement | null
-    if (card === null || card.offsetHeight === 0) return
-    const column = cols.firstElementChild as HTMLElement | null
-    const gap = column === null ? 0 : Number.parseFloat(getComputedStyle(column).rowGap) || 0
-    const head = cols.getBoundingClientRect().top - stage.getBoundingClientRect().top
-    const rows = Math.floor((stage.clientHeight - head + gap) / (card.offsetHeight + gap))
-    setFullCap(Math.max(1, Math.min(FULL_MAX, rows)))
-  }, [info, tab, project, fullCap])
 
   /* Every write on the panel goes through this hand: put the sentence verbatim onto the note line,
    * and on success read again (`tick` moves, and the reading effect above re-runs). Returning
@@ -318,11 +290,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     keep(PANEL_PREF_FIELDS.defaultTab, id)
   }, [keep])
 
-  const pickInfo = React.useCallback((level: InfoLevel) => {
-    setInfo(level)
-    keep(PANEL_PREF_FIELDS.infoLevel, level)
-  }, [keep])
-
   const pickOtherStates = React.useCallback((on: boolean) => {
     setOtherStates(on)
     keep(PANEL_PREF_FIELDS.showOtherStates, on)
@@ -332,9 +299,9 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
 
   /* Whether this screen has anything to say. Picking "ungrouped" while this session has a home
    * means that pane has no record under it; none of the four sources listed means this workspace
-   * has no such record; listed but none parseable means unreadable. In all three cases all six panes
-   * are speechless, and the pane collapses to one sentence — the plaque and the workspace selector
-   * stay; tabs, counts, and body go together. */
+   * has no such record; listed but none parseable means unreadable. In all three cases all five
+   * panes are speechless, and the pane collapses to one sentence — the plaque and the workspace
+   * selector stay; tabs, counts, and body go together. */
   const nothing = pickedNone
     ? t('panel.ungrouped-empty')
     : load.phase === 'no-session'
@@ -394,20 +361,17 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
       </header>
 
       {nothing === null ? (
-      <div className="pf-stage" ref={stageRef}>
+      <div className="pf-stage">
         {/* The one-sentence screen stretches too: the stage centers non-stretching modules both ways,
             so the sentence floats in the middle, one step right of the header's left edge; once
-            stretched it shares the lot with the other five panes — this pane's own top-left corner. */}
+            stretched it shares the lot with the other four panes — this pane's own top-left corner. */}
         <div className={`pf-frame${active.fill || noNodes ? ' is-fill' : ''}`} id="frame">
-          <BoardPane
-            active={tab === 'now'}
+          <MapPane
+            active={tab === 'map'}
             noNodes={noNodes}
             project={project}
-            info={info}
-            cap={capOf(info, fullCap)}
             go={cardGo}
-            colsRef={colsRef}
-            onPickInfo={pickInfo}
+            onRefresh={() => setTick((value) => value + 1)}
           />
 
           <DetailPane
@@ -437,22 +401,9 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             onDelete={(instruction) => setDeleting(instruction)}
           />
 
-          {/* The dependency and issue panes are each a standalone document in the blueprint; in the
-              panel this pane acts as their page root: the `is-embed` yield marker hangs on it
-              together with the page markers (`pf-wires` / `pf-issue`), and the build gateway folds
-              each sheet by page marker, so the two sheets never overrun each other. */}
-          <div
-            className="pf-pane is-frame is-embed pf-wires"
-            id="pane-wires"
-            role="tabpanel"
-            aria-labelledby="tab-wires"
-            data-fill=""
-            hidden={tab !== 'wires'}
-          >
-            {noNodes ? <p className="pf-innone">{t(NOT_ENABLED_WORD)}</p>
-              : project === null ? null : <DependencyField project={project} active={tab === 'wires'} />}
-          </div>
-
+          {/* The issue pane is a standalone document in the blueprint; in the panel this pane acts as
+              its page root: the `is-embed` yield marker hangs on it together with the page marker
+              (`pf-issue`), and the build gateway folds that sheet by its own page marker. */}
           <div
             className="pf-pane is-frame is-embed pf-issue"
             id="pane-issue"
@@ -509,10 +460,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
       )}
     </div>
   )
-}
-
-function capOf(info: InfoLevel, fullCap: number): number {
-  return info === 'full' ? fullCap : INFO_CAPS[info]
 }
 
 /** The four numbers at the top right; "waiting" shows only when someone is truly parked out, and stands first. */

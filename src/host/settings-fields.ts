@@ -8,11 +8,8 @@
  * here.
  */
 
-/** The per-column card count tier. */
-export type InfoLevel = 'lean' | 'three' | 'full'
-
-/** Ids of the six views; key names line up with the blueprint's two columns (`tab-*` / `pane-*`). */
-export type ViewId = 'now' | 'detail' | 'notes' | 'wires' | 'issue' | 'config'
+/** Ids of the five views; key names line up with the blueprint's two columns (`tab-*` / `pane-*`). */
+export type ViewId = 'map' | 'detail' | 'notes' | 'issue' | 'config'
 
 /**
  * The names of the fields in this section: the host schema's keys, the paths
@@ -21,7 +18,6 @@ export type ViewId = 'now' | 'detail' | 'notes' | 'wires' | 'issue' | 'config'
  */
 export const PANEL_PREF_FIELDS = {
   sideWidth: 'sideWidth',
-  infoLevel: 'infoLevel',
   defaultTab: 'defaultTab',
   showArchived: 'showArchived',
   showOtherStates: 'showOtherStates',
@@ -35,11 +31,8 @@ export const SIDE_MAX = 320
 /** The width before any dragging. */
 export const SIDE_DEFAULT = 176
 
-/** The three info levels, ordered as the row of buttons in the settings page. */
-export const INFO_LEVELS: readonly InfoLevel[] = ['lean', 'three', 'full']
-
-/** The six views, ordered as the row of tabs. */
-export const VIEW_IDS: readonly ViewId[] = ['now', 'detail', 'notes', 'wires', 'issue', 'config']
+/** The five views, ordered as the row of tabs. */
+export const VIEW_IDS: readonly ViewId[] = ['map', 'detail', 'notes', 'issue', 'config']
 
 /**
  * The shape before anything has been recorded.
@@ -50,8 +43,7 @@ export const VIEW_IDS: readonly ViewId[] = ['now', 'detail', 'notes', 'wires', '
  */
 export const PANEL_PREF_DEFAULTS = {
   sideWidth: SIDE_DEFAULT,
-  infoLevel: 'three',
-  defaultTab: 'now',
+  defaultTab: 'map',
   showArchived: false,
   showOtherStates: false,
 } as const

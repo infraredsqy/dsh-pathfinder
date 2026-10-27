@@ -7,7 +7,6 @@
  */
 import type { Schema, Schemastery } from '@deepseek-ai/schemastery'
 import {
-  INFO_LEVELS,
   PANEL_PREF_DEFAULTS,
   PANEL_PREF_FIELDS,
   SIDE_MAX,
@@ -39,9 +38,6 @@ export function buildConfig(z: Schemastery): Schema<Record<string, unknown>> {
   return z.object({
     [PANEL_PREF_FIELDS.sideWidth]: live(
       z.number().min(SIDE_MIN).max(SIDE_MAX).default(PANEL_PREF_DEFAULTS.sideWidth),
-    ),
-    [PANEL_PREF_FIELDS.infoLevel]: live(
-      z.union(INFO_LEVELS).default(PANEL_PREF_DEFAULTS.infoLevel),
     ),
     [PANEL_PREF_FIELDS.defaultTab]: live(
       z.union(VIEW_IDS).default(PANEL_PREF_DEFAULTS.defaultTab),

@@ -149,7 +149,7 @@ export function IssuePool(props: {
             title={t('pool.lean.tip', { state: issueWord(t, 'open'), count: pool.census.open })}
             onClick={() => props.onShowOtherStates(false)}
           >
-            {t('info.lean')}
+            {t('pool.lean')}
           </button>
           <button
             type="button"

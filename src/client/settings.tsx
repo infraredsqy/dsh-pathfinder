@@ -4,12 +4,12 @@
  * This section lives in DSH's own settings panel, not in the same tree as the main panel, so it
  * cannot reach the sheets bundled into `.pf-page` at build time — it carries its own stylesheet,
  * class names all use the `pfset-` prefix, and colors use only DSH's theme tokens. The page holds
- * only four rows of the panel's own display preferences, and it reads the same settings form as the
+ * only three rows of the panel's own display preferences, and it reads the same settings form as the
  * panel, so flipping a row changes the panel on the spot.
  */
 import * as React from 'react'
-import { INFO_LEVELS, PANEL_PREF_FIELDS, VIEW_IDS } from '../host/settings-fields.ts'
-import { DEFAULT_SOURCE, INFO_WORDS, VIEW_WORDS } from './prefs.ts'
+import { PANEL_PREF_FIELDS, VIEW_IDS } from '../host/settings-fields.ts'
+import { DEFAULT_SOURCE, VIEW_WORDS } from './prefs.ts'
 import type { PrefField, PrefsForm, PrefsSource, PrefsStore } from './prefs.ts'
 import { serviceAt } from './data.ts'
 import { injectAt, report, serveOn, type SlotsService } from './context.ts'
@@ -154,25 +154,6 @@ function SettingsPage(props: SettingsSectionProps): React.ReactElement {
 
   return (
     <div className="pfset-page">
-      <Row
-        label={t('settings.info.label')}
-        tip={null}
-        control={(
-          <div className="pfset-seg" role="group" aria-label={t('settings.info.label')}>
-            {INFO_LEVELS.map((level) => (
-              <button
-                key={level}
-                type="button"
-                className="pfset-segbtn"
-                aria-pressed={level === prefs.info}
-                onClick={() => write(PANEL_PREF_FIELDS.infoLevel, level)}
-              >
-                {t(INFO_WORDS[level])}
-              </button>
-            ))}
-          </div>
-        )}
-      />
       <Row
         label={t('settings.tab.label')}
         tip={null}

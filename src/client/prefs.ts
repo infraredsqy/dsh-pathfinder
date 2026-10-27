@@ -9,7 +9,6 @@
  */
 import type { WordKey } from './locales/index.ts'
 import {
-  INFO_LEVELS,
   PANEL_PREF_DEFAULTS,
   PANEL_PREF_FIELDS,
   SIDE_DEFAULT,
@@ -17,33 +16,21 @@ import {
   SIDE_MIN,
   VIEW_IDS,
 } from '../host/settings-fields.ts'
-import type { InfoLevel, ViewId } from '../host/settings-fields.ts'
+import type { ViewId } from '../host/settings-fields.ts'
 
-export type { InfoLevel, ViewId }
-export { INFO_LEVELS, PANEL_PREF_DEFAULTS, PANEL_PREF_FIELDS, SIDE_DEFAULT, SIDE_MAX, SIDE_MIN, VIEW_IDS }
+export type { ViewId }
+export { PANEL_PREF_DEFAULTS, PANEL_PREF_FIELDS, SIDE_DEFAULT, SIDE_MAX, SIDE_MIN, VIEW_IDS }
 
 /** Which settings-document field the panel writes back to; the names are the document's keys. */
 export type PrefField = (typeof PANEL_PREF_FIELDS)[keyof typeof PANEL_PREF_FIELDS]
 
-/**
- * What each of the three info levels is called: the settings row and the panel's button row say the
- * same word.
- *
- * A KEY, not the word. Both surfaces render it through the same translator, so the two cannot drift
- * apart, and the word itself can change language without either of them knowing.
- */
-export const INFO_WORDS: Readonly<Record<InfoLevel, WordKey>> = {
-  lean: 'info.lean',
-  three: 'info.three',
-  full: 'info.full',
-}
-
-/** What each of the six views is called, on the same terms as {@link INFO_WORDS}. */
+/** What each of the five views is called, as a key rather than as a word: both the settings row and
+ * the tab row render it through the same translator, so the two cannot drift apart, and the word
+ * itself can change language without either of them knowing. */
 export const VIEW_WORDS: Readonly<Record<ViewId, WordKey>> = {
-  now: 'view.now',
+  map: 'view.map',
   detail: 'view.detail',
   notes: 'view.notes',
-  wires: 'view.wires',
   issue: 'view.issue',
   config: 'view.config',
 }
@@ -51,8 +38,6 @@ export const VIEW_WORDS: Readonly<Record<ViewId, WordKey>> = {
 export interface PanelPrefs {
   /** Width of the line sidebar on the left of the detail view, in pixels. */
   readonly sideWidth: number
-  /** How many cards per column. */
-  readonly info: InfoLevel
   /** Which view the panel lands on when shown. */
   readonly tab: ViewId
   /** Whether the instructions view folds archived entries back into their sections. */
@@ -63,8 +48,7 @@ export interface PanelPrefs {
 
 export const DEFAULT_PREFS: PanelPrefs = {
   sideWidth: PANEL_PREF_DEFAULTS.sideWidth,
-  info: 'three',
-  tab: 'now',
+  tab: 'map',
   archived: false,
   otherStates: false,
 }
@@ -127,11 +111,9 @@ export function dropLegacyPrefs(storage?: PrefStorage | null): number {
 export function prefsFromSection(section: unknown): PanelPrefs {
   const held = (typeof section === 'object' && section !== null ? section : {}) as Readonly<Record<string, unknown>>
   const width = held[PANEL_PREF_FIELDS.sideWidth]
-  const info = held[PANEL_PREF_FIELDS.infoLevel]
   const tab = held[PANEL_PREF_FIELDS.defaultTab]
   return {
     sideWidth: typeof width === 'number' && Number.isFinite(width) ? clampSide(width) : DEFAULT_PREFS.sideWidth,
-    info: INFO_LEVELS.includes(info as InfoLevel) ? (info as InfoLevel) : DEFAULT_PREFS.info,
     tab: VIEW_IDS.includes(tab as ViewId) ? (tab as ViewId) : DEFAULT_PREFS.tab,
     archived: held[PANEL_PREF_FIELDS.showArchived] === true,
     otherStates: held[PANEL_PREF_FIELDS.showOtherStates] === true,
@@ -148,7 +130,7 @@ export interface PrefsWriteOp {
 /**
  * Write one change as the atomic action the settings service accepts.
  *
- * The path has a single segment, because all five fields in this section sit at the top level —
+ * The path has a single segment, because all four fields in this section sit at the top level —
  * the settings service decides by path whether a field is accepted, and one segment more or less
  * lands nowhere.
  */
@@ -232,7 +214,6 @@ function sameSnapshot(left: PrefsSnapshot, right: PrefsSnapshot): boolean {
 /** Whether the panel's values say the same thing: item by item, object identity not consulted. */
 function samePrefs(left: PanelPrefs, right: PanelPrefs): boolean {
   return left.sideWidth === right.sideWidth
-    && left.info === right.info
     && left.tab === right.tab
     && left.archived === right.archived
     && left.otherStates === right.otherStates

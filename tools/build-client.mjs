@@ -4,12 +4,12 @@
 //   node tools/build-client.mjs
 //
 // The sheets in `src/client/styles/` are written in the shape they ship in: every selector already
-// leads with its cell's layer class (`.pf-page` on the main panel, `.pf-wires` / `.pf-issue` on the
-// two embedded panes). That is what this entry used to rewrite at build time, and the reason it had
-// to: a sheet written for a document of its own carries `body { overflow: hidden }`, `:root` tokens
-// and a `*` reset, none of which belong on DSH's document — the `overflow` alone would hide the
-// shell. The rewrite happened once, when the sheets moved in here; the source is now the artifact,
-// so all this entry does with styles is read nine files in order and join them.
+// leads with its cell's layer class (`.pf-page` on the main panel, `.pf-issue` on the embedded issue
+// pane). That is what this entry used to rewrite at build time, and the reason it had to: a sheet
+// written for a document of its own carries `body { overflow: hidden }`, `:root` tokens and a `*`
+// reset, none of which belong on DSH's document — the `overflow` alone would hide the shell. The
+// rewrite happened once, when the sheets moved in here; the source is now the artifact, so all this
+// entry does with styles is read eight files in order and join them.
 //
 // One check stays at build time: a selector that escapes its layer lands on the host page, fails
 // silently inside the panel, and can break DSH's own shell. A leak stops the build.
@@ -27,20 +27,19 @@ const STYLES = join(root, 'src', 'client', 'styles')
  * The sheets that ship, in cascade order, each with the one layer class its selectors must lead
  * with.
  *
- * Order is load-bearing. The two embedded sheets are standalone documents where they were drawn,
- * and inside the panel they compete with the main panel's sheets for the same element names
- * (`.pf-row` in the detail pane, the main panel's own `.pf-head`); they win those by "same
- * specificity, later in order", so they follow the main panel's sheets here. The main panel's
- * sheet order follows the layer order a reader sees.
+ * Order is load-bearing. The embedded sheet is a standalone document where it was drawn, and inside
+ * the panel it competes with the main panel's sheets for the same element names (`.pf-row` in the
+ * detail pane, the main panel's own `.pf-head`); it wins those by "same specificity, later in
+ * order", so it follows the main panel's sheets here. The main panel's sheet order follows the layer
+ * order a reader sees.
  */
 const SHEETS = [
   { sheet: 'tokens.css', root: '.pf-page' },
   { sheet: 'main.css', root: '.pf-page' },
-  { sheet: 'board.css', root: '.pf-page' },
+  { sheet: 'map.css', root: '.pf-page' },
   { sheet: 'lines.css', root: '.pf-page' },
   { sheet: 'detail.css', root: '.pf-page' },
   { sheet: 'notes.css', root: '.pf-page' },
-  { sheet: 'field.css', root: '.pf-wires' },
   { sheet: 'register.css', root: '.pf-issue' },
   { sheet: 'settings.css', root: '.pf-page' },
 ]

@@ -26,7 +26,7 @@ const brokenSessionId = 'panel-check-broken'
 const bareWorkspace = join(work, 'bare')
 const bareSessionId = 'panel-check-bare'
 /** Fifth workspace: issue pool only (what `pf issue scan` writes in a repo with no pipeline yet),
- * none of the three pipeline files — the "board collapses to one line" case. */
+ * none of the three pipeline files — the "map collapses to one line" case. */
 const poorWorkspace = join(work, 'poor')
 const poorSessionId = 'panel-check-poor'
 
@@ -627,31 +627,29 @@ await settle()
 
 const text = () => container.textContent ?? ''
 const tabs = [...container.querySelectorAll('.pf-tab')]
-check('六个标签都在', tabs.length === 6, tabs.map((tab) => tab.textContent).join('/'))
+check('五个标签都在', tabs.length === 5, tabs.map((tab) => tab.textContent).join('/'))
 
-const views = ['当前', '明细', '指令', '依赖', '问题', '设置']
+const views = ['地图', '明细', '指令', '问题', '设置']
 for (const [index, label] of views.entries()) {
   await act(async () => { tabs[index].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-  const pane = container.querySelector(`#pane-${['now', 'detail', 'notes', 'wires', 'issue', 'config'][index]}`)
+  const pane = container.querySelector(`#pane-${['map', 'detail', 'notes', 'issue', 'config'][index]}`)
   check(`看法「${label}」渲染出内容`, pane !== null && pane.hidden === false, pane === null ? '没有这一格' : `pane-${pane.id}`)
 }
 
-/* Fill follows the view: Now does not fill, the detail pane fills. */
+/* Fill follows the view: the map and the detail pane both take the whole footprint. */
 await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-const frameNow = container.querySelector('#frame')
-check('当前那一格不撑满', frameNow.classList.contains('is-fill') === false, `class=${frameNow.className}`)
+const frameMap = container.querySelector('#frame')
+check('地图那一格撑满', frameMap.classList.contains('is-fill') === true, `class=${frameMap.className}`)
 await act(async () => { tabs[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 check('明细那一格撑满', container.querySelector('#frame').classList.contains('is-fill') === true, 'is-fill')
 
-/* The Now pane's readings must match the record: the four pill counts and the three column card
- * counts, each compared against values computed from the record. "The pane has text"-style asserts
- * would not do — the three static column headers in #pane-now alone would satisfy them, regardless of the record. */
+/* The map's readings must match the record: the four pill counts, one card per node, one wire per
+ * edge, and one rail row per line plus the whole workspace. "The pane has text"-style asserts would
+ * not do — the rail alone would satisfy them, regardless of the record. */
 await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const reading = await gateway.read(sessionId, '', {})
 const project = readProject({ nodes: reading.nodes, cycles: reading.cycles, instructions: reading.instructions, issues: reading.issues, at: new Date() })
 lines.push(`      记录里的读数：${JSON.stringify(reading.sources)}`)
-/* This pass never touched the cards-per-column setting: it stays on the default "expanded", at most three per column. */
-const infoCap = 3
 const expectedPills = [
   ...(project.columns.shelved.length > 0 ? [['等待处理', project.columns.shelved.length]] : []),
   ['已交付', project.columns.completed.length],
@@ -662,19 +660,21 @@ const pillReadings = [...container.querySelectorAll('#census .pf-pill')].map((pi
   pill.getAttribute('title'),
   Number.parseInt((pill.querySelector('.pf-num')?.textContent ?? '').replace(/[^\d]/gu, ''), 10),
 ])
-const expectedCards = [
-  Math.min(infoCap, project.columns.shelved.length + project.columns.running.length),
-  Math.min(infoCap, project.columns.completed.length),
-  Math.min(infoCap, project.columns.ready.length),
-]
-const cardReadings = [...container.querySelectorAll('#cols .pf-col')].map((column) => column.querySelectorAll('.pf-card').length)
-const sum = (list) => list.reduce((total, one) => total + one, 0)
+/* The page draws at most MAP_CAP cards; this record is far below it, so the drawn set is the record. */
+const MAP_CAP = 1000
+const mapPane = () => container.querySelector('#pane-map')
+const cardIds = [...(mapPane()?.querySelectorAll('.pf-mnode') ?? [])].map((card) => card.getAttribute('data-id'))
+const wireCount = mapPane()?.querySelectorAll('.pf-mwire').length ?? 0
+const railRows = [...(mapPane()?.querySelectorAll('.pf-rail-item') ?? [])]
+const expectedRail = [t('common.global'), ...project.cycles.map((cycle) => cycle.id)]
 check(
-  '看板上的数从记录里来：胶囊与三列卡片数逐项对上',
+  '地图上的数从记录里来：胶囊、每格一张卡、每条边一根线、左栏一行一拍，逐项对上',
   JSON.stringify(pillReadings) === JSON.stringify(expectedPills)
-    && JSON.stringify(cardReadings) === JSON.stringify(expectedCards)
-    && sum(cardReadings) === sum(expectedCards),
-  `记录现算 胶囊=${JSON.stringify(expectedPills)} 三列=${JSON.stringify(expectedCards)} ｜ 面板上 胶囊=${JSON.stringify(pillReadings)} 三列=${JSON.stringify(cardReadings)} 总卡=${String(sum(cardReadings))}`,
+    && JSON.stringify([...cardIds].sort()) === JSON.stringify(project.nodes.slice(0, MAP_CAP).map((node) => node.id).sort())
+    && wireCount === project.graph.edges.length
+    && JSON.stringify(railRows.map((row) => row.textContent)) === JSON.stringify(expectedRail)
+    && railRows[0]?.getAttribute('aria-pressed') === 'true',
+  `记录现算 胶囊=${JSON.stringify(expectedPills)} 卡=${String(Math.min(MAP_CAP, project.nodes.length))} 线=${String(project.graph.edges.length)} 栏=${JSON.stringify(expectedRail)} ｜ 面板上 胶囊=${JSON.stringify(pillReadings)} 卡=${String(cardIds.length)} 线=${String(wireCount)} 栏=${JSON.stringify(railRows.map((row) => row.textContent))}`,
 )
 
 /* Session notes: the host half hauls that directory back as-is, and the model layer reads "which
@@ -791,13 +791,13 @@ await act(async () => {
 await settle()
 const emptySaid = flat(emptyHost.querySelector('.pf-none p'))
 check(
-  '空记录的工作区：面板正文只留「当前工作区没有 pathfinder 的记录」，标签、计数与六格一起收走',
+  '空记录的工作区：面板正文只留「当前工作区没有 pathfinder 的记录」，标签、计数与五格一起收走',
   emptyHost.querySelector('.pf-none') !== null
     && emptySaid === '当前工作区没有 pathfinder 的记录。'
     && emptyHost.querySelector('.pf-tabs') === null
     && emptyHost.querySelector('.pf-count') === null
     && emptyHost.querySelectorAll('.pf-pane').length === 0,
-  `工作区=${emptyWorkspace.replace(root, '.')}（没有 .pf） ｜ .pf-none p=${JSON.stringify(emptySaid)} ｜ 标签 ${String(emptyHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(emptyHost.querySelectorAll('.pf-count').length)} 处、六格 ${String(emptyHost.querySelectorAll('.pf-pane').length)} 处`,
+  `工作区=${emptyWorkspace.replace(root, '.')}（没有 .pf） ｜ .pf-none p=${JSON.stringify(emptySaid)} ｜ 标签 ${String(emptyHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(emptyHost.querySelectorAll('.pf-count').length)} 处、五格 ${String(emptyHost.querySelectorAll('.pf-pane').length)} 处`,
 )
 
 /* The unreadable-record case: `.pf` exists, all four files exist, but none parses (all four sources
@@ -818,10 +818,10 @@ check(
     && brokenHost.querySelector('.pf-tabs') === null
     && brokenHost.querySelector('.pf-count') === null
     && brokenHost.querySelectorAll('.pf-pane').length === 0,
-  `工作区=${brokenWorkspace.replace(root, '.')}（.pf 在、四份读不动） ｜ .pf-none p=${JSON.stringify(brokenSaid)} ｜ 标签 ${String(brokenHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(brokenHost.querySelectorAll('.pf-count').length)} 处、六格 ${String(brokenHost.querySelectorAll('.pf-pane').length)} 处`,
+  `工作区=${brokenWorkspace.replace(root, '.')}（.pf 在、四份读不动） ｜ .pf-none p=${JSON.stringify(brokenSaid)} ｜ 标签 ${String(brokenHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(brokenHost.querySelectorAll('.pf-count').length)} 处、五格 ${String(brokenHost.querySelectorAll('.pf-pane').length)} 处`,
 )
 
-/* Pipeline present, issue pool absent: the five node-following panes stay as usual (the board has
+/* Pipeline present, issue pool absent: the four node-following panes stay as usual (the map has
  * cards, the settings pane shows controls), and the issue pane collapses to "Pathfinder is not
  * enabled for this workspace" — it follows the issue file alone. */
 const bareHost = window.document.createElement('div')
@@ -833,20 +833,20 @@ await act(async () => {
 await settle()
 const bareSaid = flat(bareHost.querySelector('#pane-issue .pf-innone'))
 check(
-  '有节点、问题池空的工作区：五个跟节点走的格子照旧，问题那一格收成「当前工作区尚未启用 Pathfinder」',
+  '有节点、问题池空的工作区：四个跟节点走的格子照旧，问题那一格收成「当前工作区尚未启用 Pathfinder」',
   bareHost.querySelector('.pf-none') === null
-    && bareHost.querySelector('#pane-now .pf-boardbar') !== null
-    && bareHost.querySelectorAll('#pane-now .pf-card').length > 0
+    && bareHost.querySelector('#pane-map .pf-rail') !== null
+    && bareHost.querySelectorAll('#pane-map .pf-mnode').length > 0
     && bareHost.querySelector('#census .pf-pill') !== null
     && bareHost.querySelector('#pane-config') !== null
     && bareHost.querySelector('#pane-config .pf-innone') === null
     && bareSaid === '当前工作区尚未启用 Pathfinder。'
     && bareHost.querySelector('#pane-issue .pf-split') === null,
-  `工作区=${bareWorkspace.replace(root, '.')}（管线在、问题池那一份不在） ｜ 看板 ${String(bareHost.querySelectorAll('#pane-now .pf-card').length)} 张卡 ｜ 问题那一格说=${JSON.stringify(bareSaid)}`,
+  `工作区=${bareWorkspace.replace(root, '.')}（管线在、问题池那一份不在） ｜ 地图 ${String(bareHost.querySelectorAll('#pane-map .pf-mnode').length)} 格 ｜ 问题那一格说=${JSON.stringify(bareSaid)}`,
 )
 
 /* The issue-pool-only case (what `pf issue scan` writes in a repo with no pipeline yet): each of
- * the five node-following panes collapses to the same sentence, and the header counts stop
+ * the four node-following panes collapses to the same sentence, and the header counts stop
  * reporting three zeros; the issue pane is the exception — it still draws the pool, every entry of it. */
 const poorHost = window.document.createElement('div')
 window.document.body.appendChild(poorHost)
@@ -855,7 +855,7 @@ await act(async () => {
   poorRoot.render(React.createElement(panel.Panel, { port: trackedPort, sessionId: poorSessionId, prefs: panel.prefs }))
 })
 await settle()
-const poorSaid = ['now', 'detail', 'wires', 'notes', 'config']
+const poorSaid = ['map', 'detail', 'notes', 'config']
   .map((id) => flat(poorHost.querySelector(`#pane-${id} .pf-innone`)))
 /* What the issue pane draws is computed from the pool's readings, not from an assumption that the
    register still holds open rows: this fixture is live data and the open set will eventually empty —
@@ -867,19 +867,19 @@ const poorOpenIds = project.pool.groups.find((group) => group.key === 'open')?.e
 const poorRows = [...poorHost.querySelectorAll('#pane-issue .pf-row[data-issue]')]
 const poorIssueSaid = flat(poorHost.querySelector('#pane-issue .pf-innone'))
 check(
-  '只有问题池的工作区：五个跟节点走的格子各自收成同一句话，问题那一格照池子读数走——有行画登记簿（精简档=未解决那几条），一条不剩收成同一句话',
+  '只有问题池的工作区：四个跟节点走的格子各自收成同一句话，问题那一格照池子读数走——有行画登记簿（精简档=未解决那几条），一条不剩收成同一句话',
   poorHost.querySelector('.pf-none') === null
     && poorSaid.every((said) => said === '当前工作区尚未启用 Pathfinder。')
     && poorHost.querySelectorAll('.pf-tabs').length === 1
-    && poorHost.querySelectorAll('.pf-pane').length === 6
-    && poorHost.querySelector('#pane-now .pf-boardbar') === null
+    && poorHost.querySelectorAll('.pf-pane').length === 5
+    && poorHost.querySelector('#pane-map .pf-rail') === null
     && poorHost.querySelector('#census') === null
     && (project.pool.rows.length === 0
       ? poorIssueSaid === '当前工作区尚未启用 Pathfinder。'
       : poorIssueSaid === ''
         && poorHost.querySelector('#pane-issue .pf-split') !== null
         && JSON.stringify(poorRows.map((row) => row.getAttribute('data-issue'))) === JSON.stringify(poorOpenIds)),
-  `工作区=${poorWorkspace.replace(root, '.')}（只有问题池） ｜ 五格=${JSON.stringify(poorSaid)} ｜ 页头计数 ${String(poorHost.querySelectorAll('#census').length)} 处、六格 ${String(poorHost.querySelectorAll('.pf-pane').length)} 格 ｜ 池子读数 共 ${String(project.pool.rows.length)} 条、未解决 ${String(poorOpenIds.length)} 条 ｜ 问题那一格 ${String(poorRows.length)} 行`,
+  `工作区=${poorWorkspace.replace(root, '.')}（只有问题池） ｜ 四格=${JSON.stringify(poorSaid)} ｜ 页头计数 ${String(poorHost.querySelectorAll('#census').length)} 处、五格 ${String(poorHost.querySelectorAll('.pf-pane').length)} 格 ｜ 池子读数 共 ${String(project.pool.rows.length)} 条、未解决 ${String(poorOpenIds.length)} 条 ｜ 问题那一格 ${String(poorRows.length)} 行`,
 )
 
 /* The panes left with one sentence: the module fills its area. Unfilled, the stage centers the
@@ -894,13 +894,13 @@ check(
   `模块 class=${JSON.stringify(poorFrame?.className ?? null)}`,
 )
 
-/* The readable record stays as usual: tabs, counts and six panes all present, no such sentence in the body. */
+/* The readable record stays as usual: tabs, counts and five panes all present, no such sentence in the body. */
 check(
-  '这一份记录读得回来：六格标签、右上那排计数与六格正文照旧画着，正文里没有那句话',
-  tabs.length === 6 && container.querySelector('.pf-count') !== null
-    && container.querySelectorAll('.pf-pane').length === 6
+  '这一份记录读得回来：五格标签、右上那排计数与五格正文照旧画着，正文里没有那句话',
+  tabs.length === 5 && container.querySelector('.pf-count') !== null
+    && container.querySelectorAll('.pf-pane').length === 5
     && container.querySelector('.pf-none') === null,
-  `标签 ${String(tabs.length)} 枚 ｜ 计数 ${String(container.querySelectorAll('.pf-count').length)} 处 ｜ 六格 ${String(container.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${container.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
+  `标签 ${String(tabs.length)} 枚 ｜ 计数 ${String(container.querySelectorAll('.pf-count').length)} 处 ｜ 五格 ${String(container.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${container.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
 )
 
 /* ---- 3d. The top workspace picker: whichever is picked is the one read ----
@@ -983,7 +983,7 @@ check(
   askedRoots.length === 0 && spaceUngrouped === '未分组名下没有记录；这条会话属于清单里的某个工作区。'
     && ungroupedSelect !== null && ungroupedSelect.value === ''
     && spaceHost.querySelector('.pf-tabs') === null && spaceHost.querySelectorAll('.pf-pane').length === 0,
-  `问过的根=${JSON.stringify([...new Set(askedRoots)])} ｜ .pf-none p=${JSON.stringify(spaceUngrouped)} ｜ 选择器=${ungroupedSelect === null ? '（没了）' : `选中=${JSON.stringify(ungroupedSelect.value)}`} ｜ 六格 ${String(spaceHost.querySelectorAll('.pf-pane').length)} 格`,
+  `问过的根=${JSON.stringify([...new Set(askedRoots)])} ｜ .pf-none p=${JSON.stringify(spaceUngrouped)} ｜ 选择器=${ungroupedSelect === null ? '（没了）' : `选中=${JSON.stringify(ungroupedSelect.value)}`} ｜ 五格 ${String(spaceHost.querySelectorAll('.pf-pane').length)} 格`,
 )
 
 await act(async () => { spaceRoot.unmount() })
@@ -1004,12 +1004,12 @@ await act(async () => {
 await settle()
 const loneSelect = () => loneHost.querySelector('.pf-head .pf-pick select')
 check(
-  '谁的桶都不在的会话：默认就停在「未分组」，照旧递空字符串读它自己那个根，六格与计数都在',
+  '谁的桶都不在的会话：默认就停在「未分组」，照旧递空字符串读它自己那个根，五格与计数都在',
   loneSelect() !== null && loneSelect().value === ''
     && askedRoots.length > 0 && askedRoots.every((one) => one === '')
     && loneHost.querySelector('.pf-none') === null
-    && loneHost.querySelectorAll('.pf-pane').length === 6 && loneHost.querySelector('.pf-count') !== null,
-  `选中=${JSON.stringify(loneSelect()?.value)} ｜ 问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 六格 ${String(loneHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${loneHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
+    && loneHost.querySelectorAll('.pf-pane').length === 5 && loneHost.querySelector('.pf-count') !== null,
+  `选中=${JSON.stringify(loneSelect()?.value)} ｜ 问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 五格 ${String(loneHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${loneHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
 )
 
 /* Switching away and back to "Ungrouped" is the same branch: pickedSpace lands on null while the
@@ -1027,11 +1027,11 @@ await act(async () => {
 })
 await settle()
 check(
-  '拨去别处再拨回「未分组」：没有归属的会话照旧读它自己那个根，六格与计数都在',
+  '拨去别处再拨回「未分组」：没有归属的会话照旧读它自己那个根，五格与计数都在',
   askedRoots.length > 0 && askedRoots.every((one) => one === '')
     && loneHost.querySelector('.pf-none') === null
-    && loneHost.querySelectorAll('.pf-pane').length === 6 && loneHost.querySelector('.pf-count') !== null,
-  `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 六格 ${String(loneHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${loneHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
+    && loneHost.querySelectorAll('.pf-pane').length === 5 && loneHost.querySelector('.pf-count') !== null,
+  `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 五格 ${String(loneHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${loneHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
 )
 
 await act(async () => { loneRoot.unmount() })
@@ -1075,18 +1075,27 @@ check(
  * the footprint is short, and the frame takes a width and centres itself. */
 const stageWon = winningDeclarations(container.querySelector('.pf-stage'), ['padding', 'overflow-y', 'justify-content'])
 const frameWon = winningDeclarations(container.querySelector('.pf-frame'), ['width', 'margin', 'display'])
+/* Every view fills the footprint now, so the frame in play takes the filled width; the base width —
+ * `--pf-frame-w` with its fallback — still has to be in the bundle, and it is read on a bare frame
+ * placed inside the panel's own layer, where that rule actually matches. */
+const bareFrame = window.document.createElement('div')
+bareFrame.className = 'pf-frame'
+container.querySelector('.pf-page')?.appendChild(bareFrame)
+const bareWon = winningDeclarations(bareFrame, ['width'])
+bareFrame.remove()
 check(
   '舞台与框在蓝本里的有效值进了包',
   stageWon.padding === '8px 0' && stageWon['overflow-y'] === 'auto' && stageWon['justify-content'] === 'center'
-    && frameWon.width === 'var(--pf-frame-w, 1280px)' && frameWon.margin === 'auto' && frameWon.display === 'flex',
-  `stage padding=${JSON.stringify(stageWon.padding)} overflow-y=${JSON.stringify(stageWon['overflow-y'])} justify-content=${JSON.stringify(stageWon['justify-content'])} ｜ frame width=${JSON.stringify(frameWon.width)} margin=${JSON.stringify(frameWon.margin)} display=${JSON.stringify(frameWon.display)}`,
+    && frameWon.width === '100%' && frameWon.margin === 'auto' && frameWon.display === 'flex'
+    && bareWon.width === 'var(--pf-frame-w, 1280px)',
+  `stage padding=${JSON.stringify(stageWon.padding)} overflow-y=${JSON.stringify(stageWon['overflow-y'])} justify-content=${JSON.stringify(stageWon['justify-content'])} ｜ frame width=${JSON.stringify(frameWon.width)}（不撑满时=${JSON.stringify(bareWon.width)}） margin=${JSON.stringify(frameWon.margin)} display=${JSON.stringify(frameWon.display)}`,
 )
 
 /* The equivalence ruler lived here: it compared the shipped css against the blueprint's sheets rule by
- * rule, sheet by sheet, and the two embedded panes' landing against a copy of those sheets. It
+ * rule, sheet by sheet, and the embedded pane's landing against a copy of those sheets. It
  * existed to prove the build's scoping pass faithful, and that pass is gone — `src/client/styles/`
  * is read in order as the shipped bytes, so there is nothing left to compare them to. The notches
- * it guarded (`.is-embed.pf-wires X`, `.pf-issue .pf-register .pf-row`) are written out plainly in
+ * it guarded (`.is-embed.pf-issue X`, `.pf-issue .pf-register .pf-row`) are written out plainly in
  * those sheets, where an editor sees them. What stands in its place: the build's own layer ruler (a
  * selector escaping its layer stops the build), the token probe just above, and 4b / 4c below.
  */
@@ -1123,45 +1132,16 @@ const settingRows = () => [...settingsHost.querySelectorAll('.pfset-row')]
 const rowNamed = (label) => settingRows().find((row) => row.querySelector('.pfset-label')?.textContent === label)
 const rowNames = settingRows().map((row) => row.querySelector('.pfset-label')?.textContent ?? '')
 check(
-  '设置里那一页是四行，侧栏宽度不在其中',
-  settingRows().length === 4 && rowNames.join('/') === '默认信息量/默认标签页/指令里显示已归档的/问题池里显示未解决之外的',
-  `四行=${rowNames.join('/') || '（一行都没有）'}`,
+  '设置里那一页是三行，侧栏宽度不在其中',
+  settingRows().length === 3 && rowNames.join('/') === '默认标签页/指令里显示已归档的/问题池里显示未解决之外的',
+  `三行=${rowNames.join('/') || '（一行都没有）'}`,
 )
 
-const pressSeg = async (label) => {
-  const button = [...(rowNamed('默认信息量')?.querySelectorAll('.pfset-segbtn') ?? [])]
-    .find((one) => one.textContent === label)
-  await act(async () => { button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-  await settle()
-}
 const flipSwitch = async (label) => {
   const button = rowNamed(label)?.querySelector('.pfset-switch')
   await act(async () => { button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
   await settle()
 }
-
-/* Default info level: flipping to "lean" of the three tiers caps each column at one card. Flipped
-   back to "expanded" at the end, so later readings match this pass's starting point. */
-await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-await settle()
-const cardCounts = () => [...container.querySelectorAll('#cols .pf-col')]
-  .map((column) => column.querySelectorAll('.pf-card').length)
-const cardsBefore = cardCounts()
-await pressSeg('精简')
-const cardsAfter = cardCounts()
-check(
-  '翻设置里「默认信息量」那一行：面板上每列的卡片当场跟着换档',
-  JSON.stringify(cardsAfter) === JSON.stringify(cardsBefore.map((n) => Math.min(1, n)))
-    && JSON.stringify(cardsAfter) !== JSON.stringify(cardsBefore)
-    && settingsDoc().infoLevel === 'lean',
-  `翻之前=${JSON.stringify(cardsBefore)} 翻之后=${JSON.stringify(cardsAfter)} ｜ 文档里 infoLevel=${String(settingsDoc().infoLevel)}`,
-)
-await pressSeg('展开')
-check(
-  '翻回「展开」：卡片数回到原来的档，文档里也回到那一档',
-  JSON.stringify(cardCounts()) === JSON.stringify(cardsBefore) && settingsDoc().infoLevel === 'three',
-  `卡片=${JSON.stringify(cardCounts())} ｜ 文档里 infoLevel=${String(settingsDoc().infoLevel)}`,
-)
 
 /* Default tab: picking "Instructions" in settings switches the panel to that pane at once. */
 const pickOption = async (select, text) => {
@@ -1179,7 +1159,7 @@ check(
   container.querySelector('#tab-notes')?.getAttribute('aria-selected') === 'true' && settingsDoc().defaultTab === 'notes',
   `选中的标签=${String(container.querySelector('.pf-tab[aria-selected="true"]')?.id)} ｜ 文档里 defaultTab=${String(settingsDoc().defaultTab)}`,
 )
-await pickOption(rowNamed('默认标签页')?.querySelector('.pfset-select'), '当前')
+await pickOption(rowNamed('默认标签页')?.querySelector('.pfset-select'), '地图')
 
 await act(async () => { tabs[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const detailA = detailReadings(container)
@@ -1386,82 +1366,107 @@ if (line !== undefined) {
   }
 }
 
-/* ---- 4b. The wires pane: layer/node/edge counts come from the record; zoom and isolate really move ----
- * This record has only a dozen-odd nodes, so this section covers "readings correct, views respond";
- * the three-digit scale has its own probe pass (the node catalog's `temp/`). */
+/* ---- 4b. The map pane: one card per node, one wire per edge, a rail that changes the emphasis, and
+ * a camera that really moves ----
+ * The drawing is read here the way a reader reads it: which cards are in ink, which rail row is
+ * pressed, and where the camera stands afterwards. The expected placement and camera come from the
+ * same engine the panel calls, so this section measures the panel against the record rather than
+ * against a copy of the arithmetic. */
 
 const click = async (element) => {
   await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
   await settle()
 }
-const clickTimes = async (element, times) => {
-  for (let round = 0; round < times; round += 1) {
-    await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: round + 1 })) })
-  }
-  await settle()
-}
-const zoomKey = (pane, label) => [...(pane?.querySelectorAll('.pf-zbtn') ?? [])]
-  .find((button) => button.getAttribute('aria-label') === label)
+const { fitView, litOf, place } = await import(pathToFileURL(join(root, 'src', 'client', 'map-layout.ts')).href)
 
 /** Before this section starts: how often the write face was called, and what the record looked like. */
 const writesBefore = writeCalls.length
 const recordBefore = recordDigest()
 
-await act(async () => { tabs[3].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 await settle()
-const wiresPane = container.querySelector('#pane-wires')
-const markCount = wiresPane?.querySelectorAll('.pf-node').length ?? 0
-const wireCount = wiresPane?.querySelectorAll('.pf-edge').length ?? 0
-const figsNow = (wiresPane?.querySelector('.pf-figs')?.textContent ?? '').replace(/\s+/gu, ' ').trim()
-const figsWant = `${String(project.graph.layers.length)} 列 · ${String(project.nodes.length)} 节点 · ${String(project.graph.edges.length)} 边`
+
+const drawnCards = () => [...(mapPane()?.querySelectorAll('.pf-mnode') ?? [])]
+const litIds = () => drawnCards().filter((card) => card.classList.contains('is-lit')).map((card) => card.getAttribute('data-id'))
+const cardOf = (id) => drawnCards().find((card) => card.getAttribute('data-id') === id)
+const canvasOf = () => mapPane()?.querySelector('.pf-canvas')
+const scaleOf = () => Number(/scale\(([\d.]+)\)/u.exec(canvasOf()?.style.transform ?? '')?.[1] ?? Number.NaN)
+const placement = place({ nodes: project.nodes, edges: project.graph.edges })
+const nameOf = (node) => (node.title ?? (node.id.length > 8 ? node.id.slice(0, 8) : node.id))
+
 check(
-  '依赖那一格：记号、连线、顶栏那三个数与记录现算的逐项对上',
-  markCount === project.nodes.length && wireCount === project.graph.edges.length && figsNow === figsWant,
-  `记录现算 ${figsWant} ｜ 面板上 ${figsNow}，记号 ${String(markCount)}，连线 ${String(wireCount)}`,
+  '地图那一格：一格一张卡、一条边一根线，卡上的名字就是记录里那个标题',
+  drawnCards().length === project.nodes.length
+    && (mapPane()?.querySelectorAll('.pf-mwire').length ?? 0) === project.graph.edges.length
+    && drawnCards().every((card) => {
+      const node = project.nodeById[card.getAttribute('data-id') ?? '']
+      return node !== undefined && card.querySelector('.pf-mtitle')?.textContent === nameOf(node)
+    }),
+  `记录里 ${String(project.nodes.length)} 格 / ${String(project.graph.edges.length)} 条边 ｜ 面板上 ${String(drawnCards().length)} 张卡 / ${String(mapPane()?.querySelectorAll('.pf-mwire').length ?? 0)} 根线，头三个 ${drawnCards().slice(0, 3).map((card) => card.querySelector('.pf-mtitle')?.textContent ?? '').join(' / ')}`,
 )
 
-const shortOf = (node) => (node.title ?? (node.id.length > 8 ? node.id.slice(0, 8) : node.id))
-await click(zoomKey(wiresPane, '放大'))
-await click(zoomKey(wiresPane, '放大'))
-const cardsNow = [...(wiresPane?.querySelectorAll('.pf-zcard') ?? [])]
-const cardNames = cardsNow.map((card) => card.querySelector('.pf-ztitle')?.textContent ?? '').sort()
-const namesWant = project.nodes.map(shortOf).sort()
-check(
-  '依赖那一格：放大到有名字那一档，一格一张卡，卡上的名字就是记录里那个标题',
-  JSON.stringify(cardNames) === JSON.stringify(namesWant) && cardsNow.length === project.nodes.length,
-  `记录里 ${String(namesWant.length)} 个名字 ｜ 面板上 ${String(cardNames.length)} 张卡，头三个 ${cardNames.slice(0, 3).join(' / ')}`,
-)
-
-await click(zoomKey(wiresPane, '放大'))
-const fullCards = [...(wiresPane?.querySelectorAll('.pf-zcard.is-full') ?? [])]
-
-/* Isolate: double-click a card, leaving only itself, what it owes, and what owes it. */
+/* Press one card: the emphasis follows the press — that card, what it owes, what owes it, plus the
+ * whole workspace's gates while the rail stands on the whole workspace. */
 const hub = project.graph.edges[0]?.from
-const litWant = hub === undefined ? [] : [
-  hub,
-  ...(project.nodeById[hub]?.dependencies ?? []).filter((id) => project.nodeById[id] !== undefined),
-  ...project.graph.edges.filter((edge) => edge.from === hub).map((edge) => edge.to),
-].sort()
-const cardAt = (id) => fullCards.find((card) => card.getAttribute('data-id') === id)
-if (hub !== undefined) await clickTimes(cardAt(hub), 2)
-const cutIds = [...(wiresPane?.querySelectorAll('.pf-zcard') ?? [])].map((card) => card.getAttribute('data-id')).sort()
-const cutKey = zoomKey(wiresPane, '回到全图')
+const hubCard = hub === undefined ? undefined : cardOf(hub)
+if (hubCard !== undefined) await click(hubCard)
+const wantLit = hub === undefined ? [] : [...litOf(placement, hub, null)].sort()
 check(
-  '依赖那一格：双击把那一条圈出来，只留它自己、它欠的、欠它的',
-  hub !== undefined && JSON.stringify(cutIds) === JSON.stringify(litWant),
-  `这一圈 ${String(litWant.length)} 格（${litWant.map((id) => id.slice(0, 8)).join(',')}）｜ 面板上 ${String(cutIds.length)} 格`,
+  '地图那一格：点一格，点亮它自己、它欠的、欠它的，加上全工作区的人闸',
+  hubCard !== undefined && JSON.stringify(litIds().sort()) === JSON.stringify(wantLit),
+  `记录现算 ${String(wantLit.length)} 格（${wantLit.map((id) => id.slice(0, 8)).join(',')}）｜ 面板上 ${String(litIds().length)} 格（${litIds().map((id) => (id ?? '').slice(0, 8)).join(',')}）`,
 )
-check('抠出来看时那枚叉露出来了', cutKey !== undefined && cutKey.hidden === false, `hidden=${String(cutKey?.hidden)}`)
-if (cutKey !== undefined) await click(cutKey)
+
+/* A rail row is a hit scope, not a filter: the whole drawing stays, and the row's own line gets the
+ * ink. Every other line's cards and the cycle-less cards fall back to structure. */
+const scopeLine = project.cycles.find((cycle) => project.nodes.some((node) => node.cycleIds.includes(cycle.id)))
+const lineRow = [...(mapPane()?.querySelectorAll('.pf-rail-item') ?? [])].find((row) => row.textContent === scopeLine?.id)
+const lineNodes = scopeLine === undefined ? [] : project.nodes.filter((node) => node.cycleIds.includes(scopeLine.id)).map((node) => node.id)
+if (lineRow !== undefined) await click(lineRow)
 check(
-  '回到全图，整张图回来',
-  (wiresPane?.querySelectorAll('.pf-zcard').length ?? 0) === project.nodes.length,
-  `卡片 ${String(wiresPane?.querySelectorAll('.pf-zcard').length ?? 0)} 张`,
+  '地图那一格：左栏选一条线，那条线碰过的格子全点亮，整张图仍在一格不少',
+  scopeLine !== undefined && lineRow?.getAttribute('aria-pressed') === 'true'
+    && lineNodes.every((id) => litIds().includes(id))
+    && (lineNodes.length === project.nodes.length || litIds().length < project.nodes.length)
+    && drawnCards().length === project.nodes.length,
+  `这条线碰过 ${String(lineNodes.length)} 格 ｜ 点亮的 ${String(litIds().length)} 格 ｜ 图上 ${String(drawnCards().length)} 格（记录里 ${String(project.nodes.length)} 格）`,
+)
+
+/* The overview: one press on the top-right magnifier, and the camera takes the engine's own fit. */
+const fit = fitView({ w: 1280, h: 720 }, placement)
+const fitKey = mapPane()?.querySelector('#map-fit')
+if (fitKey !== undefined) await click(fitKey)
+check(
+  '地图那一格：全览那一枚按下去，整张图按全览那个倍率摆进视口',
+  fitKey?.getAttribute('aria-pressed') === 'true' && Math.abs(scaleOf() - fit.s) < 1e-6,
+  `引擎算的全览倍率=${String(fit.s.toFixed(4))} ｜ 面板上的=${String(scaleOf())} aria-pressed=${String(fitKey?.getAttribute('aria-pressed'))}`,
+)
+
+/* The wheel is the zoom: a turn really changes the scale, and the pane leaves the overview tier. */
+const beforeWheel = scaleOf()
+await act(async () => {
+  mapPane()?.querySelector('.pf-field')?.dispatchEvent(new window.WheelEvent('wheel', {
+    bubbles: true, cancelable: true, deltaY: -240, clientX: 400, clientY: 300,
+  }))
+})
+check(
+  '地图那一格：滚轮真的在缩放，不是只换一个数',
+  Number.isFinite(scaleOf()) && Math.abs(scaleOf() - beforeWheel) > 1e-6,
+  `滚之前=${String(beforeWheel)} 滚之后=${String(scaleOf())}`,
+)
+
+/* And the refresh: the panel hands the read out again, so what is on screen is this record now. */
+askedRoots.length = 0
+await click(mapPane()?.querySelector('#map-refresh'))
+check(
+  '地图那一格：右上那枚刷新让面板照着这份记录再读一遍',
+  askedRoots.length > 0,
+  `问过的根=${JSON.stringify([...new Set(askedRoots)])}`,
 )
 
 /* ---- 4c. The issue pane: register rows, whether the weight bar draws, and the built-in master-detail ---- */
 
-await act(async () => { tabs[4].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await act(async () => { tabs[3].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 await settle()
 const issuePane = container.querySelector('#pane-issue')
 const openGroup = project.pool.groups.find((group) => group.key === 'open')
@@ -1670,7 +1675,7 @@ const configNav = (scope) => [...(scope?.querySelectorAll('#pane-config .pf-cfgi
   current: item.getAttribute('aria-current'),
 }))
 
-await act(async () => { tabs[5].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+await act(async () => { tabs[4].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 await settle()
 const configPane = container.querySelector('#pane-config')
 const shownFirst = configReadings(container)
@@ -2018,7 +2023,6 @@ const keptPrefs = { ...settingsDoc() }
 check(
   '设置文档里那几个值都落着',
   typeof keptPrefs.sideWidth === 'number'
-    && typeof keptPrefs.infoLevel === 'string'
     && typeof keptPrefs.defaultTab === 'string'
     && typeof keptPrefs.showOtherStates === 'boolean',
   JSON.stringify(keptPrefs),
@@ -2042,19 +2046,15 @@ await act(async () => {
 await settle()
 
 const restartedTab = container.querySelector('.pf-tab[aria-selected="true"]')?.id
-const restartedSeg = [...container.querySelectorAll('#pane-now .pf-modes .pf-segbtn')]
-  .find((button) => button.getAttribute('aria-pressed') === 'true')?.textContent
 const restartedWidth = container.querySelector('#detail-split')?.getAttribute('aria-valuenow')
 const restartedFull = [...container.querySelectorAll('#pane-issue .pf-segbtn')]
   .find((button) => button.getAttribute('aria-pressed') === 'true')?.textContent
-const infoWord = { lean: '精简', three: '展开', full: '铺满' }[keptPrefs.infoLevel]
 check(
-  '第二个实例照同一份文档开：标签页、信息量、侧栏宽度、问题池那一档都对上',
+  '第二个实例照同一份文档开：标签页、侧栏宽度、问题池那一档都对上',
   restartedTab === `tab-${String(keptPrefs.defaultTab)}`
-    && restartedSeg === infoWord
     && restartedWidth === String(keptPrefs.sideWidth)
     && restartedFull === (keptPrefs.showOtherStates === true ? '完整' : '精简'),
-  `文档=${JSON.stringify(keptPrefs)} ｜ 面板上 标签=${String(restartedTab)} 信息量=${String(restartedSeg)} 宽度=${String(restartedWidth)} 问题池=${String(restartedFull)}`,
+  `文档=${JSON.stringify(keptPrefs)} ｜ 面板上 标签=${String(restartedTab)} 宽度=${String(restartedWidth)} 问题池=${String(restartedFull)}`,
 )
 
 const secondHost = window.document.createElement('div')
@@ -2172,9 +2172,9 @@ const CLEAR_POINTS = [
 
 const hot = { ledger: new Map(), calls: [], effects: [] }
 const hotBoot = bootClient(backend, {}, hot)
-const hotBoardHost = window.document.createElement('div')
-window.document.body.appendChild(hotBoardHost)
-const hotBoardRoot = createRoot(hotBoardHost)
+const hotSeatHost = window.document.createElement('div')
+window.document.body.appendChild(hotSeatHost)
+const hotSeatRoot = createRoot(hotSeatHost)
 /** Draw whatever the roster holds now: a minimal stand-in for the real renderer's reading. */
 const paintSeats = async () => {
   const seats = []
@@ -2188,12 +2188,12 @@ const paintSeats = async () => {
       ...given, ...port, size: 16, wide: true, useSessions: sessionsAt(emptySessionId),
     }))
   }
-  await act(async () => { hotBoardRoot.render(React.createElement(React.Fragment, null, ...seats)) })
+  await act(async () => { hotSeatRoot.render(React.createElement(React.Fragment, null, ...seats)) })
   await settle()
 }
 /** Both seats' current state: on the roster or not + drawn on screen or not, recorded per seat. */
 const seatState = () => CLEAR_POINTS
-  .map(({ word, key, probe }) => ({ word, registered: hot.ledger.has(key), drawn: probe(hotBoardHost) !== null }))
+  .map(({ word, key, probe }) => ({ word, registered: hot.ledger.has(key), drawn: probe(hotSeatHost) !== null }))
 const seatReport = (state) => state.map(({ word, registered, drawn }) => `${word}=${registered ? '在册' : '不在册'}·${drawn ? '屏上有' : '屏上无'}`).join(' ')
 const allSeats = (state, want) => state.every(({ registered, drawn }) => registered === want && drawn === want)
 const styleReport = () => `面板那一张=${String(tagOf(client.PANEL_STYLE_ID))} 设置那一张=${String(tagOf(client.SETTINGS_STYLE_ID))}`
@@ -2316,9 +2316,9 @@ await act(async () => { settingsLanguageService.switchTo('en') })
 const settingsSaidEn = languageSettingsHost.textContent ?? ''
 check(
   '语言一换，设置那一页当场换一套字：中文那一行换成英文那一行，中文不再留在页上',
-  settingsSaidZh.includes('默认信息量')
-    && settingsSaidEn.includes('Default information level')
-    && settingsSaidEn.includes('默认信息量') === false,
+  settingsSaidZh.includes('默认标签页')
+    && settingsSaidEn.includes('Default tab')
+    && settingsSaidEn.includes('默认标签页') === false,
   `中文时=${JSON.stringify(settingsSaidZh.slice(0, 48))} ｜ 英文时=${JSON.stringify(settingsSaidEn.slice(0, 48))}`,
 )
 await act(async () => { languageSettingsRoot.unmount() })
@@ -2332,7 +2332,7 @@ const fallbackLanguageRoot = await languageRoot(
 const fallbackSaid = fallbackLanguageHost.textContent ?? ''
 check(
   '没接上语言服务：随包那份词典照样说话，这一页仍是中文（缺服务只降级功能，不丢字）',
-  fallbackSaid.includes('默认信息量'),
+  fallbackSaid.includes('默认标签页'),
   `页上=${JSON.stringify(fallbackSaid.slice(0, 48))}`,
 )
 await act(async () => { fallbackLanguageRoot.unmount() })
@@ -2392,13 +2392,13 @@ const languageChromeRoot = await languageRoot(
 const chromeSaidZh = languageChromeHost.textContent ?? ''
 await act(async () => { chromeLanguageService.switchTo('en') })
 const chromeSaidEn = languageChromeHost.textContent ?? ''
-const CHROME_ZH = ['当前', '明细', '指令', '依赖', '问题', '设置']
-const CHROME_EN = ['Now', 'Detail', 'Instructions', 'Dependencies', 'Issues', 'Settings']
+const CHROME_ZH = ['地图', '明细', '指令', '问题', '设置']
+const CHROME_EN = ['Map', 'Detail', 'Instructions', 'Issues', 'Settings']
 check(
-  '面板骨架也跟着换：六个标签一套字换成另一套，英文那一边一个中文字都不留',
+  '面板骨架也跟着换：五个标签一套字换成另一套，英文那一边一个中文字都不留',
   CHROME_ZH.every((word) => chromeSaidZh.includes(word))
     && CHROME_EN.every((word) => chromeSaidEn.includes(word))
-    && ['当前', '依赖', '指令'].every((word) => chromeSaidEn.includes(word) === false),
+    && ['地图', '明细', '指令'].every((word) => chromeSaidEn.includes(word) === false),
   `中文时=${JSON.stringify(chromeSaidZh.slice(0, 56))} ｜ 英文时=${JSON.stringify(chromeSaidEn.slice(0, 56))}`,
 )
 await act(async () => { languageChromeRoot.unmount() })

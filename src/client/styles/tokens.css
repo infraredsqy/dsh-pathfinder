@@ -93,6 +93,12 @@
 }.pf-page .pf-cell.is-todo, .pf-page .pf-cell.is-rejected{
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--pf-ink-3);
+}/* A cell that wants a person, whatever its state is: the map's cards wear this on the
+ * mark, so a checkpoint that has been delivered and not approved still reads as "someone
+ * has to act". Same ring as the two above — the ring is one value, the words beside it say
+ * what kind of wait it is. */.pf-page .pf-cell.is-gate{
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-warn-primary);
 }/* On the books and still counted, but nobody owes it yet. */.pf-page .pf-cell.is-acknowledged{
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--pf-ink-2);

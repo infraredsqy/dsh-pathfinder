@@ -32,7 +32,6 @@ export const en: Readonly<Record<WordKey, string>> = {
   'state.shelved': 'Waiting',
   'state.ready': 'Ready',
   'state.next': 'Entering next',
-  'state.just-done': 'Just finished',
 
   /* ── The human gate ───────────────────────────────────────────────────────────────────────── */
   'gate.manual': 'Manual step',
@@ -45,19 +44,14 @@ export const en: Readonly<Record<WordKey, string>> = {
   'issue.resolved': 'Resolved',
 
   /* ── The panel's own display controls ─────────────────────────────────────────────────────── */
-  'info.lean': 'Lean',
-  'info.three': 'Expanded',
-  'info.full': 'Full',
-  'view.now': 'Now',
+  'view.map': 'Map',
   'view.detail': 'Detail',
   'view.notes': 'Instructions',
-  'view.wires': 'Dependencies',
   'view.issue': 'Issues',
   'view.config': 'Settings',
 
   /* ── The settings section ─────────────────────────────────────────────────────────────────── */
   'settings.row.help': 'What the {label} row controls',
-  'settings.info.label': 'Default information level',
   'settings.tab.label': 'Default tab',
   'settings.archived.label': 'Show archived instructions',
   'settings.archived.tip': 'Archived entries are folded away by default, so the ledger opens on what still counts. Turn this on and they return to their own sections, each with a revive button.',
@@ -77,9 +71,13 @@ export const en: Readonly<Record<WordKey, string>> = {
   'common.global': 'Global',
   'common.expand-more': 'Show {count} more',
 
-  /* ── The board ────────────────────────────────────────────────────────────────────────────── */
-  'board.per-column.aria': 'Cards per column',
-  'board.card.aria': 'Session for {node}',
+  /* ── The map ──────────────────────────────────────────────────────────────────────────────── */
+  'map.scope.aria': 'Search under',
+  'map.region.aria': 'The whole drawing',
+  'map.overview.aria': 'Overview / back to the focus',
+  'map.refresh.aria': 'Read the record again',
+  'map.card.aria': 'Session for {node}',
+  'map.card.go': 'press again to go to this session',
 
   /* ── The detail view ──────────────────────────────────────────────────────────────────────── */
   'detail.lines.aria': 'Lines',
@@ -116,6 +114,7 @@ export const en: Readonly<Record<WordKey, string>> = {
   /* ── The issue pool ───────────────────────────────────────────────────────────────────────── */
   'pool.detail-level.aria': 'Issue pool detail',
   'pool.lean.tip': '{state} × {count}',
+  'pool.lean': 'Lean',
   'pool.full': 'All',
   'pool.scroll.aria': 'Issue pool',
   'pool.grip.aria': 'Width of the pool and the case',
@@ -165,20 +164,10 @@ export const en: Readonly<Record<WordKey, string>> = {
   'line.row.issue_pool_weight_limit.name': 'Issue pool weight limit',
   'line.row.issue_pool_weight_limit.note': 'The threshold for the pool’s weighted sum, each tier weighed by the table written in the records; past it, a repair node is added automatically.',
 
-  /* ── The dependency field ─────────────────────────────────────────────────────────────────── */
+  /* ── What a node is waiting on ────────────────────────────────────────────────────────────── */
   /* The head is empty in English: the number leads, so nothing stands before it. */
   'deps.owed.head': '',
   'deps.owed.tail': ' prerequisites owed',
-  'field.figures.columns.one': ' column',
-  'field.figures.columns.other': ' columns',
-  'field.figures.nodes.one': ' node',
-  'field.figures.nodes.other': ' nodes',
-  'field.figures.edges.one': ' edge',
-  'field.figures.edges.other': ' edges',
-  'field.zoom-in.aria': 'Zoom in',
-  'field.zoom-out.aria': 'Zoom out',
-  'field.zoom-reset.aria': 'Fit the whole field',
-  'field.region.aria': 'Dependency field',
 
   /* ── The reading marks shared by the panes ────────────────────────────────────────────────── */
   'marks.running.elapsed': 'Running · {elapsed}',

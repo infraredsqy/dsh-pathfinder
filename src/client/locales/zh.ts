@@ -42,7 +42,6 @@ export const zh = {
   'state.shelved': '等待处理',
   'state.ready': '可开工',
   'state.next': '即将进线',
-  'state.just-done': '刚完成',
 
   /* ── The human gate ───────────────────────────────────────────────────────────────────────── */
   /* A gate's own kind says which of these it is; the shelved gate reads as the shelved state, so
@@ -57,19 +56,14 @@ export const zh = {
   'issue.resolved': '已解决',
 
   /* ── The panel's own display controls ─────────────────────────────────────────────────────── */
-  'info.lean': '精简',
-  'info.three': '展开',
-  'info.full': '铺满',
-  'view.now': '当前',
+  'view.map': '地图',
   'view.detail': '明细',
   'view.notes': '指令',
-  'view.wires': '依赖',
   'view.issue': '问题',
   'view.config': '设置',
 
   /* ── The settings section ─────────────────────────────────────────────────────────────────── */
   'settings.row.help': '{label}这一行管什么',
-  'settings.info.label': '默认信息量',
   'settings.tab.label': '默认标签页',
   'settings.archived.label': '指令里显示已归档的',
   'settings.archived.tip': '归档的条目默认收起来：一屏里先看见现在还算数的。打开这一行，它们回到各自的段里，右边多一枚复原。',
@@ -89,9 +83,13 @@ export const zh = {
   'common.global': '全局',
   'common.expand-more': '展开其余 {count} 条',
 
-  /* ── The board ────────────────────────────────────────────────────────────────────────────── */
-  'board.per-column.aria': '每列几张卡',
-  'board.card.aria': '{node} 的会话',
+  /* ── The map ──────────────────────────────────────────────────────────────────────────────── */
+  'map.scope.aria': '命中范围',
+  'map.region.aria': '整张图',
+  'map.overview.aria': '全览 / 回到焦点',
+  'map.refresh.aria': '重新读一遍',
+  'map.card.aria': '{node} 的会话',
+  'map.card.go': '再按一下去这条会话',
 
   /* ── The detail view ──────────────────────────────────────────────────────────────────────── */
   'detail.lines.aria': '线路',
@@ -128,6 +126,7 @@ export const zh = {
   /* ── The issue pool ───────────────────────────────────────────────────────────────────────── */
   'pool.detail-level.aria': '问题池的详略',
   'pool.lean.tip': '{state} {count} 条',
+  'pool.lean': '精简',
   'pool.full': '完整',
   'pool.scroll.aria': '问题池',
   'pool.grip.aria': '问题池与一案的宽度',
@@ -177,23 +176,13 @@ export const zh = {
   'line.row.issue_pool_weight_limit.name': '问题池加权和的上限',
   'line.row.issue_pool_weight_limit.note': '问题池里不同等级的问题，按记录里写明的重量表折算出的总和上限阈值；超过该阈值会自动加入解决问题的节点。',
 
-  /* ── The dependency field ─────────────────────────────────────────────────────────────────── */
+  /* ── What a node is waiting on ────────────────────────────────────────────────────────────── */
   /* The owed-prerequisite sentence is asked for in two pieces, around the number: the panel styles
    * that number, and a language is free to put it first (see the English table, where the head
    * is empty). Splitting one finished sentence on the number would break the moment word order
    * moved. */
   'deps.owed.head': '前置节点 ',
   'deps.owed.tail': ' 个',
-  'field.figures.columns.one': ' 列',
-  'field.figures.columns.other': ' 列',
-  'field.figures.nodes.one': ' 节点',
-  'field.figures.nodes.other': ' 节点',
-  'field.figures.edges.one': ' 边',
-  'field.figures.edges.other': ' 边',
-  'field.zoom-in.aria': '放大',
-  'field.zoom-out.aria': '缩小',
-  'field.zoom-reset.aria': '回到全图',
-  'field.region.aria': '依赖全景',
 
   /* ── The reading marks shared by the panes ────────────────────────────────────────────────── */
   'marks.running.elapsed': '进行中 · {elapsed}',

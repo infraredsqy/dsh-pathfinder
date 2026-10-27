@@ -1,16 +1,17 @@
 /**
- * Reading widgets shared by the board, detail, and instruction-book cells: a state mark, a gate
- * hint, and a moment formatter.
+ * Reading widgets shared by the detail rows, the instruction book, and the map's cards: a state mark,
+ * a dependency line, a gate hint, and a moment formatter.
  *
- * These readings exist only once: the state mark on cards and detail rows is the same one, and the
- * gate hint and time formatting are the same set — each cell just passes its own cell and moment.
+ * These readings exist only once: the state mark on the map's cards and on detail rows is the same
+ * one, and the gate hint and time formatting are the same set — each cell just passes its own cell
+ * and moment.
  */
 import * as React from 'react'
 import type { DetailGroupKey, NodeReading } from '../model/index.ts'
-import { clock, dayParts, duration } from '../model/index.ts'
+import { clock, dayParts, duration, readDeps } from '../model/index.ts'
 import type { Translate } from './locale.ts'
 import { useT } from './locale.ts'
-import { dayLabel, gateWord } from './words.ts'
+import { dayLabel, depsSentence, gateWord } from './words.ts'
 
 /** A card column's identity: the state mark is drawn by it. */
 export type CardKind = 'shelved' | 'run' | 'next' | 'done'
@@ -54,6 +55,28 @@ export function StateMark(props: { readonly node: NodeReading; readonly kind: Ca
       <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
         <path d="M2.5 6.5l2.4 2.4 4.6-5.4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
+    </span>
+  )
+}
+
+/**
+ * The dependency line, wearing the same face in every view: ready to start, or N prerequisite nodes.
+ *
+ * Whether a cell owes an answer at all is the reading's decision (`readDeps`); how that answer is
+ * worded is this panel's (`depsSentence`). The sentence arrives already split around its number, so
+ * the number gets its own mark styling (monospace, brighter) without cutting a finished sentence in
+ * two — a language is free to put the number first, and one of them does.
+ */
+export function DepsChip(props: { readonly node: NodeReading }): React.ReactElement | null {
+  const t = useT()
+  const deps = readDeps(props.node)
+  if (deps === null) return null
+  const said = depsSentence(t, deps)
+  return (
+    <span className={`pf-deps${deps.ready ? ' is-ready' : ''}`}>
+      {said.head}
+      {said.count === null ? null : <b className="pf-num">{String(said.count)}</b>}
+      {said.tail}
     </span>
   )
 }

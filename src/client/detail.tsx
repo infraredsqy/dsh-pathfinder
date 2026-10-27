@@ -18,8 +18,7 @@ import type { WordKey } from './locales/index.ts'
 import { gateWord, unit } from './words.ts'
 import { nodeName, nodeHover } from './nodes.ts'
 import { Grip } from './widgets.tsx'
-import { gateTitle, StateMark } from './marks.tsx'
-import { DepsChip } from './field.tsx'
+import { DepsChip, gateTitle, StateMark } from './marks.tsx'
 
 /** The five detail sections, in the order readers meet them. */
 interface Group {

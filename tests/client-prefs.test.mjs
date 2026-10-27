@@ -7,7 +7,7 @@
  * settings service arrives (no change means no subscriber wake-up — `useSyncExternalStore`
  * depends on it; breaking that means the panel re-renders forever).
  *
- * A second set asks `buildConfig` directly: all five fields present in the host schema, each
+ * A second set asks `buildConfig` directly: all four fields present in the host schema, each
  * marked volatile, and the factory defaults and bounds matching the field table's numbers. A
  * field missing the volatile mark simply never appears on the settings page, with no error
  * either — so a stand-in that records every call stands in for schemastery to press that
@@ -20,7 +20,6 @@ import assert from 'node:assert/strict'
 
 import { buildConfig } from '../src/host/config.ts'
 import {
-  INFO_LEVELS,
   PANEL_PREF_DEFAULTS,
   PANEL_PREF_FIELDS,
   SIDE_DEFAULT,
@@ -33,7 +32,6 @@ import {
   createPrefsSource,
   DEFAULT_PREFS,
   dropLegacyPrefs,
-  INFO_WORDS,
   LEGACY_PREF_KEYS,
   prefsFromSection,
   prefsWriteOp,
@@ -53,48 +51,40 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 test('字段表就是那几个键，出厂默认那几条与浏览器那侧逐项对得上', () => {
   assert.deepEqual(Object.keys(PANEL_PREF_DEFAULTS).sort(), Object.values(PANEL_PREF_FIELDS).sort())
-  /* The words printed on the settings page and the panel: one entry per view (six) and per info
-   * level (three). The tables hold KEYS now, so what has to line up is the key set. */
-  assert.deepEqual(Object.keys(INFO_WORDS).sort(), [...INFO_LEVELS].sort())
+  /* The words printed on the settings page and the panel: one entry per view. The table holds
+   * KEYS, so what has to line up is the key set. */
   assert.deepEqual(Object.keys(VIEW_WORDS).sort(), [...VIEW_IDS].sort())
 
-  /* Each entry RESOLVES to a word through the lookup table: every level and every view still has
-   * something to print, and it is the lookup table in force that says it. */
+  /* Each entry RESOLVES to a word through the lookup table: every view still has something to
+   * print, and it is the lookup table in force that says it. */
   const t = createLocalePort().getSnapshot().t
-  for (const entry of [...Object.values(INFO_WORDS), ...Object.values(VIEW_WORDS)]) {
+  for (const entry of Object.values(VIEW_WORDS)) {
     assert.equal(typeof t(entry), 'string', `${entry} 在随包的词典里没有对应的字`)
     assert.notEqual(t(entry), entry, `${entry} 应当查得到一个词，不能把键本身画出来`)
   }
 
-  /* The three info levels, as the bundled Chinese table spells them. */
-  assert.equal(t(INFO_WORDS.lean), '精简')
-  assert.equal(t(INFO_WORDS.three), '展开')
-  assert.equal(t(INFO_WORDS.full), '铺满')
-
-  /* And the six views. */
-  assert.equal(t(VIEW_WORDS.now), '当前')
+  /* And the five views. */
+  assert.equal(t(VIEW_WORDS.map), '地图')
   assert.equal(t(VIEW_WORDS.detail), '明细')
   assert.equal(t(VIEW_WORDS.notes), '指令')
-  assert.equal(t(VIEW_WORDS.wires), '依赖')
   assert.equal(t(VIEW_WORDS.issue), '问题')
   assert.equal(t(VIEW_WORDS.config), '设置')
 
-  /* What the tables hold is the KEY, not the word: the settings row and the panel's button row both
-   * render it through the same translator, so the two cannot drift apart. */
-  assert.equal(INFO_WORDS.lean, 'info.lean')
+  /* What the table holds is the KEY, not the word: the settings row and the tab row both render it
+   * through the same translator, so the two cannot drift apart. */
+  assert.equal(VIEW_WORDS.map, 'view.map')
   assert.equal(VIEW_WORDS.notes, 'view.notes')
-  assert.notEqual(INFO_WORDS.lean, t(INFO_WORDS.lean))
+  assert.notEqual(VIEW_WORDS.map, t(VIEW_WORDS.map))
 })
 
 test('一份写全的设置文档读成面板那几个值', () => {
   const prefs = prefsFromSection({
     sideWidth: 200,
-    infoLevel: 'full',
-    defaultTab: 'wires',
+    defaultTab: 'detail',
     showArchived: true,
     showOtherStates: true,
   })
-  assert.deepEqual(prefs, { sideWidth: 200, info: 'full', tab: 'wires', archived: true, otherStates: true })
+  assert.deepEqual(prefs, { sideWidth: 200, tab: 'detail', archived: true, otherStates: true })
 })
 
 test('那几节读不懂时各自退到出厂那一份，别的照读', () => {
@@ -104,13 +94,16 @@ test('那几节读不懂时各自退到出厂那一份，别的照读', () => {
   assert.deepEqual(prefsFromSection({}), DEFAULT_PREFS)
   /* Stored records may still hold words written by older versions: unrecognized ones each fall back, the rest read through. */
   assert.deepEqual(
-    prefsFromSection({ infoLevel: 'verbose', defaultTab: 'overview', showArchived: 'yes', sideWidth: 'wide' }),
+    prefsFromSection({ defaultTab: 'overview', showArchived: 'yes', sideWidth: 'wide' }),
     DEFAULT_PREFS,
   )
   assert.deepEqual(
-    prefsFromSection({ infoLevel: 'lean', defaultTab: 'issue', showArchived: 1, showOtherStates: 0 }),
-    { sideWidth: DEFAULT_PREFS.sideWidth, info: 'lean', tab: 'issue', archived: false, otherStates: false },
+    prefsFromSection({ defaultTab: 'issue', showArchived: 1, showOtherStates: 0 }),
+    { sideWidth: DEFAULT_PREFS.sideWidth, tab: 'issue', archived: false, otherStates: false },
   )
+  /* A field this version no longer has (`infoLevel`, the old cards-per-column tier) is dead weight
+   * in an old document: it reads as nothing rather than as a bad value. */
+  assert.deepEqual(prefsFromSection({ infoLevel: 'lean' }), DEFAULT_PREFS)
 })
 
 test('宽度收进上下限：越界的收回来，量不出来的用出厂那一个', () => {
@@ -125,10 +118,10 @@ test('宽度收进上下限：越界的收回来，量不出来的用出厂那�
 })
 
 test('写回是一条顶层 set，路径就是字段表里那个字', () => {
-  assert.deepEqual(prefsWriteOp(PANEL_PREF_FIELDS.infoLevel, 'lean'), {
+  assert.deepEqual(prefsWriteOp(PANEL_PREF_FIELDS.defaultTab, 'map'), {
     op: 'set',
-    path: ['infoLevel'],
-    value: 'lean',
+    path: ['defaultTab'],
+    value: 'map',
   })
   assert.deepEqual(prefsWriteOp(PANEL_PREF_FIELDS.sideWidth, 216), {
     op: 'set',
@@ -180,15 +173,15 @@ test('设置服务还没到场：出厂那几条，写回不作数', async () =>
     writable: false,
     refused: false,
   })
-  assert.equal(await source.write(PANEL_PREF_FIELDS.infoLevel, 'lean'), false)
+  assert.equal(await source.write(PANEL_PREF_FIELDS.defaultTab, 'detail'), false)
 })
 
 test('挂上表单之后读数就是那一节的值，修订号跟着来', () => {
-  const form = fakeForm({ sideWidth: 300, infoLevel: 'lean', defaultTab: 'issue', showArchived: true })
+  const form = fakeForm({ sideWidth: 300, defaultTab: 'issue', showArchived: true })
   const source = createPrefsSource()
   source.attach(form)
   const snapshot = source.getSnapshot()
-  assert.deepEqual(snapshot.prefs, { sideWidth: 300, info: 'lean', tab: 'issue', archived: true, otherStates: false })
+  assert.deepEqual(snapshot.prefs, { sideWidth: 300, tab: 'issue', archived: true, otherStates: false })
   assert.equal(snapshot.status, 'ready')
   assert.equal(snapshot.revision, 1)
   assert.equal(snapshot.writable, true)
@@ -199,9 +192,9 @@ test('写回带的是读到的那一个修订号，第二次带最新那一个',
   const source = createPrefsSource()
   source.attach(form)
 
-  assert.equal(await source.write(PANEL_PREF_FIELDS.infoLevel, 'lean'), true)
+  assert.equal(await source.write(PANEL_PREF_FIELDS.defaultTab, 'detail'), true)
   assert.deepEqual(form.writes[0], {
-    ops: [{ op: 'set', path: ['infoLevel'], value: 'lean' }],
+    ops: [{ op: 'set', path: ['defaultTab'], value: 'detail' }],
     expected: 1,
   })
   assert.equal(source.getSnapshot().revision, 2)
@@ -211,7 +204,6 @@ test('写回带的是读到的那一个修订号，第二次带最新那一个',
     ops: [{ op: 'set', path: ['defaultTab'], value: 'notes' }],
     expected: 2,
   })
-  assert.equal(form.document().infoLevel, 'lean')
   assert.equal(form.document().defaultTab, 'notes')
 })
 
@@ -284,10 +276,10 @@ test('本地存储不可用时偏好清理安静算了：那条口子照常挂�
     writable: true,
   })
   try {
-    const form = fakeForm({ infoLevel: 'lean' })
+    const form = fakeForm({ defaultTab: 'detail' })
     const source = createPrefsSource()
     source.attach(form)
-    assert.equal(source.getSnapshot().prefs.info, 'lean')
+    assert.equal(source.getSnapshot().prefs.tab, 'detail')
     assert.equal(source.getSnapshot().status, 'ready')
     assert.equal(dropLegacyPrefs(), 0)
   } finally {
@@ -317,21 +309,21 @@ test('别处翻了一行：订阅者当场收到新读数', () => {
 })
 
 test('表单换一份、或收回去：读数跟着换，收回去就回到出厂那几条', () => {
-  const first = fakeForm({ infoLevel: 'lean' })
-  const second = fakeForm({ infoLevel: 'full', showOtherStates: true })
+  const first = fakeForm({ defaultTab: 'detail' })
+  const second = fakeForm({ defaultTab: 'notes', showOtherStates: true })
   const source = createPrefsSource()
   const off = source.attach(first)
-  assert.equal(source.getSnapshot().prefs.info, 'lean')
+  assert.equal(source.getSnapshot().prefs.tab, 'detail')
 
   source.attach(second)
-  assert.equal(source.getSnapshot().prefs.info, 'full')
+  assert.equal(source.getSnapshot().prefs.tab, 'notes')
   assert.equal(source.getSnapshot().prefs.otherStates, true)
   first.notify()
-  assert.equal(source.getSnapshot().prefs.info, 'full')
+  assert.equal(source.getSnapshot().prefs.tab, 'notes')
 
   off()
   /* `off` means "detach only if it is still my instance"; the second form is the one attached now, so the reading stays. */
-  assert.equal(source.getSnapshot().prefs.info, 'full')
+  assert.equal(source.getSnapshot().prefs.tab, 'notes')
   source.attach(null)
   assert.deepEqual(source.getSnapshot().prefs, DEFAULT_PREFS)
   assert.equal(source.getSnapshot().status, 'unavailable')
@@ -362,7 +354,7 @@ function fakeSchemastery() {
   }
 }
 
-test('宿主那份 schema：五个字段都在，个个标了 volatile', () => {
+test('宿主那份 schema：四个字段都在，个个标了 volatile', () => {
   const z = fakeSchemastery()
   const schema = buildConfig(z)
   assert.deepEqual(Object.keys(schema.dict), Object.values(PANEL_PREF_FIELDS))
@@ -384,11 +376,6 @@ test('宿主那份 schema：字段的种类、出厂默认与上下限就是字�
     kind: 'number',
     defaults: [PANEL_PREF_DEFAULTS.sideWidth],
     extra: { min: SIDE_MIN, max: SIDE_MAX },
-  })
-  assert.deepEqual(read(PANEL_PREF_FIELDS.infoLevel), {
-    kind: 'union',
-    defaults: [PANEL_PREF_DEFAULTS.infoLevel],
-    extra: { values: [...INFO_LEVELS] },
   })
   assert.deepEqual(read(PANEL_PREF_FIELDS.defaultTab), {
     kind: 'union',

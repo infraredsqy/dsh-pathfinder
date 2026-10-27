@@ -8,8 +8,8 @@ panel in the DSH Web UI.
 
 The host half reads the record (`.pf/`) of the current session's workspace and serves it behind a
 gateway; the browser half draws it as the **调度中心** panel in the sidebar. Everything on screen —
-instructions, node details, dependencies, the issue pool — comes from that record, and writes from
-the panel go back to the same place.
+instructions, node details, the map of who owes whom, the issue pool — comes from that record, and
+writes from the panel go back to the same place.
 
 ## Status
 
@@ -34,10 +34,10 @@ ignored. The other two routes (a GitHub Release `.tgz`, or git) and the version 
 
 ## What you get
 
-- a **调度中心** entry in the Web UI sidebar: views over the record — now, details,
-  instructions, dependencies, the issue pool, and the panel's own settings
-- a **寻路面板** section in the DSH settings: default tab, information density, whether archived
-  instructions show, whether closed issues show
+- a **调度中心** entry in the Web UI sidebar: views over the record — the map, details,
+  instructions, the issue pool, and the panel's own settings
+- a **寻路面板** section in the DSH settings: default tab, whether archived instructions show,
+  whether closed issues show
 - to verify an install: `dsh --profile <name> --dump-config`, and look for the
   `# == dsh-pathfinder` section
 

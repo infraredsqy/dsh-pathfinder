@@ -547,9 +547,9 @@ const MARKS = [
   { what: '计数胶囊方记号 · 未开始', where: '.pf-cell.is-todo', property: 'box-shadow', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
   { what: '卡片状态标 · 即将进线', where: '.pf-card .pf-state.is-next', decl: '.pf-state.is-next', property: 'border', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-layer-1', tier: 'A' },
   { what: '明细行记号 · 即将进线', where: '.pf-row .pf-state.is-next', decl: '.pf-state.is-next', property: 'border', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
-  { what: '分层场记号 · 已交付', where: '.pf-node.pf-cell.is-done', property: 'background', ink: 'var(--pf-ink-1)', ground: '--dsw-alias-bg-base', tier: 'A' },
-  { what: '分层场记号 · 可开工', where: '.pf-node.pf-cell.is-todo', property: 'box-shadow', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
-  { what: '分层场记号 · 欠前置', where: '.pf-node.pf-cell.is-wait', property: 'box-shadow', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  /* A card on the map that wants a person, whatever its state is: the amber ring again, read
+   * against the brightened ground a lit card takes. */
+  { what: '地图卡片上的闸 · 琥珀环', where: '.pf-cell.is-gate', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-layer-2', tier: null },
   { what: '问题池记号 · 已承认', where: '.pf-cell.is-acknowledged', property: 'box-shadow', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
   { what: '问题池记号 · 已否决', where: '.pf-cell.is-rejected', property: 'box-shadow', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
   { what: '重量档 · 最重一档（P0）', where: '.is-P0', property: '--sev', ink: 'var(--pf-ink-1)', ground: '--dsw-alias-bg-base', tier: 'A' },
