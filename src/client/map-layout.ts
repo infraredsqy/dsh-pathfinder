@@ -44,8 +44,21 @@ export const SCALE_MAX = 2.4
 /** How close the camera stands to the focus: a card's title lands around 24px on screen. */
 export const FOCUS_SCALE = 1.2
 
-/** The margin kept around the focus's ring when it has to be shrunk to fit. */
-const RING_MARGIN = 48
+/**
+ * Where the focused card stands across the viewport, from a card at the start of the drawing to a card
+ * near its end: the golden section, a little left of centre and a little right of it.
+ *
+ * The spot is not decoration. A card at the start of the flow is owed its room on the right, and a
+ * card near the end is owed its room on the left; placing it by where it stands along the drawing
+ * gives the side it needs without a special case. Pinned to the middle instead, the camera would put
+ * a card at the beginning in the same place as a card at the end, and the reader would have no way to
+ * tell where on the drawing they had landed.
+ */
+export const FOCUS_AT_EARLY = 0.382
+export const FOCUS_AT_LATE = 0.618
+
+/** The margin kept around the focused card when the viewport is too small for it at {@link FOCUS_SCALE}. */
+const FOCUS_MARGIN = 48
 
 export interface Point {
   readonly x: number
@@ -62,14 +75,6 @@ export interface View {
   readonly s: number
   readonly tx: number
   readonly ty: number
-}
-
-/** A rectangle in canvas pixels. */
-export interface Rect {
-  readonly x0: number
-  readonly y0: number
-  readonly x1: number
-  readonly y1: number
 }
 
 /** What one page holds once placed: the cards, where they sit, and who owes whom among them. */
@@ -342,27 +347,6 @@ export function litOf(placement: Placement, focus: string | null, scope: string 
   return lit
 }
 
-/** The focus, its prerequisites and its dependents, as one rectangle; `null` when none of them is drawn. */
-export function ringOf(placement: Placement, focus: string | null): Rect | null {
-  if (focus === null) return null
-  const ids = [focus, ...(placement.up[focus] ?? []), ...(placement.down[focus] ?? [])]
-  const xs: number[] = []
-  const ys: number[] = []
-  for (const id of ids) {
-    const at = placement.pos[id]
-    if (at === undefined) continue
-    xs.push(at.x)
-    ys.push(at.y)
-  }
-  if (xs.length === 0) return null
-  return {
-    x0: Math.min(...xs) - CARD_W / 2,
-    y0: Math.min(...ys) - CARD_H / 2,
-    x1: Math.max(...xs) + CARD_W / 2,
-    y1: Math.max(...ys) + CARD_H / 2,
-  }
-}
-
 /**
  * The camera that keeps the drawing inside the viewport: a drawing smaller than the viewport is
  * centred on it, a larger one is held against its edges.
@@ -385,21 +369,40 @@ export function fitView(size: Size, placement: Placement): View {
 }
 
 /**
- * The camera at the focus: the focus and its ring centred, at {@link FOCUS_SCALE} when that fits.
+ * How far along the drawing a card stands: its column against the drawing's last column, as 0..1.
  *
- * A ring wider than the viewport is shrunk until it fits, but no further than the scale at which a
- * title stops being readable — a card reduced to a frame is not a card the reader came to look at.
+ * A drawing of a single column has no "along" to speak of, so it reads as the middle.
+ */
+function alongOf(placement: Placement, focus: string): number {
+  const at = placement.columns.findIndex((column) => column.includes(focus))
+  if (at < 0 || placement.columns.length < 2) return 0.5
+  return at / (placement.columns.length - 1)
+}
+
+/**
+ * The camera at the focus: the focused card itself {@link FOCUS_AT_EARLY}..{@link FOCUS_AT_LATE}
+ * across the viewport and halfway down it, at {@link FOCUS_SCALE}.
+ *
+ * What it aims at is the card, not the middle of the card's ring. A ring is one prerequisite and
+ * three dependents as often as it is symmetrical, so aiming at its middle leaves the card the reader
+ * pressed standing wherever the arithmetic happens to put it — and the same card would land in a
+ * different spot from one open to the next. The ring has no aim of its own: the lit cards and their
+ * wires say what the card is owed and owes, and whatever does not fit is cut at the page's faded
+ * edge, to be found again by a drag or a zoom.
+ *
+ * The card is shrunk only when the viewport cannot hold it whole at that scale, so what the reader
+ * came to look at is never a card cut in half by the frame's own edge.
  */
 export function focusView(size: Size, placement: Placement, focus: string | null): View {
-  const ring = ringOf(placement, focus)
-  let s = FOCUS_SCALE
-  if (ring !== null) {
-    const fit = Math.min((size.w - RING_MARGIN) / (ring.x1 - ring.x0), (size.h - RING_MARGIN) / (ring.y1 - ring.y0))
-    s = Math.max(FOCUS_SCALE * 0.62, Math.min(FOCUS_SCALE, Number.isFinite(fit) ? fit : FOCUS_SCALE))
-  }
-  const cx = ring === null ? placement.width / 2 : (ring.x0 + ring.x1) / 2
-  const cy = ring === null ? placement.height / 2 : (ring.y0 + ring.y1) / 2
-  return clampView({ s, tx: size.w / 2 - cx * s, ty: size.h / 2 - cy * s }, size, placement)
+  const at = focus === null ? undefined : placement.pos[focus]
+  if (focus === null || at === undefined) return fitView(size, placement)
+
+  const roomy = Math.min(FOCUS_SCALE, (size.w - FOCUS_MARGIN) / CARD_W, (size.h - FOCUS_MARGIN) / CARD_H)
+  const s = Math.max(SCALE_MIN, roomy)
+  const spot = FOCUS_AT_EARLY + (FOCUS_AT_LATE - FOCUS_AT_EARLY) * alongOf(placement, focus)
+  /* The drawing's own edges still hold: near the drawing's end there is less drawing to stand on, so
+   * the place to put the card runs out before the spot does. */
+  return clampView({ s, tx: spot * size.w - at.x * s, ty: size.h / 2 - at.y * s }, size, placement)
 }
 
 /**

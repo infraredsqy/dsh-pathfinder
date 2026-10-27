@@ -58,7 +58,7 @@ export function MapPane(props: {
   const field = React.useRef<HTMLDivElement | null>(null)
   const view = React.useRef<View>({ s: 1, tx: 0, ty: 0 })
   const dragged = React.useRef(false)
-  const panning = React.useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null)
+  const panning = React.useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean; captured: boolean } | null>(null)
   const [size, setSize] = React.useState<Size>(FALLBACK)
   const [camera, setCamera] = React.useState<View>(view.current)
   /* The page opens at the focus: the card the triage puts first, with the ring it owes and is owed
@@ -148,7 +148,7 @@ export function MapPane(props: {
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
     if ((event.target as Element).closest('.pf-tools') !== null) return
-    panning.current = { x: event.clientX, y: event.clientY, tx: view.current.tx, ty: view.current.ty, moved: false }
+    panning.current = { x: event.clientX, y: event.clientY, tx: view.current.tx, ty: view.current.ty, moved: false, captured: false }
     dragged.current = false
   }
 
@@ -158,6 +158,18 @@ export function MapPane(props: {
     const dx = event.clientX - held.x
     const dy = event.clientY - held.y
     if (!held.moved && Math.abs(dx) + Math.abs(dy) < 4) return
+    if (!held.moved && typeof event.currentTarget.setPointerCapture === 'function') {
+      /* The pointer is taken only once this is a drag: a plain press on a card stays a press, and a
+       * drag that runs past the field's edge — a quick throw, or a slide over the rail — keeps moving
+       * the page instead of stopping halfway. */
+      held.captured = true
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch {
+        /* The pointer is no longer there to take: the drag still moves, it just stops at the edge. */
+        held.captured = false
+      }
+    }
     held.moved = true
     dragged.current = true
     setGrabbing(true)
@@ -165,9 +177,17 @@ export function MapPane(props: {
     setMode('free')
   }
 
-  const onPointerUp = (): void => {
+  const onPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const held = panning.current
     panning.current = null
     setGrabbing(false)
+    if (held !== null && held.captured) {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch {
+        /* The pointer was already gone: nothing was captured, nothing to give back. */
+      }
+    }
   }
 
   /** One press on a card: the first comes close to it, and the press after that goes to its session. */
@@ -187,6 +207,10 @@ export function MapPane(props: {
     if (target !== null) props.go?.open(target)
   }
 
+  /* Pressing a row picks the scope to search under and, with it, the card to stand on: the row's own
+   * default — the card the triage puts first inside that scope. This is also the page's way back, so
+   * it sets the mode outright: a camera the reader had dragged or zoomed off the focus comes back to
+   * that scope's first card, and no reset button of its own is needed. */
   const pickScope = (id: string | null): void => {
     setScope(id)
     const pool = id === null ? nodes : nodes.filter((node) => node.cycleIds.includes(id))

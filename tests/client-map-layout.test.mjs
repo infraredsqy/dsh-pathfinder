@@ -11,6 +11,8 @@ import {
   CARD_H,
   CARD_W,
   COL_GAP,
+  FOCUS_AT_EARLY,
+  FOCUS_AT_LATE,
   FOCUS_SCALE,
   PAD,
   ROW_GAP,
@@ -22,7 +24,6 @@ import {
   lodOf,
   place,
   rankedOf,
-  ringOf,
   wirePath,
   zoomAt,
 } from '../src/client/map-layout.ts'
@@ -183,22 +184,6 @@ test('上墨：焦点、它欠的、欠它的，再加命中范围自己那一�
     '选中一条线时点亮的是那条线碰过的格子，人闸不再单独点亮')
 })
 
-test('一圈：焦点加它的前后合成一个矩形，没画出来的那些不参与', () => {
-  const reading = readingOf({
-    nodes: { a: node(), b: node({ dependencies: ['a'] }), c: node() },
-  })
-  const placement = place({ nodes: reading.nodes, edges: reading.graph.edges })
-  const ring = ringOf(placement, 'a')
-
-  assert.ok(ring !== null)
-  assert.equal(ring.x0, placement.pos['a'].x - CARD_W / 2)
-  assert.equal(ring.x1, placement.pos['b'].x + CARD_W / 2, '欠它的那一格在右边，也进这一圈')
-  const lone = ringOf(placement, 'c')
-  assert.equal(lone?.x0, placement.pos['c'].x - CARD_W / 2, '既没有前置也没有后继的那一格，一圈就是它自己')
-  assert.equal(lone?.x1, placement.pos['c'].x + CARD_W / 2)
-  assert.equal(ringOf(placement, null), null)
-})
-
 test('全览：整张图放进视口，小的那一边留出余量，图上屏是居中的', () => {
   const reading = readingOf({
     nodes: Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`n${String(index)}`, node()])),
@@ -240,29 +225,64 @@ test('滚轮：缩放之后，指针底下那一点还是原来那一点', () =>
   assert.equal(zoomAt(before, at, 0.0001).s, 0.1, '缩小有下限')
 })
 
-test('对准焦点：焦点那一圈居中；圈比视口宽就收小，但不收到标题读不出以下的极限再往下', () => {
+/** One chain of `length` cards, each owing the one before it: the simplest drawing with many columns. */
+function chainOf(length) {
+  const ids = Array.from({ length }, (_, index) => `n${String(index)}`)
+  const reading = readingOf({
+    nodes: Object.fromEntries(ids.map((id, index) => [id, node(index === 0 ? {} : { dependencies: [ids[index - 1]] })])),
+  })
+  return { ids, placement: place({ nodes: reading.nodes, edges: reading.graph.edges }) }
+}
+
+test('对准焦点：这一格按它在图上站的位置落座——一开始的靠左一点，末尾的靠右一点，正中间的就在正中间', () => {
+  const { placement } = chainOf(12)
+  const size = { w: 900, h: 980 }
+  const screenX = (focus) => {
+    const view = focusView(size, placement, focus)
+    return placement.pos[focus].x * view.s + view.tx
+  }
+  const spot = (index) => (FOCUS_AT_EARLY + (FOCUS_AT_LATE - FOCUS_AT_EARLY) * (index / (placement.columns.length - 1))) * size.w
+
+  assert.equal(placement.columns.length, 12, '这一条链是十二列')
+  assert.ok(Math.abs(screenX('n1') - spot(1)) < 1e-6, '一开始过去一点的那一格落在分位上')
+  assert.ok(Math.abs(screenX('n5') - spot(5)) < 1e-6, '正中间那一格落在正中间')
+  assert.ok(Math.abs(screenX('n10') - spot(10)) < 1e-6, '靠末尾那一格落在右边那个分位上')
+  assert.ok(screenX('n1') < screenX('n5') && screenX('n5') < screenX('n10'), '沿着一列列往后，镜头跟着往右')
+
+  /* The drawing's own edge is the harder truth: there is nothing left of the first column. */
+  assert.equal(focusView(size, placement, 'n0').tx, 0, '第一列贴着视口的左边，不再往左留空')
+  assert.ok(screenX('n0') < spot(0), '想站的位置在图外，站不上')
+})
+
+test('对准焦点：镜头对准这一格自己，圈的正中偏在一边', () => {
   const reading = readingOf({
     nodes: {
-      a: node(),
-      b: node({ dependencies: ['a'] }),
-      c: node({ dependencies: ['b'] }),
+      root: node(),
+      one: node({ dependencies: ['root'] }),
+      two: node({ dependencies: ['root'] }),
+      three: node({ dependencies: ['root'] }),
+      after: node({ dependencies: ['one'] }),
     },
   })
   const placement = place({ nodes: reading.nodes, edges: reading.graph.edges })
-  const size = { w: 1600, h: 980 }
-  const roomy = focusView(size, placement, 'b')
+  const size = { w: 900, h: 980 }
+  const view = focusView(size, placement, 'root')
+  const at = placement.pos['root'].x * view.s + view.tx
+  /* The ring is root and the three cards it feeds: its middle stands a whole column to the right. */
+  const middle = ((placement.pos['root'].x - CARD_W / 2) + (placement.pos['one'].x + CARD_W / 2)) / 2 * view.s + view.tx
 
-  assert.ok(roomy.s <= FOCUS_SCALE && roomy.s >= FOCUS_SCALE * 0.62, '焦距那一档是上限，收也收不过地面')
-  assert.equal(roomy.tx, clampView({ s: roomy.s, tx: size.w / 2 - placement.pos['b'].x * roomy.s, ty: roomy.ty }, size, placement).tx)
-  const wide = focusView({ w: 2400, h: 980 }, placement, 'b')
-  assert.equal(wide.s, FOCUS_SCALE, '放得下的时候就是焦距那一档')
-  assert.equal(wide.tx, 2400 / 2 - placement.pos['b'].x * FOCUS_SCALE, '焦点落在视口正中')
+  assert.ok(middle - at > CARD_W * 0.5, '圈的正中在它右边大半格：对着那里，这一格就站不在自己的分位上')
+})
 
-  /* A ring wider than the viewport: the scale gives way, and stops at the floor rather than at a
-   * card reduced to a frame. */
-  const tight = focusView({ w: 120, h: 980 }, placement, 'b')
-  assert.ok(tight.s < FOCUS_SCALE)
-  assert.equal(tight.s, FOCUS_SCALE * 0.62, '圈再宽，也不低于「标题还读得出」的那一档')
+test('对准焦点：视口装不下一整格的时候，镜头收到这一格整整齐齐地放得下', () => {
+  const { placement } = chainOf(3)
+  const narrow = focusView({ w: 300, h: 260 }, placement, 'n2')
+  const short = focusView({ w: 1200, h: 100 }, placement, 'n2')
+
+  assert.equal(narrow.s, (300 - 48) / CARD_W, '窄的那一边收的正好是整格加上它自己的余量')
+  assert.equal(short.s, (100 - 48) / CARD_H, '矮的那一边同理')
+  assert.ok(narrow.s < FOCUS_SCALE && short.s < FOCUS_SCALE, '都比焦距那一档小')
+  assert.deepEqual(focusView({ w: 1200, h: 700 }, placement, null), fitView({ w: 1200, h: 700 }, placement), '一格都没对准，退回全览')
 })
 
 test('字号：缩到哪一档就读哪一档，两档的界就是那两个数', () => {

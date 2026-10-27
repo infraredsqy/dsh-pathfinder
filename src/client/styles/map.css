@@ -81,6 +81,11 @@
   min-width: 0;
   overflow: hidden;
   cursor: grab;
+  /* A drag holds the page, it does not select the words under the pointer; and the browser's own
+     touch gestures stay out of the drawing, which is a map the reader moves rather than a page they
+     scroll. */
+  user-select: none;
+  touch-action: none;
 }
 
 .pf-page .pf-field.is-panning {

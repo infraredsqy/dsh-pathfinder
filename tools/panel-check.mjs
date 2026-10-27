@@ -1377,7 +1377,7 @@ const click = async (element) => {
   await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
   await settle()
 }
-const { fitView, litOf, place } = await import(pathToFileURL(join(root, 'src', 'client', 'map-layout.ts')).href)
+const { fitView, focusView, litOf, place, rankedOf } = await import(pathToFileURL(join(root, 'src', 'client', 'map-layout.ts')).href)
 
 /** Before this section starts: how often the write face was called, and what the record looked like. */
 const writesBefore = writeCalls.length
@@ -1391,6 +1391,10 @@ const litIds = () => drawnCards().filter((card) => card.classList.contains('is-l
 const cardOf = (id) => drawnCards().find((card) => card.getAttribute('data-id') === id)
 const canvasOf = () => mapPane()?.querySelector('.pf-canvas')
 const scaleOf = () => Number(/scale\(([\d.]+)\)/u.exec(canvasOf()?.style.transform ?? '')?.[1] ?? Number.NaN)
+const transformOf = () => {
+  const held = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\(([\d.]+)\)/u.exec(canvasOf()?.style.transform ?? '')
+  return held === null ? null : { tx: Number(held[1]), ty: Number(held[2]), s: Number(held[3]) }
+}
 const placement = place({ nodes: project.nodes, edges: project.graph.edges })
 const nameOf = (node) => (node.title ?? (node.id.length > 8 ? node.id.slice(0, 8) : node.id))
 
@@ -1453,6 +1457,46 @@ check(
   '地图那一格：滚轮真的在缩放，不是只换一个数',
   Number.isFinite(scaleOf()) && Math.abs(scaleOf() - beforeWheel) > 1e-6,
   `滚之前=${String(beforeWheel)} 滚之后=${String(scaleOf())}`,
+)
+
+/* The drag pans the drawing: at the focus the reader walks the map rather than looking at a still
+ * picture, and the scale the wheel set is kept through the move. */
+const beforeDrag = transformOf()
+await act(async () => {
+  const field = mapPane()?.querySelector('.pf-field')
+  if (field === null || field === undefined) return
+  const at = (type, clientX, clientY) => field.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY }))
+  at('pointerdown', 400, 300)
+  at('pointermove', 470, 340)
+  at('pointerup', 470, 340)
+})
+await settle()
+const afterDrag = transformOf()
+check(
+  '地图那一格：按住横着拖七十像素，整张图就跟着走七十像素，倍率不变',
+  beforeDrag !== null && afterDrag !== null
+    && Math.abs(afterDrag.tx - beforeDrag.tx - 70) < 0.5
+    && afterDrag.s === beforeDrag.s
+    /* This drawing is shorter than the viewport, so a drag has nowhere to go vertically: the camera
+     * keeps centring it there rather than showing empty ground. */
+    && afterDrag.ty === beforeDrag.ty,
+  `拖之前=${JSON.stringify(beforeDrag)} 拖之后=${JSON.stringify(afterDrag)}`,
+)
+
+/* The rail row is also the way back: the camera stands where the drag and the wheel left it, and one
+ * press on a row returns it to that row's first card — so the page needs no reset button of its own. */
+const scopeDefault = scopeLine === undefined
+  ? rankedOf(project.nodes)[0]?.id ?? null
+  : rankedOf(project.nodes.filter((node) => node.cycleIds.includes(scopeLine.id)))[0]?.id ?? null
+const railRow = [...(mapPane()?.querySelectorAll('.pf-rail-item') ?? [])].find((row) => row.textContent === scopeLine?.id)
+if (railRow !== undefined) await click(railRow)
+const wantBack = railRow === undefined ? null : focusView({ w: 1280, h: 720 }, placement, scopeDefault)
+const back = transformOf()
+check(
+  '地图那一格：拖远缩远之后点一下左栏，镜头回到那一栏的第一格',
+  railRow !== undefined && wantBack !== null && back !== null
+    && Math.abs(back.s - wantBack.s) < 1e-6 && Math.abs(back.tx - wantBack.tx) < 1e-6 && Math.abs(back.ty - wantBack.ty) < 1e-6,
+  `那一栏的第一格=${String(scopeDefault)} ｜ 引擎=${JSON.stringify(wantBack)} ｜ 面板上=${JSON.stringify(back)}`,
 )
 
 /* And the refresh: the panel hands the read out again, so what is on screen is this record now. */
