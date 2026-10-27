@@ -1036,7 +1036,7 @@ check(
 
 await act(async () => { loneRoot.unmount() })
 
-/* The nine `--pf-*` declaration points in the shipped css, measured by the values resolved on the
+/* The eleven `--pf-*` declaration points in the shipped css, measured by the values resolved on the
  * panel's DOM: when a declaration lands on a selector matching nothing (`.pf-page body` /
  * `.pf-page :root`), this reads an empty string — and the fallback-less `var(--pf-ink-2)` reads go
  * void with it.
@@ -1052,8 +1052,10 @@ const TOKEN_VALUES = {
   '--pf-ink-3': 'var(--dsw-alias-label-tertiary)',
   '--pf-ink-4': 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 50%, transparent)',
   '--pf-pad': '24px',
-  '--pf-row': '30px',
+  '--pf-row': '34px',
   '--pf-mark': '14px',
+  '--pf-detail-top': '12px',
+  '--pf-detail-foot': '20px',
 }
 const panelRoot = container.querySelector('.pf-page')
 const rootStyle = window.getComputedStyle(panelRoot)
@@ -1063,7 +1065,7 @@ const tokenReadings = Object.entries(TOKEN_VALUES).map(([token, want]) => {
 })
 const rootWon = winningDeclarations(panelRoot, ['box-sizing'])
 check(
-  '面板根吃到了蓝本固定在页面根 / 全局上的那一批（九个 --pf-* 令牌 + reset 的 box-sizing）',
+  '面板根吃到了蓝本固定在页面根 / 全局上的那一批（十一个 --pf-* 令牌 + reset 的 box-sizing）',
   panelRoot !== null
     && Object.entries(TOKEN_VALUES).every(([token, want]) => rootStyle.getPropertyValue(token).replace(/\s+/gu, ' ').trim() === want)
     && rootWon['box-sizing'] === 'border-box',

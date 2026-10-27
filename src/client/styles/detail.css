@@ -44,4 +44,18 @@
 }/* The number at a group head's right prints only while the group is folded: folded, it is the one
    thing the group can still say; unfolded, the rows are in front of the reader and counting again
    would say the same thing twice (the instructions pane's count is not this rule's business; it
-   always stands). */.pf-page .pf-sec:not(.is-folded) .pf-rowcount{ display: none; }
+   always stands). */.pf-page .pf-sec:not(.is-folded) .pf-rowcount{ display: none; }/* ---- this list's own rhythm -------------------------------------------------
+ * The list hands itself both ends: the pane's 8px under the tab rail is not a page's top margin, so
+ * without the inset the first section head stands flush against the rail, and the last row would
+ * run into the frame's bottom edge with nothing under it.
+ *
+ * Sections are readings, not rows of one table: each head bars a block of its own, and the air
+ * between two of them is what says where one reading stops. Fourteen pixels let the heads run
+ * together into a single wall; these numbers hold the blocks apart. */.pf-page .pf-detail .pf-scroll{
+  padding: var(--pf-detail-top) 0 var(--pf-detail-foot);
+}.pf-page .pf-detail .pf-sec + .pf-sec{
+  margin-top: 22px;
+}.pf-page .pf-detail .pf-rowhead{
+  height: 30px;
+  margin-bottom: 8px;
+}

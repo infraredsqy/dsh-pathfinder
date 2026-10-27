@@ -3,8 +3,10 @@
  * one". Each pane's own layout lives in the module stylesheet beside it; the page never touches
  * vh / vw (headless screenshots re-wrap viewport-hooked sizes mid-shutter). */.pf-page{
   --pf-pad: 24px;        /* header side padding */
-  --pf-row: 30px;        /* one row = one node */
+  --pf-row: 34px;        /* one row = one node; the title's line sits in it with a breath above and below */
   --pf-mark: 14px;       /* the cell left of a line name: its state at this moment */
+  --pf-detail-top: 12px; /* the rail and the list start on one line, this far under the tab rail */
+  --pf-detail-foot: 20px;/* what the same list keeps under its last row, once it is scrolled to the end */
 }.pf-page{ overflow: hidden; }.pf-page{
   /* The positioning base: the line-settings modal covers this footprint (not the whole window) and measures against it. */
   position: relative;

@@ -22,11 +22,9 @@
  * its content a step right of the header's tab row. The host already carries page margins, so
  * this page keeps none and sits no closer to the panel's edge.
  *
- * The top strip of whitespace yields the same way: the host's own cell lays 8px of padding (that
- * is where the detail and settings panes' heads get their distance from the tab row); this page
- * adding 16px more, plus 14px above the bottom row, would leave that row 30px lower than the two
- * neighbouring panes. This is the only ground this page yields to the host, and the value follows
- * the host's own cell. */.is-embed.pf-issue .pf-top{ display: none; }.is-embed.pf-issue .pf-page{ padding: 0; }.is-embed.pf-issue .pf-band{ padding-top: 0; }/* ---- header: the nameplate and the workspace -----------------------------
+ * The top of the page does not yield all the way either: the host's own cell lays 8px under the tab
+ * row, and the band keeps 12px of its own on top of that — the distance the map's rail and the
+ * detail's first head keep. It is the band's side margins that yield, not its top. */.is-embed.pf-issue .pf-top{ display: none; }.is-embed.pf-issue .pf-page{ padding: 0; }.is-embed.pf-issue .pf-band{ padding-top: 12px; }/* ---- header: the nameplate and the workspace -----------------------------
  * The panel's header, at the panel's own elbows: nameplate, then the workspace
  * it is read for, both at the left, exactly as the main panel has them. A page
  * that hangs inside the panel does not restate the header or move its parts. */.pf-issue .pf-top{
@@ -128,7 +126,7 @@
   align-items: center;
   width: 100%;
 }.pf-issue .pf-row{
-  height: 26px;
+  height: 32px;
   margin: 0;
   padding: 0;
   background: none;
@@ -154,8 +152,8 @@
  * heaviest level is the one level whose letter is drawn at full ink: a P0 chip
  * is a white letter in a white box, and a P3 a dim one in a faint box. */.pf-issue .pf-sev.is-P0{ color: var(--dsw-alias-label-primary); }.pf-issue .pf-sev.is-P1, .pf-issue .pf-sev.is-P2{ color: var(--dsw-alias-label-secondary); }.pf-issue .pf-sev.is-P3{ color: var(--dsw-alias-label-tertiary); }.pf-issue .pf-title{
   min-width: 0;
-  font-size: 13px;
-  line-height: 18px;
+  font-size: 14px;
+  line-height: 20px;
   color: var(--dsw-alias-label-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -175,7 +173,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }.pf-issue .pf-head{
-  padding: 14px 0 5px;
+  padding: 18px 0 8px;
   border-bottom: var(--pf-rule) solid var(--dsw-alias-border-l2);
 }/* A head names the group and stops there: how many cases are in it is one of the
  * counts in the band, and how much the group weighs is the strip. */.pf-issue .pf-head-label{ font: var(--dsw-font-xs-strong-13); color: var(--dsw-alias-label-secondary); }/* The fold: a control on the grid, in the title's track, naming what it would
@@ -213,39 +211,40 @@
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin: 12px 0 0;
+  margin: 16px 0 0;
 }.pf-issue .pf-case-head .pf-sev{ font-size: 11px; line-height: 17px; }.pf-issue .pf-code{
   font-family: var(--ds-font-family-code);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 18px;
   color: var(--dsw-alias-label-caption);
 }.pf-issue .pf-case-title{
   margin: 0;
-  font: var(--dsw-font-s-strong-14);
+  font: var(--dsw-font-base-16);
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }.pf-issue .pf-case-id{
   display: block;
-  margin-top: 6px;
+  margin-top: 8px;
   overflow-wrap: anywhere;
   font-family: var(--ds-font-family-code);
   font-size: 11px;
   line-height: 16px;
   color: var(--dsw-alias-label-dimmed);
-}.pf-issue .pf-case-sec{ margin-top: 16px; }.pf-issue .pf-case-label{
-  margin: 0 0 6px;
-  font: var(--dsw-font-xxxs-strong-11);
+}.pf-issue .pf-case-sec{ margin-top: 24px; }.pf-issue .pf-case-label{
+  margin: 0 0 8px;
+  font: var(--dsw-font-xxs-strong-12);
   letter-spacing: 0.08em;
   color: var(--dsw-alias-label-caption);
 }.pf-issue .pf-case-body{
   margin: 0;
-  font: var(--dsw-font-xs-13);
+  font: var(--dsw-font-s-14);
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;
 }/* The record's own emphasis, drawn in the page's own inks: a bolded fact is the
  * sentence's own claim, and a path is a path. */.pf-issue .pf-case-body strong{ font-weight: 500; color: var(--dsw-alias-label-primary); }.pf-issue .pf-inline-code{
   padding: 0 4px;
   font-family: var(--ds-font-family-code);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-markdown-code-block);
   border-radius: 3px;

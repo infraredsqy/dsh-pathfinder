@@ -22,6 +22,10 @@
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}.pf-page .pf-detail .pf-lineside{
+  /* The rail and the list sit on one top line: both take the page's own inset rather than the rail
+   * starting a step higher than the first head. */
+  padding: var(--pf-detail-top) 0 var(--pf-detail-foot);
 }.pf-page .pf-lineitem{
   display: flex;
   align-items: center;
@@ -67,8 +71,8 @@
   flex-direction: column;
 }/* Line name: the record's id, in the monospace set. */.pf-page .pf-cycle{
   font-family: var(--ds-font-family-code);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: 13px;
+  line-height: 20px;
   color: var(--dsw-alias-label-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
