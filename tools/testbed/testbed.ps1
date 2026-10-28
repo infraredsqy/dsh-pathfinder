@@ -279,6 +279,20 @@ function Test-RunCriteria {
   return $ok
 }
 
+# Criterion 2's own verdict: the session is grouped under the workspace, not ungrouped. It reads
+# only its own two terms — the session accounted in workspace.sessionIds, and the session.list
+# row's cwd equal to the workspace path — so it can turn red on its own while criterion 1 stays
+# green; it is not a share of criterion 1's full predicate.
+function Test-GroupingCriteria {
+  param([Parameter(Mandatory = $true)]$Run)
+  $ok = $true
+  foreach ($row in $Run.sessions) {
+    if (-not $row.accounted) { $ok = $false }
+    if (-not $row.cwdMatches) { $ok = $false }
+  }
+  return $ok
+}
+
 # ---------------------------------------------------------------------------
 # Action: down
 # ---------------------------------------------------------------------------
@@ -461,7 +475,7 @@ try {
     $lines2.Add("grouping input is workspace.sessionIds; this session is in it, so it is grouped, not ungrouped")
   }
   Add-Criterion -Id '2' -Title 'the session is grouped under the synthetic workspace, not ungrouped' `
-    -Passed (Test-RunCriteria -Run $run1) -Lines @($lines2.ToArray())
+    -Passed (Test-GroupingCriteria -Run $run1) -Lines @($lines2.ToArray())
 
   # ---- Criterion 3: after restarting a second instance, the two criteria above still hold ----
   $lines3 = New-Object System.Collections.Generic.List[string]

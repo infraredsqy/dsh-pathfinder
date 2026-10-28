@@ -8,19 +8,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ledgerDir, readLedgerJson } from './lib/ledger-io.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(HERE, '..', 'design', 'issues.js');
 
-const argv = process.argv.slice(2);
-const at = argv.indexOf('--ledger');
-if (at < 0 || argv[at + 1] === undefined) {
-  console.error('usage: node tools/gen-issues.mjs --ledger <path to a .pf ledger>');
-  process.exit(2);
-}
-const LEDGER = path.resolve(argv[at + 1]);
+const LEDGER = ledgerDir(
+  process.argv.slice(2),
+  'usage: node tools/gen-issues.mjs --ledger <path to a .pf ledger>'
+);
 
-const read = (p) => JSON.parse(fs.readFileSync(path.join(LEDGER, p), 'utf8'));
+const read = (p) => readLedgerJson(LEDGER, p);
 const state = read('state.json');
 const ideas = read('ideas.json').nodes;
 const raw = read(path.join('issues', 'issues.json')).issues;
@@ -91,10 +89,10 @@ const maint = [];
 readings.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
 
 // A maintenance run is a node the pipeline inserted because the measure had crossed the line.
+// The record marks it with the maint tag, and only that tag names the kind: a title that
+// merely mentions the pool is wording, and wording is not something the panel reads kinds out of.
 for (const [id, n] of Object.entries(ideas)) {
-  const tagged = (n.tags || []).some((t) => String(t) === 'maint:issue_pool_weight');
-  const named = /issue 池/.test(n.title || '');
-  if (!tagged && !named) continue;
+  if (!(n.tags || []).some((t) => String(t) === 'maint:issue_pool_weight')) continue;
   maint.push([id, n.title || '', n.created_at || null, n.completed_at || null, n.status || null]);
 }
 maint.sort((a, b) => String(a[2]).localeCompare(String(b[2])));
