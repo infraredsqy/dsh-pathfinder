@@ -21,6 +21,7 @@ import {
   fitView,
   focusView,
   lodOf,
+  momentOf,
   panBounds,
   panView,
   place,
@@ -115,6 +116,41 @@ test('分诊：同一档里最近的那一刻先，同一刻按记录自己的�
     ['twinA', 'twinB', 'newest', 'middle', 'older'],
     '还没开工的排在交付之前；交付那一档里按时刻倒排，一刻都没有的保持记录给的次序',
   )
+})
+
+test('卡上那一刻：闸的一刻先于握住的，握住的先于步子收尾，收尾先于交付，交付先于创建', () => {
+  const reading = readingOf({
+    nodes: {
+      gated: node({ mode: 'manual', created_at: '2026-03-10T06:00:00.000Z' }),
+      held: node({ created_at: '2026-03-10T06:00:00.000Z' }),
+      stepped: node({ status: 'completed', completed_at: '2026-03-10T10:00:00.000Z', created_at: '2026-03-10T06:00:00.000Z' }),
+      created: node({ created_at: '2026-03-10T06:00:00.000Z' }),
+      bare: node(),
+    },
+    cycles: [
+      {
+        id: 'c1',
+        status: 'active',
+        holding: [{ id: 'gated', since: '2026-03-10T07:00:00.000Z' }],
+        path: [{ node: 'gated', started_at: '2026-03-10T08:00:00.000Z', ended_at: '2026-03-10T09:00:00.000Z', result: 'completed' }],
+      },
+      {
+        id: 'c2',
+        status: 'active',
+        holding: [{ id: 'held', since: '2026-03-10T07:00:00.000Z' }],
+        path: [
+          { node: 'held', started_at: '2026-03-10T08:00:00.000Z', ended_at: '2026-03-10T09:00:00.000Z', result: 'completed' },
+          { node: 'stepped', started_at: '2026-03-10T08:00:00.000Z', ended_at: '2026-03-10T09:00:00.000Z', result: 'completed' },
+        ],
+      },
+    ],
+  })
+
+  assert.equal(momentOf(reading.nodeById.gated)?.toISOString(), '2026-03-10T08:00:00.000Z', '人闸那一刻先于握住：08:00 在前，07:00 的握住不顶上来')
+  assert.equal(momentOf(reading.nodeById.held)?.toISOString(), '2026-03-10T07:00:00.000Z', '握住的一刻先于步子收尾')
+  assert.equal(momentOf(reading.nodeById.stepped)?.toISOString(), '2026-03-10T09:00:00.000Z', '步子收尾先于交付那一刻')
+  assert.equal(momentOf(reading.nodeById.created)?.toISOString(), '2026-03-10T06:00:00.000Z', '什么都没有的格轮到创建那一刻')
+  assert.equal(momentOf(reading.nodeById.bare), null, '一刻都没有就是没有，不拿别的顶上')
 })
 
 test('空页：一格都没有、或只有一格，当场给出点位，不空转', () => {

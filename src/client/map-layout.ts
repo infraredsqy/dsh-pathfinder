@@ -131,10 +131,13 @@ export function rankOf(node: NodeReading): number {
   return 4
 }
 
-/** The one moment a card speaks of, newest first among the moments it has. */
-function momentOf(node: NodeReading): number {
-  const when = node.gate?.since ?? node.heldSince ?? node.endedAt ?? node.completedAt ?? node.createdAt
-  return when === null ? 0 : when.getTime()
+/**
+ * The one moment this card speaks of: the earliest of what it is waiting for, and the newest of
+ * what it did — the gate's moment, else the pick-up, else the step's two ends, else the delivery,
+ * else the creation.
+ */
+export function momentOf(node: NodeReading): Date | null {
+  return node.gate?.since ?? node.heldSince ?? node.endedAt ?? node.completedAt ?? node.createdAt
 }
 
 /**
@@ -144,7 +147,7 @@ function momentOf(node: NodeReading): number {
 export function rankedOf(nodes: readonly NodeReading[]): readonly NodeReading[] {
   const recordOrder = new Map(nodes.map((node, index) => [node.id, index]))
   return [...nodes].sort((left, right) => rankOf(left) - rankOf(right)
-    || momentOf(right) - momentOf(left)
+    || (momentOf(right)?.getTime() ?? 0) - (momentOf(left)?.getTime() ?? 0)
     || (recordOrder.get(left.id) ?? 0) - (recordOrder.get(right.id) ?? 0))
 }
 

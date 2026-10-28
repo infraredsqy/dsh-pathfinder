@@ -12,6 +12,7 @@
  */
 import * as React from 'react'
 import type { NodeReading, ProjectReading } from '../model/index.ts'
+import { bucketOf } from '../model/index.ts'
 import { NOT_ENABLED_WORD } from './constants.ts'
 import { useT } from './locale.ts'
 import type { Translate } from './locale.ts'
@@ -23,6 +24,7 @@ import {
   fitView,
   focusView,
   lodOf,
+  momentOf,
   panView,
   place,
   rankedOf,
@@ -480,24 +482,31 @@ function Card(props: {
   )
 }
 
-/** What the frame says: delivered, in hand, and for a cell that wants a person, that above everything. */
-function edgeOf(node: NodeReading): string {
-  if (node.gate !== null) return 'is-gate'
-  if (node.running) return 'is-run'
-  if (node.state === 'completed') return 'is-done'
-  return 'is-todo'
+/**
+ * What the frame says: the model's one bucket, worn as a class. The gate outranks everything, and
+ * the model says so once; a shelved card keeps the gate frame too, because its verdict is a wait
+ * for a person and amber is that wait's colour.
+ */
+export function edgeOf(node: NodeReading): string {
+  const bucket = bucketOf(node)
+  return bucket === 'run' ? 'is-run'
+    : bucket === 'done' ? 'is-done'
+      : bucket === 'todo' ? 'is-todo'
+        : 'is-gate'
 }
 
-/** What the mark says: the same five values the census and the register use. */
-function cellOf(node: NodeReading): string {
-  if (node.gate !== null) return 'is-gate'
-  if (node.state === 'completed') return 'is-done'
-  if (node.state === 'shelved') return 'is-shelved'
-  if (node.running) return 'is-running'
-  return 'is-todo'
+/** What the mark says: the same one bucket, as its ring. The ring is one value per bucket; the words beside it say which wait it is. */
+export function cellOf(node: NodeReading): string {
+  switch (bucketOf(node)) {
+    case 'gate': return 'is-gate'
+    case 'shelved': return 'is-shelved'
+    case 'run': return 'is-running'
+    case 'done': return 'is-done'
+    case 'todo': return 'is-todo'
+  }
 }
 
-/** The one moment this card speaks of: the earliest of what it is waiting for, and the newest of what it did. */
+/** The one moment this card's stamp reads: {@link momentOf} says it, and says it nowhere else. */
 function stampMomentOf(node: NodeReading): Date | null {
-  return node.gate?.since ?? node.heldSince ?? node.endedAt ?? node.completedAt ?? node.createdAt
+  return momentOf(node)
 }

@@ -15,7 +15,7 @@
  */
 import type { PathfinderInstruction } from './records.ts'
 import type { CycleReading, InstructionGroupReading, InstructionReading, NodeReading, ProjectReading } from './contract.ts'
-import { cutAt, text, toMoment } from './fields.ts'
+import { cutAt, field, text, toMoment } from './fields.ts'
 
 /**
  * Read the instructions at that moment.
@@ -57,10 +57,10 @@ export function readInstructions(
       standing,
       inScope,
       inForce: standing && inScope,
-      ...(text_ !== undefined ? { text: text_ } : {}),
-      ...(note !== undefined ? { note } : {}),
-      ...(recordState !== undefined ? { recordState } : {}),
-      ...(scope !== undefined ? { scope } : {}),
+      ...field('text', text_),
+      ...field('note', note),
+      ...field('recordState', recordState),
+      ...field('scope', scope),
     })
   }
   return out

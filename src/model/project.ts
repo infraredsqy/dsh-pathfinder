@@ -21,7 +21,7 @@ import type {
   RecordsAtMoment,
   StepReading,
 } from './contract.ts'
-import { cutAt, happenedAt, secondsBetween, text, toMoment, writtenBy } from './fields.ts'
+import { cutAt, field, happenedAt, secondsBetween, text, toMoment, writtenBy } from './fields.ts'
 import { readGraph } from './graph.ts'
 import { readInstructions } from './instructions.ts'
 import { readPool } from './pool.ts'
@@ -186,8 +186,8 @@ function cutStep(step: PathfinderStep, cycleId: string, at: Date): CutStep | nul
       startedAt,
       endedAt,
       seconds: secondsBetween(startedAt, endedAt),
-      ...(nodeId !== null ? { node: nodeId } : {}),
-      ...(result !== undefined ? { result } : {}),
+      ...field('node', nodeId),
+      ...field('result', result),
     },
   }
 }
@@ -296,10 +296,10 @@ function readNode(facts: NodeFacts, all: readonly NodeFacts[], at: Date): NodeRe
     steps,
     cycleIds: [...facts.walkedBy],
     gate,
-    ...(title !== undefined ? { title } : {}),
-    ...(recordStatus !== undefined ? { recordStatus } : {}),
-    ...(mode !== undefined ? { mode } : {}),
-    ...(session !== undefined ? { session } : {}),
+    ...field('title', title),
+    ...field('recordStatus', recordStatus),
+    ...field('mode', mode),
+    ...field('session', session),
   }
 }
 
@@ -350,8 +350,8 @@ function finishCycle(cycle: CutCycle, nodes: readonly NodeReading[]): CycleReadi
     path: cycle.path,
     lastStep: cycle.lastStep,
     parked,
-    ...(cycle.title !== undefined ? { title: cycle.title } : {}),
-    ...(cycle.recordStatus !== undefined ? { recordStatus: cycle.recordStatus } : {}),
+    ...field('title', cycle.title),
+    ...field('recordStatus', cycle.recordStatus),
   }
 }
 

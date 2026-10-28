@@ -60,3 +60,13 @@ export function secondsBetween(from: Date | null, to: Date | null): number | nul
   if (from === null || to === null) return null
   return Math.round((to.getTime() - from.getTime()) / 1000)
 }
+
+/**
+ * A field emitted only for a written string: unwritten (`undefined` or `null`)
+ * means the field is absent, never an empty string standing in.
+ */
+export function field<K extends string>(key: K, value: string | null | undefined): Partial<Record<K, string>> {
+  const out: Partial<Record<K, string>> = {}
+  if (value !== undefined && value !== null) out[key] = value
+  return out
+}

@@ -7,14 +7,11 @@
  * and moment.
  */
 import * as React from 'react'
-import type { DetailGroupKey, NodeReading } from '../model/index.ts'
-import { clock, dayParts, duration, readDeps } from '../model/index.ts'
+import type { NodeReading } from '../model/index.ts'
+import { bucketOf, clock, dayParts, duration, readDeps } from '../model/index.ts'
 import type { Translate } from './locale.ts'
 import { useT } from './locale.ts'
 import { dayLabel, depsSentence, gateWord } from './words.ts'
-
-/** A card column's identity: the state mark is drawn by it. */
-export type CardKind = 'shelved' | 'run' | 'next' | 'done'
 
 /** The reading's moment rendered via moment; `--` when there is no moment. */
 export function timeOf(t: Translate, moment: Date | null, at: Date): string {
@@ -28,14 +25,18 @@ export function gateTitle(t: Translate, node: NodeReading, at: Date): string {
   return node.gate.since === null ? word : `${word} · ${timeOf(t, node.gate.since, at)}`
 }
 
-/** State mark: gated cells always show the pause mark, the rest is drawn by column. */
-export function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind | DetailGroupKey; readonly at: Date }): React.ReactElement {
+/**
+ * State mark: the model's one bucket, drawn. A card that wants a person (a gate, or the shelved
+ * verdict, which is its own gate) takes the pause mark; the line's hold takes the spinner; the
+ * card's own state draws the rest. Nothing here judges the record again.
+ */
+export function StateMark(props: { readonly node: NodeReading; readonly at: Date }): React.ReactElement {
   /* The mark's hover text is the only thing it says, so the translator is taken here, where the word
    * is printed. */
   const t = useT()
   const { node } = props
-  const loud = node.gate !== null && node.state !== 'todo'
-  if (loud) {
+  const bucket = bucketOf(node)
+  if (bucket === 'gate' || bucket === 'shelved') {
     return (
       <span className="pf-state is-gate" title={gateTitle(t, node, props.at)}>
         <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
@@ -44,10 +45,10 @@ export function StateMark(props: { readonly node: NodeReading; readonly kind: Ca
       </span>
     )
   }
-  if (props.kind === 'run') {
+  if (bucket === 'run') {
     return <span className="pf-state is-run" title={node.elapsedSeconds === null ? t('state.running') : t('marks.running.elapsed', { elapsed: duration(node.elapsedSeconds) })} />
   }
-  if (props.kind === 'next' || props.kind === 'wait' || props.kind === 'ready') {
+  if (bucket === 'todo') {
     return <span className="pf-state is-next" title={t('state.next')} />
   }
   return (

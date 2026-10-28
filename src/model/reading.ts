@@ -8,10 +8,29 @@
  * pinned down here and nowhere else.
  */
 import type { PathfinderReading, PathfinderSourceState } from './records.ts'
-import type { CycleReading, NodeReading, ProjectReading } from './contract.ts'
+import type { CycleReading, NodeBucket, NodeReading, ProjectReading } from './contract.ts'
+
+export type { NodeBucket }
 
 /** The keys of the detail's five groups: shelved, running, ready, not started, completed. */
 export type DetailGroupKey = 'shelved' | 'run' | 'ready' | 'wait' | 'done'
+
+/**
+ * The one bucket a card sits in: the per-node reading the boards' marks are all drawn from.
+ *
+ * The gate decides first — a cell that wants a person wants one whatever else it is also doing.
+ * The shelved verdict is its own bucket (the mark for waiting); a manual or checkpoint gate is the
+ * gate bucket. Then the line's hold, then the card's own state: `todo` and `done` never meet, so
+ * their order judges nothing.
+ *
+ * The criteria are the vocabulary's, judged here and nowhere else: which class a bucket wears on
+ * each board is the drawing layer's own mapping.
+ */
+export function bucketOf(node: NodeReading): NodeBucket {
+  if (node.gate !== null) return node.gate.kind === 'shelved' ? 'shelved' : 'gate'
+  if (node.running) return 'run'
+  return node.state === 'completed' ? 'done' : 'todo'
+}
 
 /**
  * Whether all four sources landed on the same outcome.

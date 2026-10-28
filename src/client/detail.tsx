@@ -168,7 +168,7 @@ function DetailGroup(props: { readonly group: Group; readonly nodes: readonly No
       </button>
       {props.nodes.map((node) => (
         <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(t, node, props.at)}>
-          <StateMark node={node} kind={group.key} at={props.at} />
+          <StateMark node={node} at={props.at} />
           <span className="pf-rowtitle" title={nodeHover(node)}>{nodeName(node)}</span>
           <span className="pf-rowfigs">{group.deps ? <DepsChip node={node} /> : null}</span>
           {/* The section already says its own gate kind: a node gated that same way adds no second

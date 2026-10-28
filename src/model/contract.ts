@@ -20,7 +20,7 @@ export interface RecordsAtMoment {
   readonly nodes: Readonly<Record<string, PathfinderNode>>
   readonly cycles: readonly PathfinderCycle[]
   readonly instructions: readonly PathfinderInstruction[]
-  /** The input shape takes all four records, but this one is not part of the issue-pool reading; its criteria live elsewhere. */
+  /** The issue pool reading's own input: which entries are on the books is decided by each one's discovered moment. */
   readonly issues: Readonly<Record<string, PathfinderIssue>>
   readonly at: Date
 }
@@ -32,6 +32,16 @@ export interface RecordsAtMoment {
  * own field.
  */
 export type NodeState = 'todo' | 'shelved' | 'completed'
+
+/**
+ * The one bucket a card sits in on the boards: the reading its frame, ring and mark are all drawn
+ * from. Judged once per node, from the criteria the reading already holds — the gate, the line's
+ * hold, the card's own state — so the drawing layer maps a bucket to a class and never re-judges.
+ *
+ * What a bucket is called on the screen is a word, and words are the client's business; this is
+ * the bucket and nothing else.
+ */
+export type NodeBucket = 'gate' | 'run' | 'shelved' | 'todo' | 'done'
 
 /**
  * The human gate: when a node needs a person. Which of the three it is plus a moment, all criteria

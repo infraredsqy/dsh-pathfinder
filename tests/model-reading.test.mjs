@@ -10,7 +10,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { everySourceIs, nodesOf, readProject } from '../src/model/index.ts'
+import { bucketOf, everySourceIs, nodesOf, readProject } from '../src/model/index.ts'
 
 const AT = new Date('2026-03-10T12:00:00.000Z')
 
@@ -87,4 +87,41 @@ test('明细收格：已交付那段按交付时刻新的在前', () => {
     nodesOf('done', reading.cycleById.c1, reading).map((one) => one.id),
     ['late', 'early'],
   )
+})
+
+test('桶读数：要人的那一格先落闸，哪怕线正握着它', () => {
+  const reading = readProject(record({
+    nodes: {
+      gated: node({ mode: 'manual' }),
+      busyGate: node({ mode: 'manual' }),
+      checkpoint: node({ mode: 'checkpoint', status: 'completed', completed_at: '2026-03-10T10:00:00.000Z' }),
+    },
+    cycles: [cycle({ holding: [{ id: 'busyGate', since: '2026-03-10T11:00:00.000Z' }] })],
+  }))
+
+  assert.equal(bucketOf(reading.nodeById.gated), 'gate', '手动闸的未开始一格落人闸')
+  assert.equal(bucketOf(reading.nodeById.busyGate), 'gate', '人闸压过进行中：握着它的线改不了这一桶')
+  assert.equal(bucketOf(reading.nodeById.checkpoint), 'gate', '交付了还没批过的检查点落人闸')
+})
+
+test('桶读数：出局的判决自己一桶，余下按在手与格子自己的状态', () => {
+  const reading = readProject(record({
+    nodes: {
+      parked: node({ status: undefined }),
+      busy: node(),
+      idle: node(),
+      done: node({ status: 'completed', completed_at: '2026-03-10T09:00:00.000Z' }),
+    },
+    cycles: [
+      cycle({
+        holding: [{ id: 'busy', since: '2026-03-10T11:00:00.000Z' }],
+        path: [{ node: 'parked', started_at: '2026-03-10T08:00:00.000Z', ended_at: '2026-03-10T09:00:00.000Z', result: 'failed' }],
+      }),
+    ],
+  }))
+
+  assert.equal(bucketOf(reading.nodeById.parked), 'shelved', '判决失败的出局等人，落等待那一桶')
+  assert.equal(bucketOf(reading.nodeById.busy), 'run')
+  assert.equal(bucketOf(reading.nodeById.idle), 'todo')
+  assert.equal(bucketOf(reading.nodeById.done), 'done')
 })
