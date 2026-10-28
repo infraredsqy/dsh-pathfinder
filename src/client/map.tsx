@@ -430,7 +430,8 @@ function RailItem(props: {
 }
 
 /**
- * One card: its line, its title, and the one row of marks and moments.
+ * One card: its title, then the row that says which line it belongs to, what state it is in, and
+ * when.
  *
  * A card carries two readings at once and they must not borrow each other's paint: the frame says
  * what state the cell is in, the ground and the title's ink say whether this is the card the reader
@@ -465,10 +466,13 @@ function Card(props: {
       aria-label={t('map.card.aria', { node: hover })}
       onClick={props.onPress}
     >
-      <span className="pf-mtag">{node.cycleIds[0] ?? ''}</span>
       <span className="pf-mtitle">{nodeName(node)}</span>
       <span className="pf-mmeta">
+        {/* The state mark leads the row, so it stands at one place whether or not this card belongs
+            to a line; a card with no line renders no id at all rather than an empty one, which would
+            push the mark along by a gap and leave two cards' marks out of line. */}
         <span className={`pf-cell ${cellOf(node)}`} />
+        {node.cycleIds.length === 0 ? null : <span className="pf-mtag">{node.cycleIds[0]}</span>}
         {node.gate === null ? null : <span className="pf-gate">{gateWord(t, node.gate)}</span>}
         <span className="pf-mtime pf-num">{moment === null ? '' : timeOf(t, moment, props.at)}</span>
       </span>

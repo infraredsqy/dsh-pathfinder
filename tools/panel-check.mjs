@@ -677,6 +677,28 @@ check(
   `记录现算 胶囊=${JSON.stringify(expectedPills)} 卡=${String(Math.min(MAP_CAP, project.nodes.length))} 线=${String(project.graph.edges.length)} 栏=${JSON.stringify(expectedRail)} ｜ 面板上 胶囊=${JSON.stringify(pillReadings)} 卡=${String(cardIds.length)} 线=${String(wireCount)} 栏=${JSON.stringify(railRows.map((row) => row.textContent))}`,
 )
 
+/* A card's two lines, read off the drawn ones: the title leads, and under it the state mark leads the
+ * foot row — so the mark stands at one place on every card. The line's id follows it, and a card that
+ * belongs to no line renders none at all: an empty span would still take up the row's gap and leave
+ * two cards' marks out of line, which is the whole point of the order. */
+const cardShapes = [...(mapPane()?.querySelectorAll('.pf-mnode') ?? [])].map((card) => {
+  const id = card.getAttribute('data-id') ?? ''
+  const reading = project.nodeById[id]
+  const meta = card.querySelector('.pf-mmeta')
+  return {
+    title: card.firstElementChild?.classList.contains('pf-mtitle') === true,
+    mark: meta?.firstElementChild?.classList.contains('pf-cell') === true,
+    tag: card.querySelector('.pf-mtag') === null ? '' : (card.querySelector('.pf-mtag')?.textContent ?? ''),
+    line: reading?.cycleIds[0] ?? '',
+  }
+})
+check(
+  '地图上每张卡：标题起头，状态点领着底栏，没有拍的那一格不占位',
+  cardShapes.length > 0
+    && cardShapes.every((shape) => shape.title && shape.mark && shape.tag === shape.line),
+  `卡=${String(cardShapes.length)} 标题不在首位=${String(cardShapes.filter((shape) => !shape.title).length)} 状态点不在首=${String(cardShapes.filter((shape) => !shape.mark).length)} 拍名不齐=${String(cardShapes.filter((shape) => shape.tag !== shape.line).length)}`,
+)
+
 /* Session notes: the host half hauls that directory back as-is, and the model layer reads "which
  * session each pane points to" against it. The fixture recomputes the mapping from the copied
  * record itself to audit the haul → read chain — keys are file names minus the extension; when a

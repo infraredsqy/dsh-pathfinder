@@ -7,9 +7,11 @@
  * so both halves are measured without a browser.
  *
  * Why a placement rather than a force simulation: the same record must give the same picture on
- * every open. Four barycentre passes over the columns straighten the drawing enough to read; a
- * simulation would drift with every frame, and a reader comparing two sessions would be comparing
- * two layouts.
+ * every open. The record is split into its dependency islands first and each island is laid out on
+ * its own, then the islands are packed as blocks: two cards that owe one another cannot be separated
+ * by cards that have nothing to do with them, which is the one thing a reader needs from this
+ * drawing. A simulation would drift with every frame, and a reader comparing two sessions would be
+ * comparing two layouts.
  */
 import type { GraphEdge, NodeReading } from '../model/index.ts'
 
@@ -23,6 +25,17 @@ export const ROW_GAP = 52
 
 /** The blank margin around the drawing: without it a card at the edge loses its frame against the page. */
 export const PAD = 56
+
+/** The ground kept between two islands of one shelf, and between two shelves. */
+export const ISLAND_GAP = 160
+export const BAND_GAP = 220
+
+/**
+ * How wide one shelf may get before the next island starts a new one. Wide enough for the widest
+ * islands this record draws plus one more; past it the overview's shape turns into a ribbon that says
+ * nothing about the work, and the reader scrolls sideways for one lonely card.
+ */
+export const SHELF_LIMIT = 6600
 
 /**
  * How many cards one page draws at most: the triage order's first N, then the focus's own
@@ -44,21 +57,19 @@ export const SCALE_MAX = 2.4
 /** How close the camera stands to the focus: a card's title lands around 24px on screen. */
 export const FOCUS_SCALE = 1.2
 
-/**
- * Where the focused card stands across the viewport, from a card at the start of the drawing to a card
- * near its end: the golden section, a little left of centre and a little right of it.
- *
- * The spot is not decoration. A card at the start of the flow is owed its room on the right, and a
- * card near the end is owed its room on the left; placing it by where it stands along the drawing
- * gives the side it needs without a special case. Pinned to the middle instead, the camera would put
- * a card at the beginning in the same place as a card at the end, and the reader would have no way to
- * tell where on the drawing they had landed.
- */
-export const FOCUS_AT_EARLY = 0.382
-export const FOCUS_AT_LATE = 0.618
-
 /** The margin kept around the focused card when the viewport is too small for it at {@link FOCUS_SCALE}. */
 const FOCUS_MARGIN = 48
+
+/**
+ * How long a column may get before the ordering drops the adjacent-swap pass and keeps only the
+ * barycentre order. The swap pass is what untangles a small crowded column; past this size it is the
+ * barycentre alone that decides, and the swaps would only cost time.
+ */
+const TRANSPOSE_LIMIT = 40
+
+/** How many sweeps the row solver takes, and how many times the columns are re-ordered against it. */
+const ROW_ROUNDS = 60
+const OUTER_ROUNDS = 3
 
 export interface Point {
   readonly x: number
@@ -81,7 +92,7 @@ export interface View {
 export interface Placement {
   /** The cards drawn, in the order the page ranks them. */
   readonly drawn: readonly NodeReading[]
-  /** Six columns: one per depth, no column empty. Ids, in the order the column reads. */
+  /** The drawing's columns, left to right, by the order they sit on the page. Ids, top to bottom. */
   readonly columns: readonly (readonly string[])[]
   /** Where each drawn card's centre sits. */
   readonly pos: Readonly<Record<string, Point>>
@@ -105,16 +116,18 @@ export interface PlaceInput {
 
 /**
  * Which reading of a card comes first, as a rank: a card that wants a person, then one in someone's
- * hands, then what has just settled, then what may start, then everything still waiting.
+ * hands, then what may start, then everything still waiting, and only then what has already settled.
  *
- * The order answers one question — where does a reader look first — and nothing else: it is not a
- * priority, and a lower rank means nothing about how important the work is.
+ * Open work outranks delivered work on purpose. The map exists to answer "what wants a hand now";
+ * a page whose first column is 155 delivered cards answers yesterday's question in yesterday's
+ * order, and the four cards that still owe someone something read as the tail of the drawing. The
+ * order is not a priority: nothing here says a delivered card was unimportant, only that it is done.
  */
 export function rankOf(node: NodeReading): number {
   if (node.gate !== null) return 0
   if (node.running) return 1
-  if (node.state === 'completed') return 2
-  if (node.ready) return 3
+  if (node.ready) return 2
+  if (node.state !== 'completed') return 3
   return 4
 }
 
@@ -155,14 +168,50 @@ function neighboursOf(edges: readonly GraphEdge[]): {
 }
 
 /**
- * Each card's depth: the longest prerequisite path that stays inside the drawn set.
+ * The islands of the drawing: one set per connected component of the dependency edges.
+ *
+ * A card that owes nothing and is owed nothing is an island of one. That is not a degenerate case:
+ * an item nobody has linked yet is exactly the work that is waiting for someone to say where it
+ * belongs, and it belongs on the page on its own rather than hung off a stranger's row.
+ */
+function islandsOf(ids: readonly string[], edges: readonly GraphEdge[]): string[][] {
+  const parent = new Map(ids.map((id) => [id, id]))
+  const find = (id: string): string => {
+    let root = id
+    while (parent.get(root) !== root) root = parent.get(root) as string
+    let walk = id
+    while (parent.get(walk) !== root) {
+      const next = parent.get(walk) as string
+      parent.set(walk, root)
+      walk = next
+    }
+    return root
+  }
+  for (const edge of edges) {
+    if (!parent.has(edge.from) || !parent.has(edge.to)) continue
+    const left = find(edge.from)
+    const right = find(edge.to)
+    if (left !== right) parent.set(left, right)
+  }
+  const groups = new Map<string, string[]>()
+  for (const id of ids) {
+    const root = find(id)
+    const held = groups.get(root)
+    if (held === undefined) groups.set(root, [id])
+    else held.push(id)
+  }
+  return [...groups.values()]
+}
+
+/**
+ * Each card's depth inside one island: the longest prerequisite path that stays inside it.
  *
  * A prerequisite the page is not drawing is skipped rather than counted: the depth answers "how far
- * from the left edge does this stand on this page", and a card that is not here cannot be left of it.
- * A loop back to the card itself stops the walk there instead of recursing forever.
+ * from this island's left edge does the card stand", and a card that is not here cannot be left of
+ * it. A loop back to the card itself stops the walk there instead of recursing forever.
  */
-function depthsOf(drawn: readonly NodeReading[], up: Map<string, string[]>): Map<string, number> {
-  const inside = new Set(drawn.map((node) => node.id))
+function depthsIn(members: readonly string[], up: ReadonlyMap<string, readonly string[]>): Map<string, number> {
+  const inside = new Set(members)
   const depth = new Map<string, number>()
   const walking = new Set<string>()
 
@@ -181,69 +230,241 @@ function depthsOf(drawn: readonly NodeReading[], up: Map<string, string[]>): Map
     return deepest
   }
 
-  for (const node of drawn) walk(node.id)
+  for (const id of members) walk(id)
   return depth
 }
 
-/**
- * Straighten the columns into a shape: four alternating passes, each re-ordering one column by the
- * mean row of its neighbours in the next one.
- *
- * Alternating matters — two passes in one direction push every column toward the same edge and the
- * drawing slides; alternating lets the drawing settle around its own middle. Ties keep the order the
- * column already had, so the passes converge instead of swapping pairs forever.
- */
-function straighten(
-  columns: string[][],
-  near: Map<string, string[]>,
-): string[][] {
-  /* Nothing to straighten, and nothing to iterate over: a page with no cards (or one column of
-   * them) is already the shape it is. Without this the passes' index arithmetic never reaches its
-   * target and the call never returns. */
-  if (columns.length < 2) return columns
-  const row = new Map<string, number>()
-  const sync = (): void => {
-    for (const column of columns) {
-      column.forEach((id, at) => row.set(id, at))
-    }
-  }
-  sync()
+/** The middle of a set of rows, or `null` when the card has no neighbour to follow. */
+function medianOf(values: readonly number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((left, right) => left - right)
+  const half = sorted.length >> 1
+  return sorted.length % 2 === 1 ? (sorted[half] as number) : ((sorted[half - 1] as number) + (sorted[half] as number)) / 2
+}
 
-  for (let pass = 0; pass < 4; pass += 1) {
-    const forward = pass % 2 === 0
-    const from = forward ? 1 : columns.length - 2
-    const to = forward ? columns.length : -1
-    const step = forward ? 1 : -1
-    for (let index = from; index !== to; index += step) {
-      const column = columns[index]
-      if (column === undefined) continue
-      const keyed = column.map((id, at) => {
-        let sum = 0
-        let count = 0
-        for (const other of near.get(id) ?? []) {
-          const at2 = row.get(other)
-          if (at2 === undefined) continue
-          sum += at2
-          count += 1
+/** One island laid out on its own: where its cards sit, and the box they fill. */
+interface Island {
+  readonly pos: Readonly<Record<string, Point>>
+  readonly width: number
+  readonly height: number
+  /** How many of its cards still owe someone something. */
+  readonly open: number
+}
+
+/**
+ * Lay one island out in its own columns and rows, from its own top-left corner.
+ *
+ * Columns are depth, as everywhere on this page: a card stands one column right of its deepest
+ * prerequisite. Rows are the thing this island is free to decide: the order is seeded from the
+ * triage and then straightened by alternating passes over the neighbours, and every card then takes
+ * the median row of its neighbours, held inside the room its own column leaves it. That second pass
+ * is a coordinate descent on the total vertical wire length, so it can only shorten the island, and
+ * a solved row is why two cards that owe one another end up on one line instead of on whatever rows
+ * the triage happened to hand them.
+ */
+function layoutIsland(
+  members: readonly string[],
+  edges: readonly GraphEdge[],
+  up: ReadonlyMap<string, readonly string[]>,
+  down: ReadonlyMap<string, readonly string[]>,
+  rank: ReadonlyMap<string, number>,
+  open: ReadonlySet<string>,
+): Island {
+  const inside = new Set(members)
+  const wires = edges.filter((edge) => inside.has(edge.from) && inside.has(edge.to))
+  const depth = depthsIn(members, up)
+
+  const layers: string[][] = []
+  for (const id of members) {
+    const at = depth.get(id) ?? 0
+    while (layers.length <= at) layers.push([])
+    ;(layers[at] as string[]).push(id)
+  }
+
+  /* The order: seed by the triage, then let each column follow the mean position of its neighbours,
+   * alternating direction, taking any adjacent swap that removes a crossing. */
+  const position = new Map<string, number>()
+  const sync = (layer: readonly string[]): void => {
+    const span = Math.max(1, layer.length - 1)
+    layer.forEach((id, at) => position.set(id, at / span))
+  }
+  const orderBy = (layer: string[], toward: 'up' | 'down'): void => {
+    const keyed = layer.map((id, at) => {
+      const near = ((toward === 'up' ? up.get(id) : down.get(id)) ?? [])
+        .filter((other) => inside.has(other))
+        .map((other) => position.get(other))
+        .filter((value) => value !== undefined)
+      /* A card with no neighbour in that direction keeps where it stands, which is what lets the
+       * passes converge instead of swapping a pair back and forth forever. */
+      const mean = near.length > 0
+        ? near.reduce((sum, value) => sum + value, 0) / near.length
+        : (position.get(id) ?? at)
+      return { id, mean, at }
+    })
+    keyed.sort((left, right) => left.mean - right.mean || left.at - right.at)
+    layer.splice(0, layer.length, ...keyed.map((entry) => entry.id))
+    sync(layer)
+  }
+  const crossings = (left: readonly string[], right: readonly string[]): number => {
+    const order = new Map(right.map((id, at) => [id, at]))
+    let count = 0
+    for (let i = 0; i < left.length; i += 1) {
+      for (let j = i + 1; j < left.length; j += 1) {
+        for (const a of down.get(left[i] as string) ?? []) {
+          for (const b of down.get(left[j] as string) ?? []) {
+            if ((order.get(a) ?? 0) > (order.get(b) ?? 0)) count += 1
+          }
         }
-        return { id, key: count > 0 ? sum / count : at, at }
-      })
-      keyed.sort((left, right) => left.key - right.key || left.at - right.at)
-      const next = keyed.map((entry) => entry.id)
-      columns[index] = next
-      next.forEach((id, at) => row.set(id, at))
+      }
+    }
+    return count
+  }
+  const transpose = (layer: string[], other: readonly string[] | undefined): void => {
+    if (other === undefined) return
+    /* The adjacent-swap pass costs one crossing count per pair, and a crossing count is quadratic in
+     * the layer, so a long column makes it cubic. Past {@link TRANSPOSE_LIMIT} the barycentre order
+     * is the whole ordering: it is the pass that does the work at that size, and a layoff of a second
+     * on every open is not worth the last few crossings. */
+    if (layer.length > TRANSPOSE_LIMIT) return
+    for (let i = 0; i + 1 < layer.length; i += 1) {
+      const before = crossings(layer, other)
+      const held = layer[i] as string
+      layer[i] = layer[i + 1] as string
+      layer[i + 1] = held
+      if (crossings(layer, other) >= before) {
+        const back = layer[i] as string
+        layer[i] = layer[i + 1] as string
+        layer[i + 1] = back
+      } else {
+        sync(layer)
+      }
     }
   }
-  return columns
+
+  for (const layer of layers) layer.sort((left, right) => (rank.get(left) ?? 0) - (rank.get(right) ?? 0))
+  layers.forEach(sync)
+  for (let index = 1; index < layers.length; index += 1) {
+    orderBy(layers[index] as string[], 'up')
+    transpose(layers[index - 1] as string[], layers[index])
+  }
+  for (let pass = 0; pass < 6; pass += 1) {
+    if (pass % 2 === 0) {
+      for (let index = 1; index < layers.length; index += 1) {
+        orderBy(layers[index] as string[], 'up')
+        transpose(layers[index - 1] as string[], layers[index])
+      }
+    } else {
+      for (let index = layers.length - 2; index >= 0; index -= 1) {
+        orderBy(layers[index] as string[], 'down')
+        transpose(layers[index + 1] as string[], layers[index])
+      }
+    }
+  }
+
+  const row = new Map<string, number>()
+  let rows = 1
+  const clamp = (value: number, low: number, high: number): number => Math.min(high, Math.max(low, value))
+  const resetRows = (): void => {
+    rows = 1
+    for (const layer of layers) rows = Math.max(rows, layer.length)
+    for (const layer of layers) {
+      const off = Math.round((rows - layer.length) / 2)
+      layer.forEach((id, at) => row.set(id, off + at))
+    }
+  }
+  const solveRows = (rounds: number): void => {
+    for (let round = 0; round < rounds; round += 1) {
+      const forward = round % 2 === 0
+      const from = forward ? 1 : layers.length - 2
+      const to = forward ? layers.length : -1
+      const step = forward ? 1 : -1
+      for (let index = from; index !== to; index += step) {
+        const layer = layers[index] as string[]
+        for (let at = 0; at < layer.length; at += 1) {
+          const id = layer[at] as string
+          const near = [...(up.get(id) ?? []), ...(down.get(id) ?? [])]
+            .filter((other) => inside.has(other))
+            .map((other) => row.get(other))
+            .filter((value) => value !== undefined)
+          const want = medianOf(near)
+          if (want === null) continue
+          const low = at > 0 ? (row.get(layer[at - 1] as string) ?? 0) + 1 : -Infinity
+          const high = at < layer.length - 1 ? (row.get(layer[at + 1] as string) ?? 0) - 1 : Infinity
+          row.set(id, clamp(Math.round(want), low, high))
+        }
+      }
+    }
+  }
+  const orderByRows = (): void => {
+    for (const layer of layers) {
+      const values = layer.map((id) => row.get(id) ?? 0)
+      const low = Math.min(...values)
+      const high = Math.max(...values)
+      for (const id of layer) position.set(id, high > low ? ((row.get(id) ?? 0) - low) / (high - low) : 0.5)
+    }
+    for (let index = 1; index < layers.length; index += 1) {
+      orderBy(layers[index] as string[], 'up')
+      transpose(layers[index - 1] as string[], layers[index])
+    }
+    for (let index = layers.length - 2; index >= 0; index -= 1) {
+      orderBy(layers[index] as string[], 'down')
+      transpose(layers[index + 1] as string[], layers[index])
+    }
+  }
+
+  const pitch = CARD_H + ROW_GAP
+  const cost = (): number => wires.reduce((sum, edge) => sum + Math.abs((row.get(edge.to) ?? 0) - (row.get(edge.from) ?? 0)), 0)
+  resetRows()
+  solveRows(ROW_ROUNDS)
+  /* Re-ordering the columns against the rows the solver found, then solving again, is what lets a
+   * crowded island untangle itself instead of keeping the order its seed gave it. Three rounds, and
+   * the cheapest drawing of the four is the one kept. */
+  let best = { cost: cost(), rows: new Map(row) }
+  for (let round = 0; round < OUTER_ROUNDS; round += 1) {
+    orderByRows()
+    resetRows()
+    solveRows(ROW_ROUNDS)
+    const now = cost()
+    if (now < best.cost) best = { cost: now, rows: new Map(row) }
+  }
+  if (best.cost < cost()) {
+    row.clear()
+    for (const [id, value] of best.rows) row.set(id, value)
+  }
+
+  let top = Infinity
+  for (const value of row.values()) top = Math.min(top, value)
+  const pos: Record<string, Point> = {}
+  let used = 1
+  for (const id of members) {
+    const at = (row.get(id) ?? 0) - top
+    used = Math.max(used, at + 1)
+    pos[id] = {
+      x: (depth.get(id) ?? 0) * (CARD_W + COL_GAP) + CARD_W / 2,
+      y: at * pitch + CARD_H / 2,
+    }
+  }
+
+  return {
+    pos,
+    width: layers.length * CARD_W + (layers.length - 1) * COL_GAP,
+    height: (used - 1) * pitch + CARD_H,
+    open: members.filter((id) => open.has(id)).length,
+  }
 }
 
 /**
  * Place the drawing.
  *
- * The horizontal axis is one the record really has — a card stands one column right of its deepest
- * prerequisite. The vertical axis is typography: cards are ordered inside their column and centred
- * within the drawing's full height, so a short tail column does not leave the drawing's lower right
- * quarter empty.
+ * The record is cut into its dependency islands, each island is laid out on its own, and the islands
+ * are packed as blocks. The horizontal axis inside an island is one the record really has — a card
+ * stands one column right of its deepest prerequisite — and the vertical axis is typography. What
+ * the packing changes is that the two axes now describe one island at a time: an island's rows are
+ * not lent to another island's cards, so a chain reads as a chain however much unrelated work the
+ * record holds.
+ *
+ * Islands that still hold open work stand above the finished ones. The page is read from the top
+ * left, and the top of the page is where someone is wanted.
  */
 export function place(input: PlaceInput): Placement {
   const cap = input.cap ?? CAP
@@ -272,42 +493,59 @@ export function place(input: PlaceInput): Placement {
     }
   }
 
-  const depth = depthsOf(drawn, up)
-  const buckets = new Map<number, string[]>()
-  for (const node of drawn) {
-    const level = depth.get(node.id) ?? 0
-    const held = buckets.get(level)
-    if (held === undefined) buckets.set(level, [node.id])
-    else held.push(node.id)
+  const inside = new Set(drawn.map((node) => node.id))
+  const wires = input.edges.filter((edge) => inside.has(edge.from) && inside.has(edge.to))
+  const rank = new Map(ranked.map((node, index) => [node.id, index]))
+  const open = new Set(drawn.filter((node) => node.state !== 'completed').map((node) => node.id))
+
+  const islands = islandsOf(drawn.map((node) => node.id), wires)
+    .map((members) => layoutIsland(members, wires, up, down, rank, open))
+    .sort((left, right) => (right.open > 0 ? 1 : 0) - (left.open > 0 ? 1 : 0)
+      || right.open - left.open
+      || right.width * right.height - left.width * left.height)
+
+  /* Shelves: open islands take the top ones, finished islands fill the rest. A shelf holds one kind
+   * only — a delivered island sitting in an open island's shelf would lend the live work a row it is
+   * not part of, which is the whole thing this placement is avoiding. */
+  const shelves: Island[][] = []
+  let shelf: { width: number; open: boolean; items: Island[] } | null = null
+  for (const island of islands) {
+    const isOpen = island.open > 0
+    if (shelf === null || shelf.open !== isOpen || shelf.width + ISLAND_GAP + island.width > SHELF_LIMIT) {
+      shelf = { width: island.width, open: isOpen, items: [island] }
+      shelves.push(shelf.items)
+    } else {
+      shelf.width += ISLAND_GAP + island.width
+      shelf.items.push(island)
+    }
   }
 
-  /* The rank decides where a card starts inside its column; the passes then let the drawing move
-   * it. Done in the triage order, a column opens on the card that wants a person rather than on
-   * whichever happened to be written first. */
-  const rank = new Map(ranked.map((node, index) => [node.id, index]))
-  const columns: string[][] = [...buckets.keys()]
-    .sort((left, right) => left - right)
-    .map((level) => (buckets.get(level) ?? []).sort((left, right) => (rank.get(left) ?? 0) - (rank.get(right) ?? 0)))
-  straighten(columns, up)
-
-  let rows = 1
-  for (const column of columns) rows = Math.max(rows, column.length)
-
-  const width = columns.length === 0
-    ? PAD * 2 + CARD_W
-    : PAD * 2 + columns.length * CARD_W + (columns.length - 1) * COL_GAP
-  const height = PAD * 2 + rows * CARD_H + (rows - 1) * ROW_GAP
-
   const pos: Record<string, Point> = {}
-  columns.forEach((column, index) => {
-    const off = (rows - column.length) / 2
-    column.forEach((id, at) => {
-      pos[id] = {
-        x: PAD + index * (CARD_W + COL_GAP) + CARD_W / 2,
-        y: PAD + (at + off) * (CARD_H + ROW_GAP) + CARD_H / 2,
-      }
-    })
-  })
+  let top = PAD
+  let width = PAD * 2 + CARD_W
+  for (const items of shelves) {
+    let x = PAD
+    let tall = 0
+    for (const island of items) {
+      for (const [id, at] of Object.entries(island.pos)) pos[id] = { x: x + at.x, y: top + at.y }
+      x += island.width + ISLAND_GAP
+      tall = Math.max(tall, island.height)
+    }
+    width = Math.max(width, x - ISLAND_GAP + PAD)
+    top += tall + BAND_GAP
+  }
+  const height = Math.max(PAD * 2 + CARD_H, top - BAND_GAP + PAD)
+
+  /* The columns the drawing reads in: one per distinct x, top to bottom. Islands share no x axis, so
+   * a column can hold cards from one island only; this is the shape a reader sees, not a grid. */
+  const byX = new Map<number, { id: string; y: number }[]>()
+  for (const [id, point] of Object.entries(pos)) {
+    const held = byX.get(point.x)
+    if (held === undefined) byX.set(point.x, [{ id, y: point.y }])
+    else held.push({ id, y: point.y })
+  }
+  const columns = [...byX.keys()].sort((left, right) => left - right)
+    .map((x) => (byX.get(x) ?? []).sort((left, right) => left.y - right.y).map((entry) => entry.id))
 
   return {
     drawn,
@@ -471,26 +709,20 @@ export function fitView(size: Size, placement: Placement): View {
 }
 
 /**
- * How far along the drawing a card stands: its column against the drawing's last column, as 0..1.
+ * The camera at the focus: the focused card itself in the middle of the viewport, at
+ * {@link FOCUS_SCALE}.
  *
- * A drawing of a single column has no "along" to speak of, so it reads as the middle.
- */
-function alongOf(placement: Placement, focus: string): number {
-  const at = placement.columns.findIndex((column) => column.includes(focus))
-  if (at < 0 || placement.columns.length < 2) return 0.5
-  return at / (placement.columns.length - 1)
-}
-
-/**
- * The camera at the focus: the focused card itself {@link FOCUS_AT_EARLY}..{@link FOCUS_AT_LATE}
- * across the viewport and halfway down it, at {@link FOCUS_SCALE}.
+ * The card is aimed at, not its ring: a ring is one prerequisite and three dependents as often as it
+ * is symmetrical, so aiming at its middle leaves the card the reader pressed standing wherever the
+ * arithmetic happens to put it — and the same card would land in a different spot from one open to
+ * the next. What is around the card stays around it: the lit cards and their wires say what it is
+ * owed and owes, and whatever does not fit is cut at the page's faded edge, to be found again by a
+ * drag or a zoom.
  *
- * What it aims at is the card, not the middle of the card's ring. A ring is one prerequisite and
- * three dependents as often as it is symmetrical, so aiming at its middle leaves the card the reader
- * pressed standing wherever the arithmetic happens to put it — and the same card would land in a
- * different spot from one open to the next. The ring has no aim of its own: the lit cards and their
- * wires say what the card is owed and owes, and whatever does not fit is cut at the page's faded
- * edge, to be found again by a drag or a zoom.
+ * The camera is held by {@link panView}, not by the drawing's own edges: the page travels as far as
+ * it takes to put this card in the middle, which is the same reach a drag answers to. Held to the
+ * drawing's edge instead, a card near the top of a tall drawing opens in the top band of the
+ * viewport — the one card the reader asked for, delivered in a corner.
  *
  * The card is shrunk only when the viewport cannot hold it whole at that scale, so what the reader
  * came to look at is never a card cut in half by the frame's own edge.
@@ -501,10 +733,7 @@ export function focusView(size: Size, placement: Placement, focus: string | null
 
   const roomy = Math.min(FOCUS_SCALE, (size.w - FOCUS_MARGIN) / CARD_W, (size.h - FOCUS_MARGIN) / CARD_H)
   const s = Math.max(SCALE_MIN, roomy)
-  const spot = FOCUS_AT_EARLY + (FOCUS_AT_LATE - FOCUS_AT_EARLY) * alongOf(placement, focus)
-  /* The drawing's own edges still hold: near the drawing's end there is less drawing to stand on, so
-   * the place to put the card runs out before the spot does. */
-  return clampView({ s, tx: spot * size.w - at.x * s, ty: size.h / 2 - at.y * s }, size, placement)
+  return panView({ s, tx: size.w / 2 - at.x * s, ty: size.h / 2 - at.y * s }, size, placement)
 }
 
 /**
@@ -530,3 +759,4 @@ export function lodOf(s: number): Lod {
   if (s < FULL_AT) return 'mid'
   return 'full'
 }
+

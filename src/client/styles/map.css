@@ -258,18 +258,9 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-/* Three lines: the cycle's own id, the title, and the row of marks and moments. */
-.pf-page .pf-mtag {
-  flex: none;
-  overflow: hidden;
-  font-family: var(--ds-font-family-code);
-  font-size: 11px;
-  line-height: 15px;
-  color: var(--dsw-alias-label-caption);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* Two lines: the title, and the row of the line's id, the mark and the moment. The title leads —
+ * every card's first line is its title, so a card that belongs to no line is not a line shorter than
+ * its neighbours, and the row under it sits at the card's foot whatever the title's length. */
 .pf-page .pf-mtitle {
   flex: none;
   overflow: hidden;
@@ -285,6 +276,9 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* The card's foot: the state mark first, so it stands in one place on every card, then the line's
+ * id when there is one, then whatever the cell is waiting for, and the moment against the right
+ * edge. `margin-top: auto` pins the row to the foot of the box. */
 .pf-page .pf-mmeta {
   display: flex;
   flex: none;
@@ -294,6 +288,18 @@
   margin-top: auto;
   font-size: 11px;
   line-height: 15px;
+  white-space: nowrap;
+}
+
+/* The line's own id: the cycle's name, in the code face, a tier down from the title. */
+.pf-page .pf-mtag {
+  flex: none;
+  overflow: hidden;
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--dsw-alias-label-caption);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
