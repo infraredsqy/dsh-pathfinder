@@ -7,6 +7,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { JSDOM } from 'jsdom'
+import { fakeLocaleService, fakeSettingsForm, fakeSlotRoster } from '../tests/helpers/dsh-standins.mjs'
 
 // React touches window/document once at load time; without them it falls back to its IE8/9 path
 // (calling `attachEvent`, which would blow up here), so it must wait until jsdom is in place.
@@ -126,13 +127,18 @@ function winningDeclarations(element, properties) {
 
 /* ---- 1. A writable copy of the record ----------------------------------- */
 
-/** Copies this repo's `.pf`. `.git` comes along: the tools must recognize the directory as their
+/** Where the record is copied from: this repo's own `.pf` snapshot. `PANEL_CHECK_RECORD` points the
+ * copy at another record directory — the emptied-pool self-check runs the whole fixture against a
+ * cleared copy without touching the snapshot this repo carries. */
+const recordSource = process.env.PANEL_CHECK_RECORD?.trim() || join(root, '.pf')
+
+/** Copies the record. `.git` comes along: the tools must recognize the directory as their
  * own record store (`pf` verifies it); `worktrees` and each node's `temp` are scratch, copying them wastes time. */
 function copyRecord(target) {
-  cpSync(join(root, '.pf'), target, {
+  cpSync(recordSource, target, {
     recursive: true,
     filter: (source) => {
-      const tail = source.slice(join(root, '.pf').length).replace(/\\/gu, '/')
+      const tail = source.slice(recordSource.length).replace(/\\/gu, '/')
       if (tail.startsWith('/worktrees') || tail.includes('/temp')) return false
       return true
     },
@@ -335,6 +341,14 @@ const t = localePort.getSnapshot().t
 /* The spelling helpers themselves, loaded from source: a heading or a state word is spelled by the
  * same functions the panel calls, not by a copy of their rules. */
 const { groupWord, issueWord } = await import(pathToFileURL(join(root, 'src', 'client', 'words.ts')).href)
+/* The four empty-state sentences the panel body collapses to, spelled from the client's own word
+ * tables: the assertions compare against the very words the panel renders, so a rewording moves
+ * both sides together and no Chinese literal is pinned here. */
+const EMPTY_STATE_WORDS = client.WORD_TABLES.zh
+const saidNoRecord = EMPTY_STATE_WORDS['panel.no-record']
+const saidUnreadable = EMPTY_STATE_WORDS['panel.unreadable']
+const saidNotEnabled = EMPTY_STATE_WORDS['panel.not-enabled']
+const saidUngroupedEmpty = EMPTY_STATE_WORDS['panel.ungrouped-empty']
 
 /* The panel's stylesheet is normally attached to the document by `Entry` on first show (`ensureStyle`);
  * the fixture skips Entry, so it attaches **the shipped copy** the same way — the token landing checks below read this very sheet. */
@@ -346,36 +360,9 @@ window.document.head.appendChild(styleNode)
 const provided = {}
 
 /* ---- The settings document: built by the fixture itself, shaped like what `configForms` hands out ---
- * In real deployment the settings service provides it; here a same-shaped stand-in is built, and
- * both the panel and the settings page read it, so "flip one row, both sides follow at once"
- * actually runs end to end in the fixture. */
-
-function fakeSettingsForm(initial) {
-  let value = { ...initial }
-  let revision = 1
-  let refuse = false
-  const listeners = new Set()
-  return {
-    document: () => value,
-    getSnapshot: () => ({ status: 'ready', value, base: undefined, user: undefined, revision, writable: true }),
-    /* How many subscribers are attached to this form: whether the disposer was returned is judged by this count alone. */
-    watching: () => listeners.size,
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    },
-    mutate(ops, expected) {
-      /* A revision mismatch refuses the write: same contract as the real controller, and the write-back path assembles the same way. */
-      if (refuse || (expected !== undefined && expected !== revision)) return Promise.resolve(false)
-      for (const op of ops) if (op.op === 'set') value = { ...value, [op.path[0]]: op.value }
-      revision += 1
-      for (const listener of [...listeners]) listener()
-      return Promise.resolve(true)
-    },
-    /* This document refuses all writes: it backs the "no silence when both writes are voided" rule. */
-    refuse: (on = true) => { refuse = on },
-  }
-}
+ * In real deployment the settings service provides it; here the shared stand-in is built (the
+ * `watching` count is this fixture's extra face), and both the panel and the settings page read
+ * it, so "flip one row, both sides follow at once" actually runs end to end in the fixture. */
 
 function makeConfigForms(seed) {
   const held = new Map()
@@ -386,7 +373,7 @@ function makeConfigForms(seed) {
     service: {
       get(namespace) {
         asked.push(namespace)
-        if (!held.has(namespace)) held.set(namespace, fakeSettingsForm((seed ?? {})[namespace] ?? {}))
+        if (!held.has(namespace)) held.set(namespace, fakeSettingsForm((seed ?? {})[namespace] ?? {}, { watchCount: true }))
         return held.get(namespace)
       },
     },
@@ -403,32 +390,16 @@ const navigationFace = {
 /**
  * Boot a browser half: a minimal plugin context (`get` / `inject` / `effect` / `provide`).
  *
- * `slots` is a stand-in written to the real protocol: registering the same id twice throws —
- * exactly the accident to avoid. `reuse` boots again onto the same roster: idempotency is only
- * measurable when both registrations land on the same roster.
+ * The slot roster is the shared stand-in (same protocol: registering the same id twice throws);
+ * a `reuse` boot passes its ledger and calls back in so idempotency is only measured when both
+ * registrations land on the same roster.
  * @param backend - Stand-in for the settings-service side.
  * @param into - The object `provide` writes onto.
  * @param reuse - Optional shared roster and call record.
  */
 function bootClient(backend, into, reuse) {
-  const ledger = reuse?.ledger ?? new Map()
-  const calls = reuse?.calls ?? []
+  const { ledger, calls, slots } = fakeSlotRoster({ ledger: reuse?.ledger, calls: reuse?.calls })
   const effects = reuse?.effects ?? []
-  const slots = {
-    inject(key, register) {
-      calls.push(`inject/${key}`)
-      const off = register()
-      return typeof off === 'function' ? off : () => undefined
-    },
-    register(options, component) {
-      /* Single and list seats match by `id`; the keyed slot matches by `key` — that is how the real protocol identifies entries. */
-      const id = `${options.name}:${options.id ?? options.key}`
-      calls.push(`register/${id}`)
-      if (ledger.has(id)) throw new Error(`list slot "${options.name}" already has an entry with id "${options.id ?? options.key}"`)
-      ledger.set(id, { options, component })
-      return () => { ledger.delete(id) }
-    },
-  }
   const ctx = {
     get(name) {
       if (name === 'remote.pathfinderRecords') return remoteFace
@@ -618,6 +589,36 @@ const settle = async () => {
     if (pending.length === 0) return
     await act(async () => { await Promise.all(pending) })
   }
+}
+
+/* ---- The DOM drivers, one copy each of press / type / pick -------------------------------
+ * React tracks a controlled node's value through the prototype setter: assigning `element.value`
+ * directly reads as "unchanged" to it, so the typing and picking drivers go through the setter.
+ * Every write waits `settle` — the panel reads back after each one. */
+const click = async (element) => {
+  await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+  await settle()
+}
+/** Types into the row's number box and commits with Enter. */
+const typeNumber = async (row, value) => {
+  const field = row.querySelector('input')
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+  await act(async () => {
+    field.focus()
+    setValue.call(field, String(value))
+    field.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await act(async () => { field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+  await settle()
+}
+/** Picks one entry of a select by its value. */
+const setSelect = async (select, value) => {
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set
+  await act(async () => {
+    setValue.call(select, value)
+    select.dispatchEvent(new window.Event('change', { bubbles: true }))
+  })
+  await settle()
 }
 
 await act(async () => {
@@ -813,9 +814,9 @@ await act(async () => {
 await settle()
 const emptySaid = flat(emptyHost.querySelector('.pf-none p'))
 check(
-  '空记录的工作区：面板正文只留「当前工作区没有 pathfinder 的记录」，标签、计数与五格一起收走',
+  `空记录的工作区：面板正文只留「${saidNoRecord}」，标签、计数与五格一起收走`,
   emptyHost.querySelector('.pf-none') !== null
-    && emptySaid === '当前工作区没有 pathfinder 的记录。'
+    && emptySaid === saidNoRecord
     && emptyHost.querySelector('.pf-tabs') === null
     && emptyHost.querySelector('.pf-count') === null
     && emptyHost.querySelectorAll('.pf-pane').length === 0,
@@ -833,10 +834,10 @@ await act(async () => {
 await settle()
 const brokenSaid = flat(brokenHost.querySelector('.pf-none p'))
 check(
-  '记录读不动的工作区：面板正文摆「无法读取当前工作区的记录」，与「没有记录」那句分得开',
+  `记录读不动的工作区：面板正文摆「${saidUnreadable}」，与「没有记录」那句分得开`,
   brokenHost.querySelector('.pf-none') !== null
-    && brokenSaid === '无法读取当前工作区的记录。'
-    && brokenSaid !== '当前工作区没有 pathfinder 的记录。'
+    && brokenSaid === saidUnreadable
+    && brokenSaid !== saidNoRecord
     && brokenHost.querySelector('.pf-tabs') === null
     && brokenHost.querySelector('.pf-count') === null
     && brokenHost.querySelectorAll('.pf-pane').length === 0,
@@ -855,14 +856,14 @@ await act(async () => {
 await settle()
 const bareSaid = flat(bareHost.querySelector('#pane-issue .pf-innone'))
 check(
-  '有节点、问题池空的工作区：四个跟节点走的格子照旧，问题那一格收成「当前工作区尚未启用 Pathfinder」',
+  `有节点、问题池空的工作区：四个跟节点走的格子照旧，问题那一格收成「${saidNotEnabled}」`,
   bareHost.querySelector('.pf-none') === null
     && bareHost.querySelector('#pane-map .pf-rail') !== null
     && bareHost.querySelectorAll('#pane-map .pf-mnode').length > 0
     && bareHost.querySelector('#census .pf-pill') !== null
     && bareHost.querySelector('#pane-config') !== null
     && bareHost.querySelector('#pane-config .pf-innone') === null
-    && bareSaid === '当前工作区尚未启用 Pathfinder。'
+    && bareSaid === saidNotEnabled
     && bareHost.querySelector('#pane-issue .pf-split') === null,
   `工作区=${bareWorkspace.replace(root, '.')}（管线在、问题池那一份不在） ｜ 地图 ${String(bareHost.querySelectorAll('#pane-map .pf-mnode').length)} 格 ｜ 问题那一格说=${JSON.stringify(bareSaid)}`,
 )
@@ -891,13 +892,13 @@ const poorIssueSaid = flat(poorHost.querySelector('#pane-issue .pf-innone'))
 check(
   '只有问题池的工作区：四个跟节点走的格子各自收成同一句话，问题那一格照池子读数走——有行画登记簿（精简档=未解决那几条），一条不剩收成同一句话',
   poorHost.querySelector('.pf-none') === null
-    && poorSaid.every((said) => said === '当前工作区尚未启用 Pathfinder。')
+    && poorSaid.every((said) => said === saidNotEnabled)
     && poorHost.querySelectorAll('.pf-tabs').length === 1
     && poorHost.querySelectorAll('.pf-pane').length === 5
     && poorHost.querySelector('#pane-map .pf-rail') === null
     && poorHost.querySelector('#census') === null
     && (project.pool.rows.length === 0
-      ? poorIssueSaid === '当前工作区尚未启用 Pathfinder。'
+      ? poorIssueSaid === saidNotEnabled
       : poorIssueSaid === ''
         && poorHost.querySelector('#pane-issue .pf-split') !== null
         && JSON.stringify(poorRows.map((row) => row.getAttribute('data-issue'))) === JSON.stringify(poorOpenIds)),
@@ -969,19 +970,15 @@ check(
 )
 
 const pickWorkspace = async (value) => {
-  await act(async () => {
-    spaceSelect().value = value
-    spaceSelect().dispatchEvent(new window.Event('change', { bubbles: true }))
-  })
-  await settle()
+  await setSelect(spaceSelect(), value)
 }
 
 askedRoots.length = 0
 await pickWorkspace('w-empty')
 const spaceEmpty = flat(spaceHost.querySelector('.pf-none p'))
 check(
-  '拨到空记录那个工作区：递出去的是它的绝对路径，正文当场换成「当前工作区没有 pathfinder 的记录」',
-  askedRoots.includes(emptyWorkspace) && spaceEmpty === '当前工作区没有 pathfinder 的记录。'
+  `拨到空记录那个工作区：递出去的是它的绝对路径，正文当场换成「${saidNoRecord}」`,
+  askedRoots.includes(emptyWorkspace) && spaceEmpty === saidNoRecord
     && spaceHost.querySelector('.pf-tabs') === null && spaceHost.querySelectorAll('.pf-pane').length === 0,
   `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空）' : one.replace(root, '.'))))} ｜ .pf-none p=${JSON.stringify(spaceEmpty)}`,
 )
@@ -990,9 +987,9 @@ askedRoots.length = 0
 await pickWorkspace('w-broken')
 const spaceBroken = flat(spaceHost.querySelector('.pf-none p'))
 check(
-  '拨到读不动那个工作区：正文摆的是另一句，与「没有记录」分得开',
-  askedRoots.includes(brokenWorkspace) && spaceBroken === '无法读取当前工作区的记录。'
-    && spaceBroken !== '当前工作区没有 pathfinder 的记录。',
+  `拨到读不动那个工作区：正文摆的是「${saidUnreadable}」，与「没有记录」分得开`,
+  askedRoots.includes(brokenWorkspace) && spaceBroken === saidUnreadable
+    && spaceBroken !== saidNoRecord,
   `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空）' : one.replace(root, '.'))))} ｜ .pf-none p=${JSON.stringify(spaceBroken)}`,
 )
 
@@ -1001,8 +998,8 @@ await pickWorkspace('')
 const spaceUngrouped = flat(spaceHost.querySelector('.pf-none p'))
 const ungroupedSelect = spaceHost.querySelector('.pf-head .pf-pick select')
 check(
-  '拨到「未分组」：这条会话有归属，一趟读数都不发，正文收成「未分组名下没有记录」那一句，选择器还留着',
-  askedRoots.length === 0 && spaceUngrouped === '未分组名下没有记录；这条会话属于清单里的某个工作区。'
+  `拨到「未分组」：这条会话有归属，一趟读数都不发，正文收成「${saidUngroupedEmpty}」那一句，选择器还留着`,
+  askedRoots.length === 0 && spaceUngrouped === saidUngroupedEmpty
     && ungroupedSelect !== null && ungroupedSelect.value === ''
     && spaceHost.querySelector('.pf-tabs') === null && spaceHost.querySelectorAll('.pf-pane').length === 0,
   `问过的根=${JSON.stringify([...new Set(askedRoots)])} ｜ .pf-none p=${JSON.stringify(spaceUngrouped)} ｜ 选择器=${ungroupedSelect === null ? '（没了）' : `选中=${JSON.stringify(ungroupedSelect.value)}`} ｜ 五格 ${String(spaceHost.querySelectorAll('.pf-pane').length)} 格`,
@@ -1037,17 +1034,9 @@ check(
 /* Switching away and back to "Ungrouped" is the same branch: pickedSpace lands on null while the
  * session has no bucket, so the read still goes out — the collapse-to-one-sentence branch only
  * applies to sessions with a bucket (the previous pass). */
-await act(async () => {
-  loneSelect().value = 'w-empty'
-  loneSelect().dispatchEvent(new window.Event('change', { bubbles: true }))
-})
-await settle()
+await setSelect(loneSelect(), 'w-empty')
 askedRoots.length = 0
-await act(async () => {
-  loneSelect().value = ''
-  loneSelect().dispatchEvent(new window.Event('change', { bubbles: true }))
-})
-await settle()
+await setSelect(loneSelect(), '')
 check(
   '拨去别处再拨回「未分组」：没有归属的会话照旧读它自己那个根，五格与计数都在',
   askedRoots.length > 0 && askedRoots.every((one) => one === '')
@@ -1158,23 +1147,22 @@ const flipSwitch = async (label) => {
   await settle()
 }
 
-/* Default tab: picking "Instructions" in settings switches the panel to that pane at once. */
-const pickOption = async (select, text) => {
-  if (select === undefined || select === null) return
-  const option = [...select.options].find((one) => one.textContent === text)
-  await act(async () => {
-    select.value = option.value
-    select.dispatchEvent(new window.Event('change', { bubbles: true }))
-  })
-  await settle()
+/* Default tab: picking "Instructions" in settings switches the panel to that pane at once. The row
+ * is picked by its word (the driver takes values), so the word's entry is found first. */
+const tabPick = () => rowNamed('默认标签页')?.querySelector('.pfset-select')
+const pickTab = async (word) => {
+  const select = tabPick()
+  const option = [...(select?.options ?? [])].find((one) => one.textContent === word)
+  if (select === null || select === undefined || option === undefined) return
+  await setSelect(select, option.value)
 }
-await pickOption(rowNamed('默认标签页')?.querySelector('.pfset-select'), '指令')
+await pickTab('指令')
 check(
   '翻设置里「默认标签页」那一行：面板当场停到那一格',
   container.querySelector('#tab-notes')?.getAttribute('aria-selected') === 'true' && settingsDoc().defaultTab === 'notes',
   `选中的标签=${String(container.querySelector('.pf-tab[aria-selected="true"]')?.id)} ｜ 文档里 defaultTab=${String(settingsDoc().defaultTab)}`,
 )
-await pickOption(rowNamed('默认标签页')?.querySelector('.pfset-select'), '地图')
+await pickTab('地图')
 
 await act(async () => { tabs[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const detailA = detailReadings(container)
@@ -1241,10 +1229,6 @@ if (live !== undefined) {
   const buttonOf = (scope, label) => scope === undefined
     ? undefined
     : [...scope.querySelectorAll('.pf-mini, .pf-btn')].find((button) => button.textContent === label)
-  const click = async (element) => {
-    await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-    await settle()
-  }
 
   /* The archive action is pressed from the panel's own button: the write face runs from UI all the way to the tool, then reads back. */
   const archiveKey = buttonOf(rowOf(), '归档')
@@ -1351,27 +1335,18 @@ if (line !== undefined) {
     .find((button) => button.textContent === '设置')
   check('明细那一行上有设置这一枚', settingsKey !== undefined, '设置')
   if (settingsKey !== undefined) {
-    await act(async () => { settingsKey.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    await click(settingsKey)
     const fields = () => [...container.querySelectorAll('.pf-setrow .pf-numin')]
     check('模态里三个数摆出来了', container.querySelectorAll('.pf-setrow').length === 3 && fields().length === 3, `rows=${String(container.querySelectorAll('.pf-setrow').length)}`)
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-    /* Each of the three policy numbers is written once: three rows in the same modal, same endpoint,
-     * the cost being three Enters. The reading lands on the **record file** (the three keys in
-     * `state.json`); what the panel reads back on its own does not count. */
+    const rowAt = (index) => container.querySelectorAll('.pf-setrow')[index]
+    /* Each of the three policy numbers is written once through the one number-box driver: three
+     * rows in the same modal, same endpoint, the cost being three Enters. The reading lands on the
+     * **record file** (the three keys in `state.json`); what the panel reads back on its own does
+     * not count. */
     const targets = [['parallel', 5], ['test_seconds_limit', 900], ['issue_pool_weight_limit', 7]]
     const wrote = []
     for (const [index, [key, target]] of targets.entries()) {
-      const field = fields()[index]
-      await act(async () => {
-        field.focus()
-        setValue.call(field, String(target))
-        field.dispatchEvent(new window.Event('input', { bubbles: true }))
-      })
-      /* Blur or Enter both commit the field; this goes the Enter route. */
-      await act(async () => {
-        field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-      })
-      await settle()
+      await typeNumber(rowAt(index), target)
       const stored = JSON.parse(readFileSync(join(record, 'state.json'), 'utf8')).cycles.find((entry) => entry.id === line.id)
       wrote.push(`${key} 要 ${String(target)} → 记录里 ${String(stored?.policies?.[key])}`)
       check(`策略「${key}」：记录里确实是写进去那个值`, stored?.policies?.[key] === target, `${key}=${String(stored?.policies?.[key])}`)
@@ -1388,10 +1363,6 @@ if (line !== undefined) {
  * same engine the panel calls, so this section measures the panel against the record rather than
  * against a copy of the arithmetic. */
 
-const click = async (element) => {
-  await act(async () => { element.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-  await settle()
-}
 const { emphasisOf, fitView, focusView, place, rankedOf } = await import(pathToFileURL(join(root, 'src', 'client', 'map-layout.ts')).href)
 
 /** Before this section starts: how often the write face was called, and what the record looked like. */
@@ -1542,6 +1513,15 @@ await settle()
 const issuePane = container.querySelector('#pane-issue')
 const openGroup = project.pool.groups.find((group) => group.key === 'open')
 const openIds = (openGroup?.entries ?? []).map((entry) => entry.id)
+/* The record's own pool count decides which shape this section measures: a cleared pool collapses
+ * the whole register (pool.tsx's `pool.rows.length === 0` early exit), so the tier expectations
+ * branch on it instead of assuming rows are there — the poor section above runs the same fork. */
+const poolCleared = project.pool.rows.length === 0
+/** The pane's zero-row shape, pinned explicitly: no register, no tier switch, only the sentence. */
+const collapsedToOneSentence = () => poolCleared
+  && [...(issuePane?.querySelectorAll('.pf-segbtn') ?? [])].length === 0
+  && [...(issuePane?.querySelectorAll('button.pf-row[data-issue]') ?? [])].length === 0
+  && flat(issuePane?.querySelector('.pf-innone')) === saidNotEnabled
 const poolRows = [...(issuePane?.querySelectorAll('button.pf-row[data-issue]') ?? [])]
 check(
   '问题那一格：开在未解决上，登记簿的行就是记录里未解决的那几条',
@@ -1571,10 +1551,12 @@ if (openIds.length > 1) {
 const fullKey = [...(issuePane?.querySelectorAll('.pf-segbtn') ?? [])].find((button) => button.textContent === '完整')
 if (fullKey !== undefined) await click(fullKey)
 check(
-  '问题那一格：「完整」那一档落在面板自己的偏好里，不碰记录',
-  fullKey !== undefined && fullKey.getAttribute('aria-pressed') === 'true'
-    && settingsDoc().showOtherStates === true,
-  `aria-pressed=${String(fullKey?.getAttribute('aria-pressed'))} 设置文档里=${String(settingsDoc().showOtherStates)}`,
+  '问题那一格：「完整」那一档落在面板自己的偏好里，不碰记录；池子清空时那一档连同登记簿一起不上屏',
+  poolCleared
+    ? collapsedToOneSentence()
+    : fullKey !== undefined && fullKey.getAttribute('aria-pressed') === 'true'
+      && settingsDoc().showOtherStates === true,
+  `池子读数=${poolCleared ? '（已清空）' : `${String(project.pool.rows.length)} 条`} ｜ aria-pressed=${String(fullKey?.getAttribute('aria-pressed'))} 设置文档里=${String(settingsDoc().showOtherStates)} ｜ 那一格=${issuePane?.querySelector('.pf-innone') !== null ? JSON.stringify(flat(issuePane.querySelector('.pf-innone'))) : '登记簿照画'}`,
 )
 /* The reverse direction: the previous section measured "panel → document"; this one flips the
    settings row to measure "document → panel" — flipping off returns the row to "lean" at once and
@@ -1585,11 +1567,13 @@ const segPressed = (label) => [...(issuePane?.querySelectorAll('.pf-segbtn') ?? 
   .find((button) => button.textContent === label)?.getAttribute('aria-pressed')
 await flipSwitch('问题池里显示未解决之外的')
 check(
-  '翻设置里「问题池里显示未解决之外的」到关：面板当场回到「精简」，未解决之外的行退出去',
-  segPressed('精简') === 'true' && segPressed('完整') === 'false'
-    && settingsDoc().showOtherStates === false
-    && JSON.stringify(issueRowIds()) === JSON.stringify(openIds),
-  `面板上那一档=精简(${String(segPressed('精简'))}) 完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 行=${JSON.stringify(issueRowIds())}`,
+  '翻设置里「问题池里显示未解决之外的」到关：面板当场回到「精简」，未解决之外的行退出去；池子清空时登记簿本就不在屏上',
+  poolCleared
+    ? collapsedToOneSentence() && typeof settingsDoc().showOtherStates === 'boolean'
+    : segPressed('精简') === 'true' && segPressed('完整') === 'false'
+      && settingsDoc().showOtherStates === false
+      && JSON.stringify(issueRowIds()) === JSON.stringify(openIds),
+  `面板上那一档=精简(${String(segPressed('精简'))}) 完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 行=${JSON.stringify(issueRowIds())} ｜ 池子读数=${poolCleared ? '（已清空）' : `${String(project.pool.rows.length)} 条`}`,
 )
 /* Flip back on: the non-open groups fold into piles per the register's existing design (the design
    rule "folding never shifts layout"). Whether a pile is open follows pool.tsx's foldOf: first
@@ -1625,13 +1609,16 @@ const expectedRowIds = (folds) => project.pool.groups.flatMap((group) => (
   group.key === 'open' || foldIsOpen(folds, group) ? group.entries.map((entry) => entry.id) : []
 ))
 check(
-  '翻回开：折堆头回到登记簿（组名在、每堆一枚展开钮标着条数），选中落入的那堆自动展开、其余折着',
-  segPressed('完整') === 'true' && settingsDoc().showOtherStates === true
-    && stackedGroups.length > 0
-    && JSON.stringify(issueRowIds()) === JSON.stringify(expectedRowIds({}))
-    && JSON.stringify(headLabels()) === JSON.stringify(project.pool.groups.map((group) => issueWord(t, group.key)))
-    && JSON.stringify(foldReadings()) === JSON.stringify(expectedFoldReadings({})),
-  `面板上那一档=完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 选中落在=${String(pickedGroupKey ?? '（无处）')} ｜ 行数=${String(issueRowIds().length)}（契约现算 ${String(expectedRowIds({}).length)} 条） ｜ 展开钮=${JSON.stringify(foldReadings())}（记录里非 open 的堆：${stackedGroups.map((group) => `${issueWord(t, group.key)} ${String(group.entries.length)} 条`).join('、') || '（没有）'}）`,
+  '翻回开：折堆头回到登记簿（组名在、每堆一枚展开钮标着条数），选中落入的那堆自动展开、其余折着；池子清空时登记簿照旧不上屏，文档里那一档照样翻上去',
+  poolCleared
+    ? collapsedToOneSentence() && typeof settingsDoc().showOtherStates === 'boolean'
+      && stackedGroups.length === 0
+    : segPressed('完整') === 'true' && settingsDoc().showOtherStates === true
+      && stackedGroups.length > 0
+      && JSON.stringify(issueRowIds()) === JSON.stringify(expectedRowIds({}))
+      && JSON.stringify(headLabels()) === JSON.stringify(project.pool.groups.map((group) => issueWord(t, group.key)))
+      && JSON.stringify(foldReadings()) === JSON.stringify(expectedFoldReadings({})),
+  `面板上那一档=完整(${String(segPressed('完整'))}) ｜ 文档里 showOtherStates=${String(settingsDoc().showOtherStates)} ｜ 选中落在=${String(pickedGroupKey ?? '（无处）')} ｜ 行数=${String(issueRowIds().length)}（契约现算 ${String(expectedRowIds({}).length)} 条） ｜ 展开钮=${JSON.stringify(foldReadings())}（记录里非 open 的堆：${stackedGroups.map((group) => `${issueWord(t, group.key)} ${String(group.entries.length)} 条`).join('、') || '（没有）'}） ｜ 池子读数=${poolCleared ? '（已清空）' : `${String(project.pool.rows.length)} 条`}`,
 )
 /* Click one pile's fold button: that pile flips to the opposite of its previous state, with the row
    set and each pile's openness following the contract. When open rows exist that pile starts
@@ -1802,31 +1789,11 @@ check(
   `把手=${String(configPane?.querySelectorAll('.pf-grip').length)} 外框=${configPane?.querySelector('.pf-configwrap') === null ? '没有' : '还在'}`,
 )
 
-/* Each row's control gets its own driver: dropdown and number box go through the **prototype
- * setter** (React remembers the last value on the node itself; assigning `element.value` directly
- * would read as unchanged), and the on-off toggle just needs a click. */
+/* Each row's control gets a driver from the shared set at the top: dropdown and number box go
+ * through the **prototype setter** (React remembers the last value on the node itself; assigning
+ * `element.value` directly would read as unchanged), and the on-off toggle just needs a click. */
 const rowIn = (scope, key) => [...(scope?.querySelectorAll('#pane-config .pf-cfgrow') ?? [])]
   .find((row) => row.getAttribute('data-key') === key)
-const setSelect = async (row, value) => {
-  const select = row.querySelector('select')
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set
-  await act(async () => {
-    setValue.call(select, value)
-    select.dispatchEvent(new window.Event('change', { bubbles: true }))
-  })
-  await settle()
-}
-const typeNumber = async (row, value) => {
-  const field = row.querySelector('input')
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-  await act(async () => {
-    field.focus()
-    setValue.call(field, String(value))
-    field.dispatchEvent(new window.Event('input', { bubbles: true }))
-  })
-  await act(async () => { field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
-  await settle()
-}
 const pressToggle = async (row, word) => {
   const button = [...row.querySelectorAll('.pf-segbtn')].find((one) => one.textContent === word)
   await act(async () => { button.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
@@ -1849,7 +1816,7 @@ check(
 )
 const worktreeRow = rowIn(container, 'worktree_mode')
 const worktreeNext = other([...worktreeRow.querySelectorAll('option')].map((option) => option.value), worktreeRow.querySelector('select').value)
-await setSelect(worktreeRow, worktreeNext)
+await setSelect(worktreeRow.querySelector('select'), worktreeNext)
 wrote.push(`worktree_mode → ${worktreeNext}`)
 check(
   'worktree 档改一次：记录里真的是那个值，面板上跟着换成它',
@@ -1859,7 +1826,7 @@ check(
 
 const tierRow = rowIn(container, 'test_tier')
 const tierNext = other([...tierRow.querySelectorAll('option')].map((option) => option.value), tierRow.querySelector('select').value)
-await setSelect(tierRow, tierNext)
+await setSelect(tierRow.querySelector('select'), tierNext)
 wrote.push(`test_tier → ${tierNext}`)
 check(
   '测试档改一次：记录里真的是那个值，面板上跟着换成它',
@@ -1934,7 +1901,7 @@ const forged = window.document.createElement('option')
 forged.value = 'partial'
 forged.textContent = 'partial'
 forgedSelect.appendChild(forged)
-await setSelect(forgedRow, 'partial')
+await setSelect(forgedSelect, 'partial')
 forged.remove()
 check(
   '非法档位不落记录：记录保持原值，下拉回到原值，提示行摆的是工具那句话',
@@ -2124,8 +2091,10 @@ check(
   '第二个实例照同一份文档开：标签页、侧栏宽度、问题池那一档都对上',
   restartedTab === `tab-${String(keptPrefs.defaultTab)}`
     && restartedWidth === String(keptPrefs.sideWidth)
-    && restartedFull === (keptPrefs.showOtherStates === true ? '完整' : '精简'),
-  `文档=${JSON.stringify(keptPrefs)} ｜ 面板上 标签=${String(restartedTab)} 宽度=${String(restartedWidth)} 问题池=${String(restartedFull)}`,
+    && (poolCleared
+      ? /* 零行形态：登记簿不上屏，那一档跟着它一起不在，档位只落在文档里 */ restartedFull === undefined
+      : restartedFull === (keptPrefs.showOtherStates === true ? '完整' : '精简')),
+  `文档=${JSON.stringify(keptPrefs)} ｜ 面板上 标签=${String(restartedTab)} 宽度=${String(restartedWidth)} 问题池=${poolCleared ? `（池子已清空：不上屏）${String(restartedFull)}` : String(restartedFull)}`,
 )
 
 const secondHost = window.document.createElement('div')
@@ -2331,35 +2300,11 @@ check(
  *
  * The point of moving words out of the model and host layers: the same panel, handed another
  * table, says another language — nothing re-registered, no word carried in a reading. DSH's
- * locale service is stood in for in the shape `locale.ts` binds to (register / bind / subscribe /
- * getSnapshot), the port attaches to it, and a switch is one call. `act` flushes the redraw; the
- * panel's own fetch pass never runs for these mounts, so no reading is spent on the language.
+ * locale service is stood in for by the shared stand-in, in the shape `locale.ts` binds to
+ * (register / bind / subscribe / getSnapshot); the port attaches to it, and a switch is one
+ * call. `act` flushes the redraw; the panel's own fetch pass never runs for these mounts, so no
+ * reading is spent on the language.
  */
-function fakeLocaleService(initial) {
-  const dicts = new Map()
-  const listeners = new Set()
-  let active = initial
-  let revision = 0
-  const nsOf = (ns) => { if (!dicts.has(ns)) dicts.set(ns, new Map()); return dicts.get(ns) }
-  return {
-    register(ns, locale, dict) {
-      const held = nsOf(ns)
-      if (held.has(locale)) throw new Error(`namespace ${ns} already has ${locale}`)
-      held.set(locale, dict)
-    },
-    bind(ns) {
-      return (key, params) => {
-        const raw = nsOf(ns).get(active)?.[key] ?? key
-        return params === undefined ? raw
-          : raw.replace(/\{([A-Za-z0-9_]+)\}/gu, (whole, name) => (params[name] === undefined ? whole : String(params[name])))
-      }
-    },
-    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
-    getSnapshot() { return { active, revision } },
-    getLocale() { return { active, revision } },
-    switchTo(next) { active = next; revision += 1; for (const listener of [...listeners]) listener() },
-  }
-}
 
 /** A fresh host div for one language mount, and its root rendered inside an `act` flush. */
 const languageHost = () => {

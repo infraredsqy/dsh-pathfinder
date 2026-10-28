@@ -38,6 +38,11 @@ import {
   VIEW_WORDS,
 } from '../src/client/prefs.ts'
 import { createLocalePort } from '../src/client/locale.ts'
+import { fakeSettingsForm } from './helpers/dsh-standins.mjs'
+
+/* The shared settings-document stand-in, with this file's extra face switched on: every case here
+ * reads the write log (and notify / bump) the option adds. */
+const fakeForm = (initial) => fakeSettingsForm(initial, { writeLog: true })
 
 /* This Node version exposes `localStorage` as a getter that fires an ExperimentalWarning on every
  * touch, and this pathway consults it the moment the settings form attaches. Pad a minimal
@@ -131,38 +136,6 @@ test('写回是一条顶层 set，路径就是字段表里那个字', () => {
   /* A fresh object per call: callers mutating it must not leak elsewhere. */
   assert.notEqual(prefsWriteOp(PANEL_PREF_FIELDS.showArchived, true), prefsWriteOp(PANEL_PREF_FIELDS.showArchived, true))
 })
-
-function fakeForm(initial) {
-  let value = { ...initial }
-  let revision = 1
-  let refuse = false
-  const listeners = new Set()
-  const writes = []
-  return {
-    writes,
-    document: () => value,
-    getSnapshot: () => ({ status: 'ready', value, revision, writable: true }),
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    },
-    mutate(ops, expected) {
-      writes.push({ ops, expected })
-      if (refuse) return Promise.resolve(false)
-      if (expected !== undefined && expected !== revision) return Promise.resolve(false)
-      for (const op of ops) if (op.op === 'set') value = { ...value, [op.path[0]]: op.value }
-      revision += 1
-      for (const listener of [...listeners]) listener()
-      return Promise.resolve(true)
-    },
-    /** Wakes subscribers without touching a byte of the value: measures the "unchanged means no notification" path. */
-    notify: () => { for (const listener of [...listeners]) listener() },
-    /** Someone else bumped the document (revision moved forward) before this side read it — hit within the same round trip. */
-    bump: () => { revision += 1 },
-    /** This document rejects all writes: measures the "no silent failure when both writes count for nothing" path. */
-    refuse: (on = true) => { refuse = on },
-  }
-}
 
 test('设置服务还没到场：出厂那几条，写回不作数', async () => {
   const source = createPrefsSource()
