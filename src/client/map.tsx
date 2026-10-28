@@ -11,7 +11,7 @@
  * from `map-layout.ts`.
  */
 import * as React from 'react'
-import type { NodeReading, ProjectReading } from '../model/index.ts'
+import type { CycleReading, NodeReading, ProjectReading } from '../model/index.ts'
 import { bucketOf } from '../model/index.ts'
 import { NOT_ENABLED_WORD } from './constants.ts'
 import { useT } from './locale.ts'
@@ -34,9 +34,9 @@ import {
   type Size,
   type View,
 } from './map-layout.ts'
-import { runningTitle } from './marks.tsx'
+import { LineMark, runningTitle } from './marks.tsx'
 import { nodeHover, nodeName } from './nodes.ts'
-import { gateWord, timeOf } from './words.ts'
+import { gateWord, stateWord, timeOf } from './words.ts'
 
 /** The ruler used when the viewport cannot be measured: a hidden pane measures 0, and a reading never comes out as 0. */
 const FALLBACK: Size = { w: 1280, h: 720 }
@@ -314,11 +314,12 @@ export function MapPane(props: {
         style={{ ['--card-w' as string]: `${String(CARD_W)}px`, ['--card-h' as string]: `${String(CARD_H)}px` }}
       >
         <aside className="pf-rail" role="group" aria-label={t('map.scope.aria')}>
-          <RailItem label={t('common.global')} pressed={liveScope === null} onPress={() => pickScope(null)} />
+          <RailItem label={t('common.global')} cycle={null} pressed={liveScope === null} onPress={() => pickScope(null)} />
           {(props.project?.cycles ?? []).map((cycle) => (
             <RailItem
               key={cycle.id}
               label={cycle.id}
+              cycle={cycle}
               pressed={liveScope === cycle.id}
               /* A line that has touched nothing in this workspace is greyed out and holds no press:
                  the row itself is the reading — this line has done nothing here. */
@@ -414,19 +415,27 @@ export function MapPane(props: {
 /** One row of the rail: a scope to search under, greyed out when this workspace holds nothing for it. */
 function RailItem(props: {
   readonly label: string
+  /** The line this row stands for; the whole-workspace row has none, and draws no mark. */
+  readonly cycle: CycleReading | null
   readonly pressed: boolean
   readonly disabled?: boolean | undefined
   readonly onPress: () => void
 }): React.ReactElement {
+  const t = useT()
   return (
     <button
       type="button"
       className="pf-rail-item"
       aria-pressed={props.pressed}
+      aria-label={props.cycle === null ? props.label : `${props.label} · ${stateWord(t, props.cycle)}`}
       disabled={props.disabled === true}
       onClick={props.onPress}
     >
-      {props.label}
+      {/* Every row holds the mark's cell open, drawing in it or not: that is what puts this column's
+          names on the same edge as the detail pane's. The whole-workspace row reads no line, so its
+          cell stands empty. */}
+      {props.cycle === null ? <span className="pf-linemark" /> : <LineMark cycle={props.cycle} />}
+      <span className="pf-cycle">{props.label}</span>
     </button>
   )
 }

@@ -26,49 +26,37 @@
 
 /* The hit scope: the whole workspace plus each line. It only says "search under here first" — the
  * whole drawing stays on screen, whichever row is pressed. A line that has touched nothing in this
- * workspace is greyed out and holds no press: the row itself is the reading. */
+ * workspace is greyed out and holds no press: the row itself is the reading. The row is the object
+ * both left columns share (`tokens.css`); what stands here is the column the rows stand in. */
 .pf-page .pf-rail {
   flex: none;
-  width: 176px;
+  width: calc(var(--pf-line-w) + 18px);
   /* The 18px on the right is the ground between the list and the drawing: pressed any closer, the
-     list reads as a column of labels laid on top of the map. */
-  padding: 12px 18px 12px 0;
+     list reads as a column of labels laid on top of the map. The 176px left of it is the column the
+     detail pane gives its lines. */
+  padding: var(--pf-detail-top) 18px var(--pf-detail-foot) 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
 
+/* The rail's own two facts about a row: it is a flex item the scrolling column must not squeeze, and
+ * it is a button with a platform dress to take off — the paint is the shared row's. */
 .pf-page .pf-rail-item {
-  appearance: none;
   flex: none;
-  padding: 5px 10px;
-  overflow: hidden;
-  font: var(--dsw-font-xs-13);
-  color: var(--dsw-alias-label-tertiary);
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  background: none;
-  border: 0;
-  border-radius: var(--dsw-radius-xs);
-  cursor: pointer;
-}
-
-.pf-page .pf-rail-item:hover:not(:disabled):not([aria-pressed='true']) {
-  color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.pf-page .pf-rail-item[aria-pressed='true'] {
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-bg-layer-3);
+  appearance: none;
 }
 
 .pf-page .pf-rail-item:disabled {
-  color: var(--dsw-alias-label-dimmed);
   cursor: default;
+}
+
+/* A line this workspace holds nothing for: the name drops to the dimmed ink. The cell keeps its own
+ * colour — what the line is doing is the record's reading, and it reads the same whichever workspace
+ * the panel has open. */
+.pf-page .pf-rail-item:disabled .pf-cycle {
+  color: var(--dsw-alias-label-dimmed);
 }
 
 /* ---- The drawing --------------------------------------------------------- */
@@ -295,11 +283,13 @@
   white-space: nowrap;
 }
 
-/* The line's own id: the cycle's name, in the code face, a tier down from the title. */
+/* The line's own id on the card's foot: the word both left columns print, so it wears their face
+ * too. Its 11px and 15px belong to this row's rhythm rather than to a type tier, and the moment
+ * beside it is a figure, which keeps the code face (`.pf-num`). */
 .pf-page .pf-mtag {
   flex: none;
   overflow: hidden;
-  font-family: var(--ds-font-family-code);
+  font-family: var(--dsw-font-family);
   font-size: 11px;
   line-height: 15px;
   color: var(--dsw-alias-label-caption);

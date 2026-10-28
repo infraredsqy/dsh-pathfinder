@@ -3,22 +3,18 @@
  * The left column answers only "which line to look at": the mark is drawn left of the name, the row
  * carries no numbers, and a "Settings" appears at the row's end only under the pointer. The three
  * numbers live in the modal that Setting opens; an edit there is handed back to the shell and
- * written with a `pf cycle policy` command. */.pf-page .pf-detail{
+ * written with a `pf cycle policy` command.
+ *
+ * The row itself — its height, its inset, the cell left of the name, the name's face — is the object
+ * this column and the map's rail both use, so it is declared in `tokens.css`. What stands here is
+ * what this column owns: the split, the draggable width, and the cell the row-end action keeps. */.pf-page .pf-detail{
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   align-items: stretch;
-}/* One line per row: mark + line name, the mark drawn left of the name. The row height matches the
- * node rows (`--pf-row`), and the mark's cell is fixed-width so several lines' names align. The
- * first is selected by default, ordered by the record's own line order (waiting-on-a-person first,
- * then in-service, then stopped).
- *
- * This column answers only "which line to look at": the row carries no numbers (a line's own
- * numbers live in its own settings) and no standing buttons. The name and the row-end "Settings"
- * each take their own cell; two layouts share one row, so the name never re-flows under the
- * pointer. The column width is draggable: the seam is `tokens.css`'s width grip (`.pf-grip`),
- * except it stands in the flow — it moves this column's width, the body swaps, the window does not. */.pf-page .pf-lineside{
-  flex: 0 0 var(--pf-side-w, 176px);
+}/* The column. Its width is draggable: the seam is `tokens.css`'s width grip (`.pf-grip`), except it
+ * stands in the flow — it moves this column's width, the body swaps, the window does not. */.pf-page .pf-lineside{
+  flex: 0 0 var(--pf-side-w, var(--pf-line-w));
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -26,35 +22,11 @@
   /* The rail and the list sit on one top line: both take the page's own inset rather than the rail
    * starting a step higher than the first head. */
   padding: var(--pf-detail-top) 0 var(--pf-detail-foot);
-}.pf-page .pf-lineitem{
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  height: var(--pf-row);
-  padding: 0 8px;
-  border-radius: var(--dsw-radius-xs);
-}.pf-page .pf-linepick{
+}/* The name button fills the row and leaves the last cell to the row-end "Settings": one row of two
+ * controls, so the name never re-flows under the pointer. */.pf-page .pf-linepick{
   flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
   height: 100%;
   padding: 0;
-  border: 0;
-  background: none;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}.pf-page .pf-lineitem:hover{ background: var(--dsw-alias-interactive-bg-hover); }/* The selected one: the ground brightens a tier (the same value as the board's three info buttons'
- * selected state) and the name turns body-ink. The selected state lives on the inner name button
- * (it is what gets picked), the ground belongs to the whole row — so the selector reads the state
- * of the button inside the row, not the row's own. */.pf-page .pf-lineitem:has(.pf-linepick[aria-current='true']){
-  background: var(--dsw-alias-interactive-bg-active);
-}.pf-page .pf-lineitem:has(.pf-linepick[aria-current='true']) .pf-cycle{
-  color: var(--dsw-alias-label-primary);
 }/* The row-end "Settings": the `.pf-mini` small action, uninked unless the pointer is on it, but
    always occupying its cell and always reachable — keyboard focus inside the row (`focus-within`)
    reveals it too; a button that takes a pointer to touch is one a keyboard cannot reach. */.pf-page .pf-lineitem .pf-mini{
@@ -69,31 +41,6 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-}/* Line name: the record's id, in the monospace set. */.pf-page .pf-cycle{
-  font-family: var(--ds-font-family-code);
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}/* The cell left of the line name: running wears the shared spinner (`tokens.css` draws the ring
-   once, for the state mark and this cell), blocked carries an amber dot — this layout's color
-   reserved for "waiting for a person". Stopped draws nothing but keeps its place, so the lines
-   stay aligned. */.pf-page .pf-linemark{
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--pf-mark);
-  height: var(--pf-mark);
-}.pf-page .pf-linemark.is-blocked::before{
-  content: '';
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  corner-shape: round;
-  background: var(--dsw-alias-state-warn-primary);
 }/* The three-numbers block: one number per row — name, one sentence saying what the number is, the
    control at the right end. The shape copies DSH's settings page: name a tier up, the sentence
    below a tier down, the control against the right edge, a hairline between rows (`.pf-setrow`,

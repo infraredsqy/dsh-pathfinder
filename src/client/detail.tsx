@@ -17,7 +17,7 @@ import type { WordKey } from './locales/index.ts'
 import { gateTitle, gateWord, stateWord, unit } from './words.ts'
 import { nodeName, nodeHover } from './nodes.ts'
 import { Grip } from './widgets.tsx'
-import { DepsChip, StateMark } from './marks.tsx'
+import { DepsChip, LineMark, StateMark } from './marks.tsx'
 
 /** The five detail sections, in the order readers meet them. */
 interface Group {
@@ -117,14 +117,6 @@ export function DetailPane(props: {
       )}
     </div>
   )
-}
-
-/** A line's mark: parked and idle when stopped, spinning while running, drawn as blocked when it owes waiting nodes. */
-function LineMark(props: { readonly cycle: CycleReading }): React.ReactElement {
-  const t = useT()
-  const { cycle } = props
-  const cls = cycle.parked.length > 0 ? 'is-blocked' : cycle.inService ? 'is-run' : ''
-  return <span className={`pf-linemark ${cls}`.trim()} title={stateWord(t, cycle)} />
 }
 
 /** Detail: the picked line's node list, grouped into five sections. */

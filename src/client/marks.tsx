@@ -1,17 +1,18 @@
 /**
- * Reading widgets shared by the detail rows, the instruction book, and the map's cards: a state mark
- * and a dependency line.
+ * Reading widgets shared by the detail rows, the instruction book, the map's cards, and the two line
+ * columns: a state mark, a line's own mark, and a dependency line.
  *
  * These readings exist only once: the state mark on the map's cards and on detail rows is the same
- * one, and the dependency line wears the same face — each cell just passes its own cell and moment.
- * The words themselves (a gate's hint, a moment's day, a line's state) are spelled in `words.ts`.
+ * one, a line's mark is the same cell in the map's rail and in the detail pane's column, and the
+ * dependency line wears the same face — each cell just passes its own cell and moment. The words
+ * themselves (a gate's hint, a moment's day, a line's state) are spelled in `words.ts`.
  */
 import * as React from 'react'
-import type { NodeReading } from '../model/index.ts'
+import type { CycleReading, NodeReading } from '../model/index.ts'
 import { bucketOf, duration, readDeps } from '../model/index.ts'
 import type { Translate } from './locale.ts'
 import { useT } from './locale.ts'
-import { depsSentence, gateTitle } from './words.ts'
+import { depsSentence, gateTitle, stateWord } from './words.ts'
 
 /**
  * What the running ring says: how long this step has been open, or just "in hand" when the line
@@ -20,6 +21,21 @@ import { depsSentence, gateTitle } from './words.ts'
  */
 export function runningTitle(t: Translate, node: NodeReading): string {
   return node.elapsedSeconds === null ? t('state.running') : t('marks.running.elapsed', { elapsed: duration(node.elapsedSeconds) })
+}
+
+/**
+ * A line's own mark, the cell left of a line name: parked and idle when stopped, spinning while
+ * running, drawn as blocked when it owes waiting nodes.
+ *
+ * The two left columns stand this one drawing up, so a line reads the same on the map's rail and in
+ * the detail pane's column — whichever workspace the panel has open, this is the line's own state in
+ * the record rather than a reading of the page.
+ */
+export function LineMark(props: { readonly cycle: CycleReading }): React.ReactElement {
+  const t = useT()
+  const { cycle } = props
+  const cls = cycle.parked.length > 0 ? 'is-blocked' : cycle.inService ? 'is-run' : ''
+  return <span className={`pf-linemark ${cls}`.trim()} title={stateWord(t, cycle)} />
 }
 
 /**

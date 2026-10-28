@@ -91,6 +91,71 @@
 }/* On the books and still counted, but nobody owes it yet. */.pf-page .pf-cell.is-acknowledged{
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--pf-ink-2);
+}/* ---- one line row, two panes ----------------------------------------------
+ * Both left columns list the record's lines, and a line is one row in each of them:
+ * one height, one inset, one 14px cell, and the name standing right of it. Every
+ * row holds that cell open, so the two panes' names fall on one edge; a name that
+ * stands somewhere else in the other pane is a name the reader has to find twice.
+ *
+ * The map's rail row is a whole row and a whole button at once (nothing follows
+ * the name there), so it wears both halves: the row's box, which the detail pane's
+ * `.pf-lineitem` shares, and the pressable line, which is `.pf-linepick` there.
+ * Both inks ride the name — the row is what gets pressed, the name is what
+ * answers. */.pf-page .pf-lineitem, .pf-page .pf-rail-item{
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--pf-row);
+  padding: 0 8px;
+  overflow: hidden;
+  background: none;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  text-align: left;
+}.pf-page .pf-linepick, .pf-page .pf-rail-item{
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}.pf-page .pf-lineitem:hover, .pf-page .pf-rail-item:hover:not(:disabled){
+  background: var(--dsw-alias-interactive-bg-hover);
+}/* The picked line: the row's ground brightens a tier (the value the settings list's
+ * current item takes) and the name turns body-ink. The map's rail reads a pick off
+ * its pressed row and says the same thing, so both panes answer a pick the same way. */.pf-page .pf-lineitem:has(.pf-linepick[aria-current='true']), .pf-page .pf-rail-item[aria-pressed='true']{
+  background: var(--dsw-alias-interactive-bg-active);
+}/* The name: the record's id. Both left columns print the same word, so it wears one
+ * face — the reading face; the code face is what a column of figures is set in. */.pf-page .pf-cycle{
+  min-width: 0;
+  overflow: hidden;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}.pf-page .pf-lineitem:has(.pf-linepick[aria-current='true']) .pf-cycle, .pf-page .pf-rail-item[aria-pressed='true'] .pf-cycle{
+  color: var(--dsw-alias-label-primary);
+}/* The cell left of the name: this line's state at this moment. Running wears the
+ * shared ring below, blocked carries an amber dot — this layout's colour reserved
+ * for "waiting for a person". A line that has stopped draws nothing in the cell and
+ * keeps it, which is what holds the two panes' names on one edge. */.pf-page .pf-linemark{
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pf-mark);
+  height: var(--pf-mark);
+}.pf-page .pf-linemark.is-blocked::before{
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-state-warn-primary);
 }/* ---- the state mark -------------------------------------------------------
  * The 14px drawing the boards put on a card, the detail list on a row, and the map
  * on the one card that is in hand: a spinning ring while a step is open, a glyph for
@@ -99,7 +164,7 @@
  * reading.
  *
  * The spinning ring is one drawing shared a third time: the line column's cell
- * beside a line name (`.pf-linemark`, `lines.css`) wears the same ring while its
+ * beside a line name (`.pf-linemark`, declared above) wears the same ring while its
  * line is in service, so the rule below names both and the reduced-motion
  * fallback rides with it — one ring, one still form.
  *

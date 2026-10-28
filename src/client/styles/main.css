@@ -5,6 +5,7 @@
   --pf-pad: 24px;        /* header side padding */
   --pf-row: 34px;        /* one row = one node; the title's line sits in it with a breath above and below */
   --pf-mark: 14px;       /* the cell left of a line name: its state at this moment */
+  --pf-line-w: 176px;    /* the width both left columns list their lines in; the detail pane's own width rides --pf-side-w on top of it */
   --pf-detail-top: 12px; /* the rail and the list start on one line, this far under the tab rail */
   --pf-detail-foot: 20px;/* what the same list keeps under its last row, once it is scrolled to the end */
 }.pf-page{ overflow: hidden; }.pf-page{
@@ -172,12 +173,11 @@
   align-items: center;
   gap: 12px;
   padding: 0 14px 10px;
-}/* Line name: the record's id, in the monospace set (the same word in the sidebar, the same look). */.pf-page .pf-modal-name{
+}/* Line name: the record's id. The detail pane's line column prints the same word, so this head wears
+ * the same face, at this head's own tier. */.pf-page .pf-modal-name{
   flex: 1 1 auto;
   min-width: 0;
-  font-family: var(--ds-font-family-code);
-  font-size: 14px;
-  line-height: 22px;
+  font: var(--dsw-font-s-14);
   color: var(--dsw-alias-label-primary);
   overflow: hidden;
   text-overflow: ellipsis;
