@@ -14,8 +14,7 @@ import { dayParts, groupInstructions } from '../model/index.ts'
 import { NOT_ENABLED_WORD } from './constants.ts'
 import type { Translate } from './locale.ts'
 import { useT } from './locale.ts'
-import { timeOf } from './marks.tsx'
-import { dayLabel, groupWord, unit } from './words.ts'
+import { dayLabel, groupWord, timeOf, unit } from './words.ts'
 
 /** With archived entries collapsed, how many non-standing rows a group may show at most. */
 const NOTES_ROWS = 5

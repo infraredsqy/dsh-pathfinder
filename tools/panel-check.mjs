@@ -1095,24 +1095,15 @@ check(
 )
 
 /* The settings pane's column belongs to the main panel's skeleton, which is where this reads the
- * stage and the frame it fills: the stage takes the pane at the middle of its top and scrolls when
- * the footprint is short, and the frame takes a width and centres itself. */
+ * stage and the frame that fills it: the stage takes the pane under the header and scrolls when the
+ * footprint is short, and the frame fills the footprint — width and height both, in every view. */
 const stageWon = winningDeclarations(container.querySelector('.pf-stage'), ['padding', 'overflow-y', 'justify-content'])
-const frameWon = winningDeclarations(container.querySelector('.pf-frame'), ['width', 'margin', 'display'])
-/* Every view fills the footprint now, so the frame in play takes the filled width; the base width —
- * `--pf-frame-w` with its fallback — still has to be in the bundle, and it is read on a bare frame
- * placed inside the panel's own layer, where that rule actually matches. */
-const bareFrame = window.document.createElement('div')
-bareFrame.className = 'pf-frame'
-container.querySelector('.pf-page')?.appendChild(bareFrame)
-const bareWon = winningDeclarations(bareFrame, ['width'])
-bareFrame.remove()
+const frameWon = winningDeclarations(container.querySelector('.pf-frame'), ['width', 'height', 'display'])
 check(
   '舞台与框在蓝本里的有效值进了包',
   stageWon.padding === '8px 0' && stageWon['overflow-y'] === 'auto' && stageWon['justify-content'] === 'center'
-    && frameWon.width === '100%' && frameWon.margin === 'auto' && frameWon.display === 'flex'
-    && bareWon.width === 'var(--pf-frame-w, 1280px)',
-  `stage padding=${JSON.stringify(stageWon.padding)} overflow-y=${JSON.stringify(stageWon['overflow-y'])} justify-content=${JSON.stringify(stageWon['justify-content'])} ｜ frame width=${JSON.stringify(frameWon.width)}（不撑满时=${JSON.stringify(bareWon.width)}） margin=${JSON.stringify(frameWon.margin)} display=${JSON.stringify(frameWon.display)}`,
+    && frameWon.width === '100%' && frameWon.height === '100%' && frameWon.display === 'flex',
+  `stage padding=${JSON.stringify(stageWon.padding)} overflow-y=${JSON.stringify(stageWon['overflow-y'])} justify-content=${JSON.stringify(stageWon['justify-content'])} ｜ frame width=${JSON.stringify(frameWon.width)} height=${JSON.stringify(frameWon.height)} display=${JSON.stringify(frameWon.display)}`,
 )
 
 /* The equivalence ruler lived here: it compared the shipped css against the blueprint's sheets rule by

@@ -1,29 +1,16 @@
 /**
- * Reading widgets shared by the detail rows, the instruction book, and the map's cards: a state mark,
- * a dependency line, a gate hint, and a moment formatter.
+ * Reading widgets shared by the detail rows, the instruction book, and the map's cards: a state mark
+ * and a dependency line.
  *
  * These readings exist only once: the state mark on the map's cards and on detail rows is the same
- * one, and the gate hint and time formatting are the same set — each cell just passes its own cell
- * and moment.
+ * one, and the dependency line wears the same face — each cell just passes its own cell and moment.
+ * The words themselves (a gate's hint, a moment's day, a line's state) are spelled in `words.ts`.
  */
 import * as React from 'react'
 import type { NodeReading } from '../model/index.ts'
-import { bucketOf, clock, dayParts, duration, readDeps } from '../model/index.ts'
-import type { Translate } from './locale.ts'
+import { bucketOf, duration, readDeps } from '../model/index.ts'
 import { useT } from './locale.ts'
-import { dayLabel, depsSentence, gateWord } from './words.ts'
-
-/** The reading's moment rendered via moment; `--` when there is no moment. */
-export function timeOf(t: Translate, moment: Date | null, at: Date): string {
-  return moment === null ? '--' : `${dayLabel(t, dayParts(moment, at))} ${clock(moment)}`
-}
-
-/** The cell's gate: which word, since when. */
-export function gateTitle(t: Translate, node: NodeReading, at: Date): string {
-  if (node.gate === null) return ''
-  const word = gateWord(t, node.gate)
-  return node.gate.since === null ? word : `${word} · ${timeOf(t, node.gate.since, at)}`
-}
+import { depsSentence, gateTitle } from './words.ts'
 
 /**
  * State mark: the model's one bucket, drawn. A card that wants a person (a gate, or the shelved

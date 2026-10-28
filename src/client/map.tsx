@@ -34,9 +34,8 @@ import {
   type Size,
   type View,
 } from './map-layout.ts'
-import { timeOf } from './marks.tsx'
 import { nodeHover, nodeName } from './nodes.ts'
-import { gateWord } from './words.ts'
+import { gateWord, timeOf } from './words.ts'
 
 /** The ruler used when the viewport cannot be measured: a hidden pane measures 0, and a reading never comes out as 0. */
 const FALLBACK: Size = { w: 1280, h: 720 }

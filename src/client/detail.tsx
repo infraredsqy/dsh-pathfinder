@@ -13,12 +13,11 @@ import { nodesOf } from '../model/index.ts'
 import { clampSide, SIDE_DEFAULT, SIDE_MAX, SIDE_MIN } from './prefs.ts'
 import { NOT_ENABLED_WORD } from './constants.ts'
 import { useT } from './locale.ts'
-import type { Translate } from './locale.ts'
 import type { WordKey } from './locales/index.ts'
-import { gateWord, unit } from './words.ts'
+import { gateTitle, gateWord, stateWord, unit } from './words.ts'
 import { nodeName, nodeHover } from './nodes.ts'
 import { Grip } from './widgets.tsx'
-import { DepsChip, gateTitle, StateMark } from './marks.tsx'
+import { DepsChip, StateMark } from './marks.tsx'
 
 /** The five detail sections, in the order readers meet them. */
 interface Group {
@@ -126,11 +125,6 @@ function LineMark(props: { readonly cycle: CycleReading }): React.ReactElement {
   const { cycle } = props
   const cls = cycle.parked.length > 0 ? 'is-blocked' : cycle.inService ? 'is-run' : ''
   return <span className={`pf-linemark ${cls}`.trim()} title={stateWord(t, cycle)} />
-}
-
-function stateWord(t: Translate, cycle: CycleReading): string {
-  if (cycle.parked.length > 0) return t('cycle.blocked')
-  return cycle.inService ? t('cycle.running') : t('cycle.stopped')
 }
 
 /** Detail: the picked line's node list, grouped into five sections. */

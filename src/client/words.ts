@@ -15,15 +15,19 @@
 import type { Translate } from './locale.ts'
 import type { Failure, FailureCode } from './failure.ts'
 import type { WordKey } from './locales/index.ts'
+import { clock, dayParts } from '../model/index.ts'
 import type {
   AgoParts,
+  CycleReading,
   DayParts,
   DepsReading,
   DurationParts,
   GateReading,
   InstructionGroupReading,
   IssueState,
+  NodeReading,
   NodeState,
+  PoolReading,
 } from '../model/index.ts'
 
 /**
@@ -70,9 +74,29 @@ export function gateWord(t: Translate, gate: GateReading): string {
   return t(GATE_WORDS[gate.kind])
 }
 
+/** The cell's gate: which word, since when. */
+export function gateTitle(t: Translate, node: NodeReading, at: Date): string {
+  if (node.gate === null) return ''
+  const word = gateWord(t, node.gate)
+  return node.gate.since === null ? word : `${word} · ${timeOf(t, node.gate.since, at)}`
+}
+
 /** The issue's own state, in words. */
 export function issueWord(t: Translate, state: IssueState): string {
   return t(ISSUE_WORDS[state])
+}
+
+/** The record's three not-owed states, one phrase each: the "full" button and the combined pill say the same thing. */
+export function otherStatesWord(t: Translate, pool: PoolReading): string {
+  return (['acknowledged', 'rejected', 'resolved'] as const)
+    .map((key) => `${issueWord(t, key)} ${String(pool.census[key])}`)
+    .join(' · ')
+}
+
+/** A line's own state, in words: owing someone reads as blocked, then running or stopped. */
+export function stateWord(t: Translate, cycle: CycleReading): string {
+  if (cycle.parked.length > 0) return t('cycle.blocked')
+  return cycle.inService ? t('cycle.running') : t('cycle.stopped')
 }
 
 /**
@@ -132,6 +156,11 @@ export function dayLabel(t: Translate, parts: DayParts | null): string {
   if (parts.unit === 'yesterday') return t('date.yesterday')
   if (parts.unit === 'before-yesterday') return t('date.before-yesterday')
   return t('date.month-day', { month: parts.month, day: parts.day })
+}
+
+/** The reading's moment rendered via moment; `--` when there is no moment. */
+export function timeOf(t: Translate, moment: Date | null, at: Date): string {
+  return moment === null ? '--' : `${dayLabel(t, dayParts(moment, at))} ${clock(moment)}`
 }
 
 /** A duration spelled out in full, in the units a reader says it in. */

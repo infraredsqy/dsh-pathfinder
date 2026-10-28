@@ -367,10 +367,11 @@ function NumberBox(props: {
 }
 
 /**
- * The text control (for unregistered keys): writes only on commit (Enter or blur), keystrokes in
- * between live only in the box — the same rules as the number control. It yields only when a
- * reading arrives, so a refused word does not squat in the box. Every key that can reach this row
- * exists in the reading, so the box starts out holding the reading's value.
+ * The text control (for unregistered keys): the number control's commit rules on the shared input,
+ * as a text box — writes only on commit (Enter or blur), keystrokes in between live only in the
+ * box, and it yields only when a reading arrives, so a refused word does not squat in the box. Every
+ * key that can reach this row exists in the reading, so the box starts out holding the reading's
+ * value, and a reading never leaves a key unset here.
  */
 function TextBox(props: {
   readonly row: ConfigRow
@@ -381,27 +382,18 @@ function TextBox(props: {
 }): React.ReactElement {
   const t = useT()
   const held = props.entry?.value ?? ''
-  const [text, setText] = React.useState(held)
-  React.useEffect(() => { setText(held) }, [held, props.revision])
-  const commit = (): void => {
-    const typed = text.trim()
-    if (typed.length === 0 || typed === held) return
-    props.onWrite(typed)
-  }
   return (
-    <input
-      className="pf-numin"
+    <CommitNumberInput
       type="text"
       spellCheck={false}
-      aria-label={rowWords(t, props.row).name}
-      aria-describedby={props.noteId}
-      value={text}
-      onChange={(event) => setText(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter') return
-        event.preventDefault()
-        commit()
+      held={held}
+      unset={false}
+      label={rowWords(t, props.row).name}
+      describedBy={props.noteId}
+      revision={props.revision}
+      onCommit={(typed) => {
+        if (typed.length === 0 || typed === held) return
+        props.onWrite(typed)
       }}
     />
   )
