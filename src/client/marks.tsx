@@ -28,6 +28,15 @@ export function gateTitle(t: Translate, node: NodeReading, at: Date): string {
   return node.gate.since === null ? word : `${word} · ${timeOf(t, node.gate.since, at)}`
 }
 
+/**
+ * What the running ring says: how long this step has been open, or just "in hand" when the line
+ * claimed a step that has not opened yet. One sentence, because the ring is one drawing — the
+ * detail rows and the map's own card both stand it up.
+ */
+export function runningTitle(t: Translate, node: NodeReading): string {
+  return node.elapsedSeconds === null ? t('state.running') : t('marks.running.elapsed', { elapsed: duration(node.elapsedSeconds) })
+}
+
 /** State mark: gated cells always show the pause mark, the rest is drawn by column. */
 export function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind | DetailGroupKey; readonly at: Date }): React.ReactElement {
   /* The mark's hover text is the only thing it says, so the translator is taken here, where the word
@@ -45,7 +54,7 @@ export function StateMark(props: { readonly node: NodeReading; readonly kind: Ca
     )
   }
   if (props.kind === 'run') {
-    return <span className="pf-state is-run" title={node.elapsedSeconds === null ? t('state.running') : t('marks.running.elapsed', { elapsed: duration(node.elapsedSeconds) })} />
+    return <span className="pf-state is-run" title={runningTitle(t, node)} />
   }
   if (props.kind === 'next' || props.kind === 'wait' || props.kind === 'ready') {
     return <span className="pf-state is-next" title={t('state.next')} />

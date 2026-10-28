@@ -643,23 +643,15 @@ check('地图那一格撑满', frameMap.classList.contains('is-fill') === true, 
 await act(async () => { tabs[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 check('明细那一格撑满', container.querySelector('#frame').classList.contains('is-fill') === true, 'is-fill')
 
-/* The map's readings must match the record: the four pill counts, one card per node, one wire per
- * edge, and one rail row per line plus the whole workspace. "The pane has text"-style asserts would
- * not do — the rail alone would satisfy them, regardless of the record. */
+/* The map's readings must match the record: one card per node, one wire per edge, and one rail row
+ * per line plus the whole workspace. "The pane has text"-style asserts would not do — the rail alone
+ * would satisfy them, regardless of the record. The header used to total the four node states up
+ * here; that row of counts is gone, and this reads it gone as well. */
 await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 const reading = await gateway.read(sessionId, '', {})
 const project = readProject({ nodes: reading.nodes, cycles: reading.cycles, instructions: reading.instructions, issues: reading.issues, at: new Date() })
 lines.push(`      记录里的读数：${JSON.stringify(reading.sources)}`)
-const expectedPills = [
-  ...(project.columns.shelved.length > 0 ? [['等待处理', project.columns.shelved.length]] : []),
-  ['已交付', project.columns.completed.length],
-  ['进行中', project.columns.running.length],
-  ['未开始', project.columns.todo.length],
-]
-const pillReadings = [...container.querySelectorAll('#census .pf-pill')].map((pill) => [
-  pill.getAttribute('title'),
-  Number.parseInt((pill.querySelector('.pf-num')?.textContent ?? '').replace(/[^\d]/gu, ''), 10),
-])
+const headCounts = container.querySelectorAll('.pf-head .pf-count, .pf-head #census').length
 /* The page draws at most MAP_CAP cards; this record is far below it, so the drawn set is the record. */
 const MAP_CAP = 1000
 const mapPane = () => container.querySelector('#pane-map')
@@ -668,35 +660,39 @@ const wireCount = mapPane()?.querySelectorAll('.pf-mwire').length ?? 0
 const railRows = [...(mapPane()?.querySelectorAll('.pf-rail-item') ?? [])]
 const expectedRail = [t('common.global'), ...project.cycles.map((cycle) => cycle.id)]
 check(
-  '地图上的数从记录里来：胶囊、每格一张卡、每条边一根线、左栏一行一拍，逐项对上',
-  JSON.stringify(pillReadings) === JSON.stringify(expectedPills)
+  '地图上的数从记录里来：每格一张卡、每条边一根线、左栏一行一拍，逐项对上；页头不再报那排计数',
+  headCounts === 0
     && JSON.stringify([...cardIds].sort()) === JSON.stringify(project.nodes.slice(0, MAP_CAP).map((node) => node.id).sort())
     && wireCount === project.graph.edges.length
     && JSON.stringify(railRows.map((row) => row.textContent)) === JSON.stringify(expectedRail)
     && railRows[0]?.getAttribute('aria-pressed') === 'true',
-  `记录现算 胶囊=${JSON.stringify(expectedPills)} 卡=${String(Math.min(MAP_CAP, project.nodes.length))} 线=${String(project.graph.edges.length)} 栏=${JSON.stringify(expectedRail)} ｜ 面板上 胶囊=${JSON.stringify(pillReadings)} 卡=${String(cardIds.length)} 线=${String(wireCount)} 栏=${JSON.stringify(railRows.map((row) => row.textContent))}`,
+  `记录现算 卡=${String(Math.min(MAP_CAP, project.nodes.length))} 线=${String(project.graph.edges.length)} 栏=${JSON.stringify(expectedRail)} ｜ 面板上 卡=${String(cardIds.length)} 线=${String(wireCount)} 栏=${JSON.stringify(railRows.map((row) => row.textContent))} 页头计数=${String(headCounts)}`,
 )
 
-/* A card's two lines, read off the drawn ones: the title leads, and under it the state mark leads the
- * foot row — so the mark stands at one place on every card. The line's id follows it, and a card that
- * belongs to no line renders none at all: an empty span would still take up the row's gap and leave
- * two cards' marks out of line, which is the whole point of the order. */
+/* A card's two lines, read off the drawn ones: the title leads, and the foot row is the line's id
+ * then the moment — the state square that used to lead that row on every card is gone. The one card
+ * in hand wears the running ring at the head of the row instead, so the ring stands exactly on the
+ * cards whose reading says `running`, and no card carries a cell any more. */
 const cardShapes = [...(mapPane()?.querySelectorAll('.pf-mnode') ?? [])].map((card) => {
   const id = card.getAttribute('data-id') ?? ''
   const reading = project.nodeById[id]
   const meta = card.querySelector('.pf-mmeta')
+  const first = meta?.firstElementChild ?? null
   return {
     title: card.firstElementChild?.classList.contains('pf-mtitle') === true,
-    mark: meta?.firstElementChild?.classList.contains('pf-cell') === true,
+    cells: meta?.querySelectorAll('.pf-cell').length ?? 0,
+    ring: reading?.running === true,
+    ringFirst: first !== null && first.classList.contains('pf-state') && first.classList.contains('is-run'),
     tag: card.querySelector('.pf-mtag') === null ? '' : (card.querySelector('.pf-mtag')?.textContent ?? ''),
     line: reading?.cycleIds[0] ?? '',
   }
 })
 check(
-  '地图上每张卡：标题起头，状态点领着底栏，没有拍的那一格不占位',
+  '地图上每张卡：标题起头，底栏不再画方块，正在执行的那一张由旋转环领着头一格，拍名与记录一致',
   cardShapes.length > 0
-    && cardShapes.every((shape) => shape.title && shape.mark && shape.tag === shape.line),
-  `卡=${String(cardShapes.length)} 标题不在首位=${String(cardShapes.filter((shape) => !shape.title).length)} 状态点不在首=${String(cardShapes.filter((shape) => !shape.mark).length)} 拍名不齐=${String(cardShapes.filter((shape) => shape.tag !== shape.line).length)}`,
+    && cardShapes.every((shape) => shape.title && shape.cells === 0 && shape.tag === shape.line)
+    && cardShapes.every((shape) => shape.ring === shape.ringFirst),
+  `卡=${String(cardShapes.length)} 标题不在首位=${String(cardShapes.filter((shape) => !shape.title).length)} 还带方块=${String(cardShapes.filter((shape) => shape.cells > 0).length)} 旋转环=${String(cardShapes.filter((shape) => shape.ringFirst).length)}/${String(cardShapes.filter((shape) => shape.ring).length)} 拍名不齐=${String(cardShapes.filter((shape) => shape.tag !== shape.line).length)}`,
 )
 
 /* Session notes: the host half hauls that directory back as-is, and the model layer reads "which
@@ -801,8 +797,9 @@ check(
 )
 
 /* The empty-record workspace case: no `.pf` at all, the read succeeds and all four sources report
- * `missing`. The panel body collapses to one line, and the tabs, the top-right counts and the six
- * panes are withdrawn with it (the testbed's synthetic workspace is exactly this case). */
+ * `missing`. The panel body collapses to one line, and the tabs, the panes and the header's counts
+ * (which the header no longer carries) are withdrawn with it (the testbed's synthetic workspace is
+ * exactly this case). */
 const flat = (node) => (node?.textContent ?? '').replace(/\s+/gu, ' ').trim()
 const emptyHost = window.document.createElement('div')
 window.document.body.appendChild(emptyHost)
@@ -813,13 +810,13 @@ await act(async () => {
 await settle()
 const emptySaid = flat(emptyHost.querySelector('.pf-none p'))
 check(
-  '空记录的工作区：面板正文只留「当前工作区没有 pathfinder 的记录」，标签、计数与五格一起收走',
+  '空记录的工作区：面板正文只留「当前工作区没有 pathfinder 的记录」，标签与五格一起收走，页头不留计数',
   emptyHost.querySelector('.pf-none') !== null
     && emptySaid === '当前工作区没有 pathfinder 的记录。'
     && emptyHost.querySelector('.pf-tabs') === null
-    && emptyHost.querySelector('.pf-count') === null
+    && emptyHost.querySelector('.pf-head .pf-count') === null
     && emptyHost.querySelectorAll('.pf-pane').length === 0,
-  `工作区=${emptyWorkspace.replace(root, '.')}（没有 .pf） ｜ .pf-none p=${JSON.stringify(emptySaid)} ｜ 标签 ${String(emptyHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(emptyHost.querySelectorAll('.pf-count').length)} 处、五格 ${String(emptyHost.querySelectorAll('.pf-pane').length)} 处`,
+  `工作区=${emptyWorkspace.replace(root, '.')}（没有 .pf） ｜ .pf-none p=${JSON.stringify(emptySaid)} ｜ 标签 ${String(emptyHost.querySelectorAll('.pf-tabs').length)} 处、页头计数 ${String(emptyHost.querySelectorAll('.pf-head .pf-count').length)} 处、五格 ${String(emptyHost.querySelectorAll('.pf-pane').length)} 处`,
 )
 
 /* The unreadable-record case: `.pf` exists, all four files exist, but none parses (all four sources
@@ -838,9 +835,9 @@ check(
     && brokenSaid === '无法读取当前工作区的记录。'
     && brokenSaid !== '当前工作区没有 pathfinder 的记录。'
     && brokenHost.querySelector('.pf-tabs') === null
-    && brokenHost.querySelector('.pf-count') === null
+    && brokenHost.querySelector('.pf-head .pf-count') === null
     && brokenHost.querySelectorAll('.pf-pane').length === 0,
-  `工作区=${brokenWorkspace.replace(root, '.')}（.pf 在、四份读不动） ｜ .pf-none p=${JSON.stringify(brokenSaid)} ｜ 标签 ${String(brokenHost.querySelectorAll('.pf-tabs').length)} 处、计数 ${String(brokenHost.querySelectorAll('.pf-count').length)} 处、五格 ${String(brokenHost.querySelectorAll('.pf-pane').length)} 处`,
+  `工作区=${brokenWorkspace.replace(root, '.')}（.pf 在、四份读不动） ｜ .pf-none p=${JSON.stringify(brokenSaid)} ｜ 标签 ${String(brokenHost.querySelectorAll('.pf-tabs').length)} 处、页头计数 ${String(brokenHost.querySelectorAll('.pf-head .pf-count').length)} 处、五格 ${String(brokenHost.querySelectorAll('.pf-pane').length)} 处`,
 )
 
 /* Pipeline present, issue pool absent: the four node-following panes stay as usual (the map has
@@ -859,7 +856,7 @@ check(
   bareHost.querySelector('.pf-none') === null
     && bareHost.querySelector('#pane-map .pf-rail') !== null
     && bareHost.querySelectorAll('#pane-map .pf-mnode').length > 0
-    && bareHost.querySelector('#census .pf-pill') !== null
+    && bareHost.querySelectorAll('.pf-head .pf-tab').length === 5
     && bareHost.querySelector('#pane-config') !== null
     && bareHost.querySelector('#pane-config .pf-innone') === null
     && bareSaid === '当前工作区尚未启用 Pathfinder。'
@@ -868,8 +865,9 @@ check(
 )
 
 /* The issue-pool-only case (what `pf issue scan` writes in a repo with no pipeline yet): each of
- * the four node-following panes collapses to the same sentence, and the header counts stop
- * reporting three zeros; the issue pane is the exception — it still draws the pool, every entry of it. */
+ * the four node-following panes collapses to the same sentence, and the header keeps its tabs but
+ * reports no counts at all — it has none of its own to report; the issue pane is the exception — it
+ * still draws the pool, every entry of it. */
 const poorHost = window.document.createElement('div')
 window.document.body.appendChild(poorHost)
 const poorRoot = createRoot(poorHost)
@@ -895,13 +893,13 @@ check(
     && poorHost.querySelectorAll('.pf-tabs').length === 1
     && poorHost.querySelectorAll('.pf-pane').length === 5
     && poorHost.querySelector('#pane-map .pf-rail') === null
-    && poorHost.querySelector('#census') === null
+    && poorHost.querySelector('.pf-head .pf-count') === null
     && (project.pool.rows.length === 0
       ? poorIssueSaid === '当前工作区尚未启用 Pathfinder。'
       : poorIssueSaid === ''
         && poorHost.querySelector('#pane-issue .pf-split') !== null
         && JSON.stringify(poorRows.map((row) => row.getAttribute('data-issue'))) === JSON.stringify(poorOpenIds)),
-  `工作区=${poorWorkspace.replace(root, '.')}（只有问题池） ｜ 四格=${JSON.stringify(poorSaid)} ｜ 页头计数 ${String(poorHost.querySelectorAll('#census').length)} 处、五格 ${String(poorHost.querySelectorAll('.pf-pane').length)} 格 ｜ 池子读数 共 ${String(project.pool.rows.length)} 条、未解决 ${String(poorOpenIds.length)} 条 ｜ 问题那一格 ${String(poorRows.length)} 行`,
+  `工作区=${poorWorkspace.replace(root, '.')}（只有问题池） ｜ 四格=${JSON.stringify(poorSaid)} ｜ 页头计数 ${String(poorHost.querySelectorAll('.pf-head .pf-count').length)} 处、五格 ${String(poorHost.querySelectorAll('.pf-pane').length)} 格 ｜ 池子读数 共 ${String(project.pool.rows.length)} 条、未解决 ${String(poorOpenIds.length)} 条 ｜ 问题那一格 ${String(poorRows.length)} 行`,
 )
 
 /* The panes left with one sentence: the module fills its area. Unfilled, the stage centers the
@@ -916,13 +914,15 @@ check(
   `模块 class=${JSON.stringify(poorFrame?.className ?? null)}`,
 )
 
-/* The readable record stays as usual: tabs, counts and five panes all present, no such sentence in the body. */
+/* The readable record stays as usual: the five tabs and the five panes all present, no such sentence
+ * in the body, and the header reports no count of its own — the issue band's pills are that pane's
+ * reading, so the header is asked by its own scope. */
 check(
-  '这一份记录读得回来：五格标签、右上那排计数与五格正文照旧画着，正文里没有那句话',
-  tabs.length === 5 && container.querySelector('.pf-count') !== null
+  '这一份记录读得回来：五格标签与五格正文照旧画着，页头自己不再报计数，正文里没有那句话',
+  tabs.length === 5 && container.querySelector('.pf-head .pf-count') === null
     && container.querySelectorAll('.pf-pane').length === 5
     && container.querySelector('.pf-none') === null,
-  `标签 ${String(tabs.length)} 枚 ｜ 计数 ${String(container.querySelectorAll('.pf-count').length)} 处 ｜ 五格 ${String(container.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${container.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
+  `标签 ${String(tabs.length)} 枚 ｜ 页头计数 ${String(container.querySelectorAll('.pf-head .pf-count').length)} 处 ｜ 五格 ${String(container.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${container.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
 )
 
 /* ---- 3d. The top workspace picker: whichever is picked is the one read ----
@@ -1026,11 +1026,11 @@ await act(async () => {
 await settle()
 const loneSelect = () => loneHost.querySelector('.pf-head .pf-pick select')
 check(
-  '谁的桶都不在的会话：默认就停在「未分组」，照旧递空字符串读它自己那个根，五格与计数都在',
+  '谁的桶都不在的会话：默认就停在「未分组」，照旧递空字符串读它自己那个根，五格与页头标签都在',
   loneSelect() !== null && loneSelect().value === ''
     && askedRoots.length > 0 && askedRoots.every((one) => one === '')
     && loneHost.querySelector('.pf-none') === null
-    && loneHost.querySelectorAll('.pf-pane').length === 5 && loneHost.querySelector('.pf-count') !== null,
+    && loneHost.querySelectorAll('.pf-pane').length === 5 && loneHost.querySelector('.pf-head .pf-tabs') !== null,
   `选中=${JSON.stringify(loneSelect()?.value)} ｜ 问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 五格 ${String(loneHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${loneHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
 )
 
@@ -1049,10 +1049,10 @@ await act(async () => {
 })
 await settle()
 check(
-  '拨去别处再拨回「未分组」：没有归属的会话照旧读它自己那个根，五格与计数都在',
+  '拨去别处再拨回「未分组」：没有归属的会话照旧读它自己那个根，五格与页头标签都在',
   askedRoots.length > 0 && askedRoots.every((one) => one === '')
     && loneHost.querySelector('.pf-none') === null
-    && loneHost.querySelectorAll('.pf-pane').length === 5 && loneHost.querySelector('.pf-count') !== null,
+    && loneHost.querySelectorAll('.pf-pane').length === 5 && loneHost.querySelector('.pf-head .pf-tabs') !== null,
   `问过的根=${JSON.stringify([...new Set(askedRoots)].map((one) => (one === '' ? '（空：会话自己那个）' : one.replace(root, '.'))))} ｜ 五格 ${String(loneHost.querySelectorAll('.pf-pane').length)} 格 ｜ .pf-none ${loneHost.querySelector('.pf-none') === null ? '（没有）' : '画了出来'}`,
 )
 

@@ -14,7 +14,7 @@
  */
 import * as React from 'react'
 import type { PathfinderReading } from '../host/contract.ts'
-import type { InstructionReading, ProjectReading } from '../model/index.ts'
+import type { InstructionReading } from '../model/index.ts'
 import { everySourceIs, readProject, readSessions } from '../model/index.ts'
 import type { PrefField, PrefsSource, ViewId } from './prefs.ts'
 import { clampSide, DEFAULT_SOURCE, PANEL_PREF_FIELDS, VIEW_WORDS } from './prefs.ts'
@@ -24,7 +24,6 @@ import type { Failure, Outcome } from './failure.ts'
 import { failureOf } from './failure.ts'
 import type { PanelPort } from './data.ts'
 import { bucketOf, NO_WORKSPACES, type WorkspaceSource } from './workspaces.ts'
-import { Pill } from './widgets.tsx'
 import { MapPane, type CardGo } from './map.tsx'
 import { ConfigPane } from './config.tsx'
 import { DeleteConfirm } from './delete-confirm.tsx'
@@ -301,7 +300,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
    * means that pane has no record under it; none of the four sources listed means this workspace
    * has no such record; listed but none parseable means unreadable. In all three cases all five
    * panes are speechless, and the pane collapses to one sentence — the plaque and the workspace
-   * selector stay; tabs, counts, and body go together. */
+   * selector stay; tabs and body go together. */
   const nothing = pickedNone
     ? t('panel.ungrouped-empty')
     : load.phase === 'no-session'
@@ -335,11 +334,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             )}
           </div>
         </div>
-        {nothing === null && !noNodes ? (
-          <div className="pf-count" id="census">
-            {project === null ? null : <Census project={project} />}
-          </div>
-        ) : null}
         {nothing === null ? (
           <div className="pf-tabs" role="tablist">
             {VIEWS.map((view) => (
@@ -459,19 +453,5 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
         />
       )}
     </div>
-  )
-}
-
-/** The four numbers at the top right; "waiting" shows only when someone is truly parked out, and stands first. */
-function Census(props: { readonly project: ProjectReading }): React.ReactElement {
-  const t = useT()
-  const { columns } = props.project
-  return (
-    <React.Fragment>
-      {columns.shelved.length > 0 ? <Pill cls="is-shelved" n={columns.shelved.length} label={t('state.shelved')} /> : null}
-      <Pill cls="is-done" n={columns.completed.length} label={t('state.done')} />
-      <Pill cls="is-running" n={columns.running.length} label={t('state.running')} />
-      <Pill cls="is-todo" n={columns.todo.length} label={t('state.todo')} />
-    </React.Fragment>
   )
 }

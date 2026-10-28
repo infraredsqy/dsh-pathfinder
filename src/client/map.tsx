@@ -32,7 +32,7 @@ import {
   type Size,
   type View,
 } from './map-layout.ts'
-import { timeOf } from './marks.tsx'
+import { runningTitle, timeOf } from './marks.tsx'
 import { nodeHover, nodeName } from './nodes.ts'
 import { gateWord } from './words.ts'
 
@@ -430,8 +430,8 @@ function RailItem(props: {
 }
 
 /**
- * One card: its title, then the row that says which line it belongs to, what state it is in, and
- * when.
+ * One card: its title, then the row that says which line it belongs to and when, with the running
+ * ring leading that row on the one card that is in hand.
  *
  * A card carries two readings at once and they must not borrow each other's paint: the frame says
  * what state the cell is in, the ground and the title's ink say whether this is the card the reader
@@ -468,10 +468,11 @@ function Card(props: {
     >
       <span className="pf-mtitle">{nodeName(node)}</span>
       <span className="pf-mmeta">
-        {/* The state mark leads the row, so it stands at one place whether or not this card belongs
-            to a line; a card with no line renders no id at all rather than an empty one, which would
-            push the mark along by a gap and leave two cards' marks out of line. */}
-        <span className={`pf-cell ${cellOf(node)}`} />
+        {/* The running ring leads the row: the frame can say "in hand" but only motion says "moving",
+            so this is the one mark the card keeps. The line's id follows it, and a card with no line
+            renders no id at all rather than an empty one — nothing is drawn for what the record does
+            not have. */}
+        {node.running ? <span className="pf-state is-run" title={runningTitle(t, node)} /> : null}
         {node.cycleIds.length === 0 ? null : <span className="pf-mtag">{node.cycleIds[0]}</span>}
         {node.gate === null ? null : <span className="pf-gate">{gateWord(t, node.gate)}</span>}
         <span className="pf-mtime pf-num">{moment === null ? '' : timeOf(t, moment, props.at)}</span>
@@ -485,15 +486,6 @@ function edgeOf(node: NodeReading): string {
   if (node.gate !== null) return 'is-gate'
   if (node.running) return 'is-run'
   if (node.state === 'completed') return 'is-done'
-  return 'is-todo'
-}
-
-/** What the mark says: the same five values the census and the register use. */
-function cellOf(node: NodeReading): string {
-  if (node.gate !== null) return 'is-gate'
-  if (node.state === 'completed') return 'is-done'
-  if (node.state === 'shelved') return 'is-shelved'
-  if (node.running) return 'is-running'
   return 'is-todo'
 }
 

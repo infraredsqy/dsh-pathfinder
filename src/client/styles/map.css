@@ -159,6 +159,10 @@
  * therefore two separate channels — neither can stand in for the other, because the frame's colour is
  * this card's own mark.
  *
+ * The one state the frame cannot say is motion: the card in hand leads its foot row with the running
+ * ring, the same drawing a detail row wears. Every other square this card used to print is gone —
+ * the frame already says what they said.
+ *
  * The frame scales with the drawing (1.6px in canvas pixels) but never falls below 0.9px on screen:
  * at the overview it becomes a hairline that still circles every card, and zoomed in it does not grow
  * until it swallows half the box. */
@@ -276,9 +280,11 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* The card's foot: the state mark first, so it stands in one place on every card, then the line's
- * id when there is one, then whatever the cell is waiting for, and the moment against the right
- * edge. `margin-top: auto` pins the row to the foot of the box. */
+/* The card's foot: the running ring first when this card is in hand, then the line's id when there
+ * is one, then whatever the cell is waiting for, and the moment against the right edge. The ring
+ * takes a column of its own, so the one card that is running carries its id one step right of its
+ * neighbours' — the state square that used to hold that column on every card is gone.
+ * `margin-top: auto` pins the row to the foot of the box. */
 .pf-page .pf-mmeta {
   display: flex;
   flex: none;

@@ -543,13 +543,9 @@ const FLOOR = { A: floorOf('--pf-mark-floor', 3), B: floorOf('--pf-mark-floor-de
  * `--dsw-alias-bg-base`) — so one row per place.
  */
 const MARKS = [
-  { what: '计数胶囊方记号 · 已交付', where: '.pf-cell', property: 'background', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
-  { what: '计数胶囊方记号 · 未开始', where: '.pf-cell.is-todo', property: 'box-shadow', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
+  { what: '登记簿记号 · 已解决', where: '.pf-cell', property: 'background', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
   { what: '卡片状态标 · 即将进线', where: '.pf-card .pf-state.is-next', decl: '.pf-state.is-next', property: 'border', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-layer-1', tier: 'A' },
   { what: '明细行记号 · 即将进线', where: '.pf-row .pf-state.is-next', decl: '.pf-state.is-next', property: 'border', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
-  /* A card on the map that wants a person, whatever its state is: the amber ring again, read
-   * against the brightened ground a lit card takes. */
-  { what: '地图卡片上的闸 · 琥珀环', where: '.pf-cell.is-gate', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-layer-2', tier: null },
   { what: '问题池记号 · 已承认', where: '.pf-cell.is-acknowledged', property: 'box-shadow', ink: 'var(--pf-ink-2)', ground: '--dsw-alias-bg-base', tier: 'A' },
   { what: '问题池记号 · 已否决', where: '.pf-cell.is-rejected', property: 'box-shadow', ink: 'var(--pf-ink-3)', ground: '--dsw-alias-bg-base', tier: 'A' },
   { what: '重量档 · 最重一档（P0）', where: '.is-P0', property: '--sev', ink: 'var(--pf-ink-1)', ground: '--dsw-alias-bg-base', tier: 'A' },
@@ -562,11 +558,12 @@ const MARKS = [
   { what: '卡片上的闸 · 琥珀环', where: '.pf-card.is-gate', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-layer-1', tier: null },
   { what: '卡片状态标 · 已交付', where: '.pf-card .pf-state.is-done', decl: '.pf-state.is-done', property: 'color', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-layer-1', tier: null },
   { what: '明细行记号 · 已交付', where: '.pf-row .pf-state.is-done', decl: '.pf-state.is-done', property: 'color', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-base', tier: null },
-  /* This mark has no instance on the page right now: the same rule paints it in both
-   * places (a card and a row), so both rows stay and are read where they would stand. */
+  /* The same rule paints this ring on three grounds: a board card, a detail row, and the map's own
+   * face, where it leads the foot row of the card in hand. The first of the three has no instance on
+   * the page right now, so its row is read where it would stand. */
   { what: '卡片状态标 · 进行中', where: '.pf-card .pf-state.is-run', decl: '.pf-state.is-run', property: 'color', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-layer-1', tier: null },
   { what: '明细行记号 · 进行中', where: '.pf-row .pf-state.is-run', decl: '.pf-state.is-run', property: 'color', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-base', tier: null },
-  { what: '计数胶囊方记号 · 进行中', where: '.pf-cell.is-running', property: 'background', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-base', tier: null },
+  { what: '地图卡片 · 进行中', where: '.pf-mnode .pf-state.is-run', decl: '.pf-state.is-run', property: 'color', ink: 'var(--dsw-alias-link)', ground: '--dsw-alias-bg-layer-2', tier: null },
   { what: '问题池记号 · 未解决', where: '.pf-cell.is-open', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-base', tier: null },
   { what: '线路记号 · 阻塞的点', where: '.pf-linemark.is-blocked::before', property: 'background', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-base', tier: null },
   /* The delete dialog's alert zone: the bar is the mark, and the layer the dialog

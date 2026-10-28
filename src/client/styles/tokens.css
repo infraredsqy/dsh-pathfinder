@@ -18,9 +18,10 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
-}/* The panel's marks are drawn twice over: on the boards and the census they are
- * a 7px cell, on the graph a 5–7px one, and every one of them has to survive
- * both palettes. The theme has no tier between "reading text" and "structure",
+}/* The panel's marks are drawn twice over: the register's rows and the issue
+ * band's pills are a 7px cell, the boards, the detail rows and the map's card in
+ * hand a 14px drawing, and every one of them has to survive both palettes. The
+ * theme has no tier between "reading text" and "structure",
  * so this panel states one: the theme's own label ladder read downward from the
  * reading ink, plus a fourth step mixed out of the third.
  *
@@ -67,14 +68,13 @@
   --pf-ink-2: var(--dsw-alias-label-secondary);
   --pf-ink-3: var(--dsw-alias-label-tertiary);
   --pf-ink-4: color-mix(in srgb, var(--dsw-alias-label-tertiary) 50%, transparent);
-}/* One cell = one node. The census in the header, the graph's marks and the
- * register's rows all read the same five values, so a reader who has learned
- * one has learned all three:
+}/* One cell = one issue. The register's rows and the issue band's pills read the
+ * same values, so a reader who has learned one has learned the other:
  *
- *   filled ink      settled — delivered, or closed
- *   hollow ring     not in play any more, or not started yet
- *   link            in hand
+ *   filled ink      settled — resolved
  *   warn ring       nobody has taken it; someone has to act
+ *   ink-2 ring      on the books and nobody owes it yet
+ *   ink-3 ring      on the books and turned down
  *
  * A ring is an inset shadow, not a border: the mark keeps its box and the
  * outline costs no layout. */.pf-page .pf-cell{
@@ -82,31 +82,21 @@
   height: 7px;
   border-radius: 2px;
   background: var(--pf-ink-2);
-}.pf-page .pf-cell.is-done, .pf-page .pf-cell.is-resolved{
-  background: var(--pf-ink-2);
-}.pf-page .pf-cell.is-running{
-  background: var(--dsw-alias-link);
-}/* Awaiting handling on the boards, open in the register: the one mark that says a
- * person has to move. */.pf-page .pf-cell.is-shelved, .pf-page .pf-cell.is-open{
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-warn-primary);
-}.pf-page .pf-cell.is-todo, .pf-page .pf-cell.is-rejected{
+}.pf-page .pf-cell.is-rejected{
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--pf-ink-3);
-}/* A cell that wants a person, whatever its state is: the map's cards wear this on the
- * mark, so a checkpoint that has been delivered and not approved still reads as "someone
- * has to act". Same ring as the two above — the ring is one value, the words beside it say
- * what kind of wait it is. */.pf-page .pf-cell.is-gate{
+}/* Awaiting handling: the one mark that says a person has to move. */.pf-page .pf-cell.is-open{
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--dsw-alias-state-warn-primary);
 }/* On the books and still counted, but nobody owes it yet. */.pf-page .pf-cell.is-acknowledged{
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--pf-ink-2);
 }/* ---- the state mark -------------------------------------------------------
- * The 14px drawing the boards put on a card and the detail list puts on a row:
- * a spinning ring while a step is open, a glyph for what it ended as, a pause
- * for a gate, a dashed ring for work that has not started. Two views, one
- * drawing — a card and a row are two sizes of the same reading.
+ * The 14px drawing the boards put on a card, the detail list on a row, and the map
+ * on the one card that is in hand: a spinning ring while a step is open, a glyph for
+ * what it ended as, a pause for a gate, a dashed ring for work that has not
+ * started. Two views, one drawing — a card and a row are two sizes of the same
+ * reading.
  *
  * The spinning ring's track is the one place a structure colour stands as a
  * graphic (DSH's own spinner draws its track the same way) and the head of the
@@ -276,10 +266,9 @@
   line-height: 1;
   color: var(--dsw-alias-label-caption);
   pointer-events: none;
-}/* The counter in the header's right corner: one line of arithmetic, not one
- * cell per node — a matrix that scales with the ledger stops being readable
- * long before the ledger stops growing. The counts already live on the left;
- * the right corner only totals. */.pf-page .pf-count{
+}/* The counter over a list: one line of arithmetic, not one cell per entry — a
+ * matrix that scales with the ledger stops being readable long before the ledger
+ * stops growing. The issue band is the one place that still totals. */.pf-page .pf-count{
   display: flex;
   align-items: center;
   gap: 14px;
