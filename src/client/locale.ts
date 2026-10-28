@@ -10,9 +10,8 @@
  * bundled fallback table when it is not.
  *
  * The fallback is not a stub. Deployments without the locale service (an older DSH, a test harness,
- * a stand-alone panel) get the same behaviour the panel had before it was translatable: Chinese,
- * read straight from the bundled table. That keeps every word on the panel defined in every
- * deployment — a missing service degrades the feature, never the copy.
+ * a stand-alone panel) get Chinese, read straight from the bundled table. That keeps every word on
+ * the panel defined in every deployment — a missing service degrades the feature, never the copy.
  *
  * The port deliberately mirrors `prefs.ts`: a snapshot that only changes identity when something
  * truly changed, a `subscribe`, and a module-level default so a component is readable before
@@ -35,8 +34,8 @@ export const LOCALE_NS = 'pathfinder'
 /**
  * The language the panel speaks when nothing tells it otherwise.
  *
- * Chinese, because that is what the panel said before it could be translated: a deployment with no
- * locale service must not change its words just because the mechanism was added.
+ * Chinese, the bundled table's own language: a deployment with no locale service still draws real
+ * words.
  */
 export const FALLBACK_LOCALE = 'zh'
 

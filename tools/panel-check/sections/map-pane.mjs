@@ -1,8 +1,6 @@
 /* 4b. The map pane: one card per node, one wire per edge, a rail that changes the emphasis, a camera that really moves
  *
- * Expected placement and camera come from the same engine the panel calls.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * Expected placement and camera come from the same engine the panel calls. */
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 

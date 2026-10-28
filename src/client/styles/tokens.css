@@ -261,7 +261,7 @@
  * coding / writing / art are the ledger's own three kinds, and they are a
  * filter set, not a category tree -- `maint:*` rides alongside them. A tag is
  * a pill: rounded, a touch lighter than its ground, the whole word inside.
- * A bare letter made the reader learn a second alphabet for three words.
+ * A bare letter would make the reader learn a second alphabet for three words.
  *
  * The same pill carries the settings row's layer chip (`data-layer`): it is the
  * same small object — a word, quieter than the row it sits in. The three pages
@@ -342,7 +342,7 @@
  * is DSH's shared control: a 4px inset track in the hover fill, 2px between R8
  * segments, and the segment in play on a layer fill with the soft elevation
  * material — which is where its hairline lives, so it takes no border of its
- * own. Three views used to draw this object three ways; there is one now. */.pf-page .pf-seg{
+ * own. */.pf-page .pf-seg{
   display: inline-grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
@@ -351,10 +351,9 @@
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-interactive-bg-hover);
 }/* The segment's inset is one notch narrower than DSH's own copy (0 16px): the labels here are
- * two CJK characters while DSH's are one English word; at 16px, three buttons at the 900-wide
- * footprint tier push the board's third column out by 13px (column 173px, control 186px). 12px
- * is the largest padding that fits this footprint tier at the same font size, weight, radius
- * and inset. */.pf-page .pf-segbtn{
+ * two CJK characters while DSH's are one English word, and 16px padding overflows the 900-wide
+ * footprint tier. 12px is the largest padding that fits this footprint tier at the same font
+ * size, weight, radius and inset. */.pf-page .pf-segbtn{
   box-sizing: border-box;
   height: 28px;
   margin: 0;
@@ -388,8 +387,8 @@
 }/* A section head is a title bar: a shade above the page, four corners taken,
  * and the title one step brighter than the rows under it. The word starts at
  * the bar's own left edge and the fold glyph follows it — a glyph with a cell
- * of its own used to push the title into the second column, where it read as
- * one more option in the list. */.pf-page .pf-rowhead{
+ * of its own would push the title into the second column, where it would read
+ * as one more option in the list. */.pf-page .pf-rowhead{
   flex: none;
   width: 100%;
   height: 28px;
@@ -495,9 +494,7 @@
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }/* ---- a small action -------------------------------------------------------
- * The panel's quiet button: a word, a hairline, R4. Three places used to draw it
- * three times — the settings key at the end of a line's row, Close on a modal,
- * and archive / restore / delete on an instruction. It owns nothing but its own drawing:
+ * The panel's quiet button: a word, a hairline, R4. It owns nothing but its own drawing:
  * a view that only reveals it under the pointer hides it from its own selector,
  * so the same object can stand in a row that is always visible. */.pf-page .pf-mini{
   flex: none;

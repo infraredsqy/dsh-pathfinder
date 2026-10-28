@@ -46,9 +46,6 @@ const GROUPS: readonly { readonly key: IssueState; readonly standing: boolean }[
   { key: 'resolved', standing: false },
 ]
 
-/**
- * Read the issue pool at that moment.
- */
 export function readPool(
   nodes: Readonly<Record<string, PathfinderNode>>,
   cycles: readonly PathfinderCycle[],
@@ -131,9 +128,6 @@ export function readPool(
   }
 }
 
-/**
- * The weight table written in the records.
- */
 export function readWeights(nodes: Readonly<Record<string, PathfinderNode>>): PoolWeights | null {
   for (const node of Object.values(nodes)) {
     const said = `${node.title ?? ''} ${node.description ?? ''}`

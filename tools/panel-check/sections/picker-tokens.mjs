@@ -1,8 +1,6 @@
 /* The top workspace picker and the CSS token landings
  *
- * Whichever workspace is picked is the one read; the shipped sheet lands its tokens on the panel root.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * Whichever workspace is picked is the one read; the shipped sheet lands its tokens on the panel root. */
 
 /** runPickerAndTokens */
 export async function runPickerAndTokens(ctx) {
@@ -13,7 +11,7 @@ export async function runPickerAndTokens(ctx) {
    * The list follows DSH's manifest (titles plus the trailing "Ungrouped" entry), the default stays
    * on the bucket this session falls in, and switching entries hands that root to the host with the
    * screen swapping to what that root reads. Switches hand over absolute paths (`askedRoots` compares
-   * per entry); "Ungrouped" is not a root, and splits in two (the afb7ca0 contract): when the session
+   * per entry); "Ungrouped" is not a root, and splits in two: when the session
    * belongs to some bucket, no read is issued at all and the panel collapses to the "no records under
    * Ungrouped" sentence with the picker kept; when the session belongs to no bucket, it counts as
    * Ungrouped and an empty string is handed over, still reading its own root.
@@ -90,7 +88,7 @@ export async function runPickerAndTokens(ctx) {
   await act(async () => { spaceRoot.unmount() })
 
   /* The session truly outside every workspace: the same manifest, only no bucket carries this session —
-   * DSH files it under "Ungrouped" and defaults there. afb7ca0's "still reads its own root" is this branch. */
+   * DSH files it under "Ungrouped" and defaults there; it still reads its own root. */
   const loneSnapshot = { items: spaceItems.map((item) => ({ ...item, sessionIds: [] })) }
   const loneSource = { getSnapshot: () => loneSnapshot, subscribe: () => () => undefined }
   const loneHost = window.document.createElement('div')
@@ -176,14 +174,5 @@ export async function runPickerAndTokens(ctx) {
       && frameWon.width === '100%' && frameWon.height === '100%' && frameWon.display === 'flex',
     `stage padding=${JSON.stringify(stageWon.padding)} overflow-y=${JSON.stringify(stageWon['overflow-y'])} justify-content=${JSON.stringify(stageWon['justify-content'])} ｜ frame width=${JSON.stringify(frameWon.width)} height=${JSON.stringify(frameWon.height)} display=${JSON.stringify(frameWon.display)}`,
   )
-
-  /* The equivalence ruler lived here: it compared the shipped css against the blueprint's sheets rule by
-   * rule, sheet by sheet, and the embedded pane's landing against a copy of those sheets. It
-   * existed to prove the build's scoping pass faithful, and that pass is gone — `src/client/styles/`
-   * is read in order as the shipped bytes, so there is nothing left to compare them to. The notches
-   * it guarded (`.is-embed.pf-issue X`, `.pf-issue .pf-register .pf-row`) are written out plainly in
-   * those sheets, where an editor sees them. What stands in its place: the build's own layer ruler (a
-   * selector escaping its layer stops the build), the token probe just above, and 4b / 4c below.
-   */
 
 }

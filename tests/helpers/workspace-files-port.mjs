@@ -1,7 +1,7 @@
 /* The workspaceFiles port stand-in the host-side tests share: directory entries inferred from a
  * filename → text dict, reads paged by line with the real port's own semantics (offset-1 slicing,
- * the eof arithmetic, the not-found code, the two refusal codes). One implementation lives here;
- * a fake that drifts from the port's paging no longer exists.
+ * the eof arithmetic, the not-found code, the two refusal codes). One implementation lives here,
+ * so nothing pages differently from the port.
  */
 import { NOT_FOUND } from '../../src/host/records.ts'
 

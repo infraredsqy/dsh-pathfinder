@@ -1,8 +1,6 @@
 /* 4c. The issue pane: register rows, whether the weight bar draws, and the built-in master-detail
  *
- * Tier flips, fold piles and the cleared-pool fork, all derived from the record’s own pool readings.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * Tier flips, fold piles and the cleared-pool fork, all derived from the record’s own pool readings. */
 
 /** runIssuePane */
 export async function runIssuePane(ctx) {

@@ -17,9 +17,6 @@ export function two(n: number): string {
   return (n < 10 ? '0' : '') + String(n)
 }
 
-/**
- * Clock time: `HH:MM`.
- */
 export function clock(moment: Date | null): string {
   return moment ? `${two(moment.getHours())}:${two(moment.getMinutes())}` : '--'
 }
@@ -44,9 +41,6 @@ export function durationParts(seconds: number | null): DurationParts | null {
   return { unit: 'hours', value: Math.floor(minutes / 60), rest: minutes % 60 }
 }
 
-/**
- * Compact spelling of a duration: `41s` / `24m` / `2h14` / `3h`.
- */
 export function duration(seconds: number | null): string {
   const parts = durationParts(seconds)
   if (parts === null) return '--'
@@ -55,9 +49,6 @@ export function duration(seconds: number | null): string {
   return parts.rest > 0 ? `${parts.value}h${two(parts.rest)}` : `${parts.value}h`
 }
 
-/**
- * How long from that moment to `at`, compact spelling.
- */
 export function elapsedSince(moment: Date | null, at: Date): string {
   return moment === null ? '--' : duration(secondsBetween(moment, at))
 }

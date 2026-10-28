@@ -1,10 +1,8 @@
 /* Two judgments the panel makes before it touches literals: the four sources' outcomes, and which
  * cells a cycle's detail collects.
  *
- * These two used to live in the rendering files, unreachable from Node and un-lockable by unit
- * tests; after moving into the model layer, what is locked are the criteria themselves — an empty
- * set does not count as "all present", both walked-by and held-by count, and the delivered section
- * orders newest completion first.
+ * What is locked are the criteria themselves — an empty set does not count as "all present", both
+ * walked-by and held-by count, and the delivered section orders newest completion first.
  *
  *   node --test tests/
  */

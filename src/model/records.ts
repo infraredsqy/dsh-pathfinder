@@ -1,7 +1,8 @@
 /**
  * The raw records: field-for-field copies of the four record files' own
- * fields — no field renamed, no unit converted, no moment folded — plus the
- * result shape the host half hands back from one fetch.
+ * fields — no field renamed, no unit converted, no moment folded, and any
+ * other fields a record carries come along untouched — plus the result shape
+ * the host half hands back from one fetch.
  *
  * This is the model layer's bottom layer: it describes only the records
  * themselves and imports nothing; the host and browser halves both take these
@@ -36,7 +37,6 @@ export interface PathfinderNode {
   /** The moment a human approved this delivery; it counts only at or after that delivery. */
   readonly approved_at?: string | null
   readonly updated_at?: string | null
-  /** Any other fields the record carries come along: no trimming at this step. */
   readonly [field: string]: unknown
 }
 
@@ -46,7 +46,6 @@ export interface PathfinderStep {
   readonly started_at?: string | null
   readonly ended_at?: string | null
   readonly result?: string | null
-  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 
@@ -54,7 +53,6 @@ export interface PathfinderStep {
 export interface PathfinderHolding {
   readonly id?: string
   readonly since?: string | null
-  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 
@@ -76,7 +74,6 @@ export interface PathfinderCycle {
   readonly current_started_at?: string | null
   /** The steps this cycle has walked, in record order. */
   readonly path?: readonly PathfinderStep[]
-  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 
@@ -106,7 +103,6 @@ export interface PathfinderInstruction {
   readonly stop_after_nodes?: number | null
   readonly applied_rounds?: readonly unknown[]
   readonly applied?: readonly unknown[]
-  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 
@@ -131,7 +127,6 @@ export interface PathfinderIssue {
   readonly suggestion?: string | null
   readonly reason?: string | null
   readonly plan_path?: string | null
-  /** Any other fields the record carries come along. */
   readonly [field: string]: unknown
 }
 

@@ -12,18 +12,12 @@ export function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-/**
- * Read a record's moment text into a moment.
- */
 export function toMoment(raw: unknown): Date | null {
   if (typeof raw !== 'string' || raw.length === 0) return null
   const ms = Date.parse(raw)
   return Number.isNaN(ms) ? null : new Date(ms)
 }
 
-/**
- * Has that moment arrived.
- */
 export function happenedAt(moment: Date | null, at: Date): boolean {
   return moment !== null && moment.getTime() <= at.getTime()
 }
@@ -53,9 +47,6 @@ export function writtenBy(moment: Date | null, at: Date): boolean {
   return moment === null || moment.getTime() <= at.getTime()
 }
 
-/**
- * How many seconds passed between two moments.
- */
 export function secondsBetween(from: Date | null, to: Date | null): number | null {
   if (from === null || to === null) return null
   return Math.round((to.getTime() - from.getTime()) / 1000)

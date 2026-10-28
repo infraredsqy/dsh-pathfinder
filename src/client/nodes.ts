@@ -4,7 +4,6 @@
  */
 import type { NodeReading } from '../model/index.ts'
 
-/** Short form of the identity: first 8 chars. */
 export function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
 }

@@ -1,8 +1,6 @@
 /* 4a. The settings section: a navigation row plus the page it opens, reading the same settings form as the panel
  *
- * Flip one row and the panel reading follows at once; also carries the detail-group readings, the instruction CRUD and the policy numbers.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * Flip one row and the panel reading follows at once; also carries the detail-group readings, the instruction CRUD and the policy numbers. */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 

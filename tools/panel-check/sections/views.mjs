@@ -1,8 +1,6 @@
 /* Draw it, open each view in turn: tracked port, the five tabs, the map readings, the session notes
  *
- * Also creates the write-call/root-ask trackers the later sections assert against.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * Also creates the write-call/root-ask trackers the later sections assert against. */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -73,8 +71,7 @@ export async function runViews(ctx) {
 
   /* The map's readings must match the record: one card per node, one wire per edge, and one rail row
    * per line plus the whole workspace. "The pane has text"-style asserts would not do — the rail alone
-   * would satisfy them, regardless of the record. The header used to total the four node states up
-   * here; that row of counts is gone, and this reads it gone as well. */
+   * would satisfy them, regardless of the record. */
   await act(async () => { tabs[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
   const reading = await gateway.read(sessionId, '', {})
   const project = readProject({ nodes: reading.nodes, cycles: reading.cycles, instructions: reading.instructions, issues: reading.issues, at: new Date() })
@@ -98,9 +95,8 @@ export async function runViews(ctx) {
   )
 
   /* A card's two lines, read off the drawn ones: the title leads, and the foot row is the line's id
-   * then the moment — the state square that used to lead that row on every card is gone. The one card
-   * in hand wears the running ring at the head of the row instead, so the ring stands exactly on the
-   * cards whose reading says `running`, and no card carries a cell any more. */
+   * then the moment; the one card in hand wears the running ring at the head of the row, so the ring
+   * stands exactly on the cards whose reading says `running`. */
   const cardShapes = [...(mapPane()?.querySelectorAll('.pf-mnode') ?? [])].map((card) => {
     const id = card.getAttribute('data-id') ?? ''
     const reading = project.nodeById[id]
