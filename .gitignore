@@ -2,7 +2,8 @@
 .work*/
 # A record ledger lives on the author's machine only; the panel reads one through config, never ships one
 /.pf/
-lib/
+# anchored: the build output is the root's own lib/, not any source directory named lib (tools/lib/)
+/lib/
 node_modules/
 # The design blueprint, kept locally for reference only: a self-contained snapshot (page-shaped
 # sheets + the four pages + the generated data) that nothing builds, reads or ships. Delete it freely.

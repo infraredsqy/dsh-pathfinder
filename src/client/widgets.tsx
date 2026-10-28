@@ -1,6 +1,6 @@
 /**
  * The widgets shared by the client's panes: a movable split, a count pill, a modal shell, and a
- * commit-style number input.
+ * commit-style input.
  *
  * Each exists only once: the drag measurement differs in three places, but draggable + keyboard +
  * double-click-to-default is written down in one way; the modal's overlay, Escape, and focus all
@@ -162,8 +162,9 @@ export function ModalShell(props: {
 }
 
 /**
- * A commit-style number input: type=number, both blur and Enter count as done; typed characters
- * live in the box and yield only when a reading arrives.
+ * A commit-style input: type=number by default (the line's policy fields), type=text for the
+ * settings page's unregistered keys; both blur and Enter count as done; typed characters live in
+ * the box and yield only when a reading arrives.
  *
  * The box's text must survive a commit: blur and Enter often arrive back to back (focus moving away
  * on the commit beat is routine), and handing over unaccepted characters as empty would make the
@@ -172,15 +173,18 @@ export function ModalShell(props: {
  * rule is supplied by the caller: this file only hands over the trimmed text — whether to write,
  * and what, is its call.
  *
- * The "unset" placeholder is the one word this file prints itself that the dictionary has no key
- * for (one such as `common.unset` would be wanted): a key is never invented at a call site, so that
- * word stands until the dictionary states one.
+ * The "unset" placeholder — worn when the reading holds no value — is spelled from the dictionary
+ * like every other word here (`common.unset`).
  */
 export function CommitNumberInput(props: {
   /** How the reading's value prints; the box starts from it and returns to it. */
   readonly held: string
   /** The reading has no such value: the box wears is-unset and the placeholder says "unset". */
   readonly unset: boolean
+  /** `number` (with the count floor) unless the caller says otherwise; the settings page's text rows say `text`. */
+  readonly type?: 'number' | 'text'
+  /** Handed to the input as-is; the text rows turn the browser's spellcheck off. */
+  readonly spellCheck?: boolean
   readonly label: string
   readonly describedBy: string
   /** The reading's marker: once it flips, the box swaps to the reading's copy. Without it the box follows `held` only. */
@@ -197,8 +201,9 @@ export function CommitNumberInput(props: {
   return (
     <input
       className={`pf-numin${props.unset ? ' is-unset' : ''}`}
-      type="number"
-      min={1}
+      type={props.type ?? 'number'}
+      min={props.type === 'text' ? undefined : 1}
+      spellCheck={props.spellCheck}
       aria-label={props.label}
       aria-describedby={props.describedBy}
       placeholder={props.unset ? t('common.unset') : ''}

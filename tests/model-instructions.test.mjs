@@ -6,17 +6,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { groupInstructions, readProject } from '../src/model/index.ts'
+import { AT, instruction as baseInstruction, record } from './helpers/record-fixtures.mjs'
 
-const AT = new Date('2026-03-10T12:00:00.000Z')
-
-/** An instruction; defaults to the most common kind in a record: spoken and still in force. */
-function instruction(fields = {}) {
-  return { id: 'i1', text: '一句话', scope: 'global', target: 'stage', at: '2026-03-10T09:00:00.000Z', state: 'live', ...fields }
-}
+/** An instruction; this file's own defaults layered on the shared body: staged, spoken at 09:00. */
+const instruction = (fields = {}) => baseInstruction({ target: 'stage', at: '2026-03-10T09:00:00.000Z', ...fields })
 
 function read(instructions, parts = {}) {
-  const input = { nodes: {}, cycles: [], issues: {}, ...parts, instructions, at: parts.at ?? AT }
-  return readProject(input).instructions
+  return readProject(record({ ...parts, instructions })).instructions
 }
 
 const ids = (list) => list.map((item) => item.id)

@@ -1,7 +1,8 @@
 /* dsh-pathfinder · instructions —— the user's own sentences, ordered by placement: one sentence per
  * row, the sentence at left, its current reading at right (a counted one reports when it was said;
  * a not-counted one first reports what became of it, then the day). Grouping, sorting and whether
- * something counts all live in `data.js` (the record's own business); this side only draws. */.pf-page .pf-ins{
+ * something counts all live in the model layer (`src/model`, the record's own business); this side
+ * only draws. */.pf-page .pf-ins{
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 12px;
@@ -20,7 +21,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-}.pf-page .pf-ins.is-out .pf-ins-text{ color: var(--dsw-alias-label-caption); }.pf-page .pf-ins.is-clip .pf-ins-text{ cursor: pointer; }.pf-page .pf-ins.is-clip .pf-ins-text:hover{ color: var(--dsw-alias-label-secondary); }.pf-page .pf-ins.is-open .pf-ins-text{ display: block; overflow: visible; }.pf-page .pf-ins-read{
+}.pf-page .pf-ins.is-out .pf-ins-text{ color: var(--dsw-alias-label-caption); }.pf-page .pf-ins-read{
   grid-column: 2;
   grid-row: 1;
   /* The reading stands against the right edge, not against its own column's head: the actions
@@ -73,12 +74,7 @@
   font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-caption);
   user-select: text;
-}.pf-page .pf-ins-tags{
-  flex: none;
-  display: flex;
-  gap: 6px;
-  margin-left: auto;
-}.pf-page .pf-ins[data-over='1']{ display: none; }.pf-page .pf-sec[data-open='1'] .pf-ins[data-over='1']{ display: grid; }.pf-page .pf-sec.is-folded .pf-ins{ display: none; }/* ---- Add a note: the sentence verbatim, the scope named --------------------
+}.pf-page .pf-sec.is-folded .pf-ins{ display: none; }/* ---- Add a note: the sentence verbatim, the scope named --------------------
  * It stands at the very top of this pane: first write what is to be said, then read down the
  * entries currently governing me. */.pf-page .pf-add{
   flex: none;

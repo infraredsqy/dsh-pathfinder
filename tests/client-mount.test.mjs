@@ -31,36 +31,18 @@ import {
 import { FALLBACK_LOCALE, LOCALE_NS, createLocalePort, localeOf } from '../src/client/locale.ts'
 import { WORD_TABLES } from '../src/client/locales/index.ts'
 import { PANEL_STYLE_ID, SETTINGS_STYLE_ID, dropStyleTag, ensureStyleTag } from '../src/client/style-tags.ts'
+import { fakeLocaleService, fakeSlotRoster } from './helpers/dsh-standins.mjs'
 
 const PANEL_ID = 'pathfinder'
-
-/** The key a registration is filed under: single-seat and list slots key on `id`, the key-dispatched section keys on `key`. */
-function entryKey(options) {
-  return `${options.name}:${options.id ?? options.key}`
-}
 
 /**
  * A stand-in context: `slots`, `effect`, and `inject` all present, shaped like a real deployment;
  * with `effect: false` the `effect` slot is removed to exercise the "context without effect" path.
+ * The slot roster is the shared stand-in; the effects list and its dispose shape stay here.
  */
 function harness({ withEffect = true, services = {} } = {}) {
-  const ledger = new Map()
-  const calls = []
+  const { ledger, calls, slots } = fakeSlotRoster()
   const effects = []
-  const slots = {
-    inject(key, register) {
-      calls.push(`inject/${key}`)
-      const off = register()
-      return typeof off === 'function' ? off : () => undefined
-    },
-    register(options, component) {
-      const id = entryKey(options)
-      calls.push(`register/${id}`)
-      if (ledger.has(id)) throw new Error(`list slot "${options.name}" already has an entry with id "${String(options.id ?? options.key)}"`)
-      ledger.set(id, { options, component })
-      return () => { ledger.delete(id) }
-    },
-  }
   const ctx = {
     get: (name) => (name === 'slots' ? slots : services[name]),
     inject: (names, callback) => callback(ctx),
@@ -92,45 +74,6 @@ function fakePanel({ locale = createLocalePort() } = {}) {
     prefs: {},
     locale,
     Panel,
-  }
-}
-
-/**
- * A stand-in for DSH's locale service, shaped like the interface in `src/client/locale.ts`:
- * lookup tables registered per namespace, a translator bound per namespace, a snapshot saying which
- * language is active, and a subscriber list the language switch walks.
- *
- * The bound translator resolves against the language active at call time, which is exactly what the
- * port relies on: one bound reference serves every language.
- */
-function fakeLocaleService() {
-  const dicts = new Map()
-  let active = 'zh'
-  let revision = 0
-  const listeners = new Set()
-  return {
-    register(ns, locale, dict) {
-      dicts.set(`${ns}:${locale}`, dict)
-    },
-    bind(ns) {
-      return (key, params) => {
-        const template = dicts.get(`${ns}:${active}`)?.[key] ?? key
-        if (params === undefined) return template
-        return template.replace(/\{([A-Za-z0-9_]+)\}/gu, (whole, name) => (params[name] === undefined ? whole : String(params[name])))
-      }
-    },
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    },
-    getSnapshot: () => ({ active, revision }),
-    getLocale: () => ({ active, revision }),
-    /** Flip the language the way DSH's own service does: change the fact, then tell subscribers. */
-    switchTo(locale) {
-      active = locale
-      revision += 1
-      for (const listener of [...listeners]) listener()
-    },
   }
 }
 

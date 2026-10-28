@@ -13,12 +13,11 @@ import { nodesOf } from '../model/index.ts'
 import { clampSide, SIDE_DEFAULT, SIDE_MAX, SIDE_MIN } from './prefs.ts'
 import { NOT_ENABLED_WORD } from './constants.ts'
 import { useT } from './locale.ts'
-import type { Translate } from './locale.ts'
 import type { WordKey } from './locales/index.ts'
-import { gateWord, unit } from './words.ts'
+import { gateTitle, gateWord, stateWord, unit } from './words.ts'
 import { nodeName, nodeHover } from './nodes.ts'
 import { Grip } from './widgets.tsx'
-import { DepsChip, gateTitle, StateMark } from './marks.tsx'
+import { DepsChip, StateMark } from './marks.tsx'
 
 /** The five detail sections, in the order readers meet them. */
 interface Group {
@@ -128,11 +127,6 @@ function LineMark(props: { readonly cycle: CycleReading }): React.ReactElement {
   return <span className={`pf-linemark ${cls}`.trim()} title={stateWord(t, cycle)} />
 }
 
-function stateWord(t: Translate, cycle: CycleReading): string {
-  if (cycle.parked.length > 0) return t('cycle.blocked')
-  return cycle.inService ? t('cycle.running') : t('cycle.stopped')
-}
-
 /** Detail: the picked line's node list, grouped into five sections. */
 function DetailList(props: { readonly cycle: CycleReading; readonly project: ProjectReading }): React.ReactElement {
   const { cycle, project } = props
@@ -168,7 +162,7 @@ function DetailGroup(props: { readonly group: Group; readonly nodes: readonly No
       </button>
       {props.nodes.map((node) => (
         <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(t, node, props.at)}>
-          <StateMark node={node} kind={group.key} at={props.at} />
+          <StateMark node={node} at={props.at} />
           <span className="pf-rowtitle" title={nodeHover(node)}>{nodeName(node)}</span>
           <span className="pf-rowfigs">{group.deps ? <DepsChip node={node} /> : null}</span>
           {/* The section already says its own gate kind: a node gated that same way adds no second

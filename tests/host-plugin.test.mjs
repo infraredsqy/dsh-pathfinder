@@ -16,14 +16,14 @@ function fakeWorkspaceFiles() {
   const asked = []
   return {
     asked,
-    async list(scope, path) {
-      asked.push({ kind: 'list', scope, path })
+    async list(scope, path, signal) {
+      asked.push({ kind: 'list', scope, path, signal })
       const error = new Error(`no entry at ${path}`)
       error.code = 'workspace-file/not-found'
       throw error
     },
-    async read(scope, path, range) {
-      asked.push({ kind: 'read', scope, path, range })
+    async read(scope, path, range, signal) {
+      asked.push({ kind: 'read', scope, path, range, signal })
       throw new Error('nothing to read in this test')
     },
   }
@@ -150,6 +150,9 @@ test('服务装在 ctx 上，由调用方给的取消信号转手递给口子', 
   assert.equal(typeof provided.pathfinderRecords.read, 'function')
 
   const controlled = new AbortController()
-  await provided.pathfinderRecords.read('s9', { signal: controlled.signal })
-  assert.ok(asked.length > 0)
+  await provided.pathfinderRecords.read('s9', '', { signal: controlled.signal })
+  assert.ok(asked.length > 0, '这一趟要真走到口子上，才谈得上信号到没到')
+  for (const call of asked) {
+    assert.equal(call.signal, controlled.signal, '口子收到的信号得是调用方递的那一条，不是端点自己新造的')
+  }
 })

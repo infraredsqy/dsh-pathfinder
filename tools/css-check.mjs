@@ -15,6 +15,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { cssBlocks, stripComments } from './lib/cssrules.mjs'
+import { SHEETS } from './lib/sheets.mjs'
 
 const argv = process.argv.slice(2)
 const argOf = (flag) => {
@@ -34,9 +36,6 @@ const STYLES = join(ROOT, 'src', 'client', 'styles')
 const THEME_SHEET = join(ROOT, 'tools', 'theme.css')
 
 /* ------------------------------------------------------------------ parsing */
-
-/** Strip comments so no rule is read out of a sentence. */
-const withoutComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, ' ')
 
 /* The layer classes the shipped sheets lead their selectors with — one per cell. */
 const LAYER_CLASSES = ['pf-page', 'pf-wires', 'pf-issue']
@@ -65,48 +64,23 @@ function bareSelector(selector) {
 }
 
 /**
- * Every rule in a sheet, in source order, flattened across at-rules.
- * A block whose prelude starts with `@` is a container and its inner rules are
- * returned too, each carrying the container's prelude as `at`.
+ * Every rule in a sheet, in source order, flattened across at-rules. The walk itself —
+ * comment stripping, brace balancing, the descent into every at-rule's body — is the
+ * shared one (tools/lib/cssrules.mjs); this checker's strategy is `'all'`, so a rule
+ * inside any at-rule, `@keyframes` steps included, is asked the same questions.
  * @param {string} css - stylesheet text.
  * @returns {{selectors: string[], declarations: [string, string][], at: string}[]}
  */
-function parseRules(css) {
-  const rules = []
-  const walk = (text, at) => {
-    let i = 0
-    while (i < text.length) {
-      const open = text.indexOf('{', i)
-      if (open < 0) break
-      const prelude = text.slice(i, open).trim()
-      let depth = 0
-      let end = -1
-      for (let j = open; j < text.length; j += 1) {
-        if (text[j] === '{') depth += 1
-        else if (text[j] === '}') {
-          depth -= 1
-          if (depth === 0) { end = j; break }
-        }
-      }
-      if (end < 0) throw new Error('unbalanced braces')
-      const body = text.slice(open + 1, end)
-      if (prelude.startsWith('@')) walk(body, prelude)
-      else {
-        rules.push({
-          selectors: prelude.split(',').map(s => bareSelector(s.trim())).filter(Boolean),
-          declarations: body.split(';').map(p => p.trim()).filter(p => p.includes(':')).map((p) => {
-            const colon = p.indexOf(':')
-            return [p.slice(0, colon).trim(), p.slice(colon + 1).trim()]
-          }),
-          at,
-        })
-      }
-      i = end + 1
-    }
-  }
-  walk(withoutComments(css), '')
-  return rules
-}
+const parseRules = (css) => cssBlocks(stripComments(css), { descend: 'all' })
+  .filter((block) => block.kind === 'rule')
+  .map((block) => ({
+    selectors: block.prelude.split(',').map(s => bareSelector(s.trim())).filter(Boolean),
+    declarations: block.body.split(';').map(p => p.trim()).filter(p => p.includes(':')).map((p) => {
+      const colon = p.indexOf(':')
+      return [p.slice(0, colon).trim(), p.slice(colon + 1).trim()]
+    }),
+    at: block.at,
+  }))
 
 const varNames = (value) => [...value.matchAll(/var\(\s*(--[\w-]+)/g)].map(([, name]) => name)
 
@@ -206,19 +180,26 @@ const failures = []
 const fail = (section, detail) => failures.push(`${section}: ${detail}`)
 
 const read = (path) => readFileSync(path, 'utf8')
-/* `tokens.css` first, then the rest in name order. The palette map reads last-wins, so this order
- * is what decides whose `body` / `:root` declarations the map ends up holding. */
+/* The sheet set and its cascade order are the artifact's, not this checker's invention: both
+ * come from the shared manifest (tools/lib/sheets.mjs), the same list build-client joins into
+ * the bundle. Last-wins readings therefore fall to whichever sheet ships last — the cascade's
+ * own winner. The directory itself is scanned only to catch the opposite mistake out loud: a
+ * .css sitting in styles/ but not on the manifest ships nowhere, and a manifest sheet missing
+ * from disk means the artifact would be built short a sheet. Either one refuses the check. */
 const stylesDir = STYLES
-const moduleSheets = existsSync(stylesDir)
-  ? readdirSync(stylesDir).filter(n => n.endsWith('.css') && n !== 'tokens.css').sort().map(n => join(stylesDir, n))
+const manifestSheets = SHEETS.map(({ sheet }) => join(stylesDir, sheet))
+const absent = manifestSheets.filter((p) => !existsSync(p))
+if (absent.length > 0) throw new Error(`sheets the manifest ships are missing under ${STYLES}: ${absent.join(', ')}`)
+const strays = existsSync(stylesDir)
+  ? readdirSync(stylesDir).filter(n => n.endsWith('.css') && !SHEETS.some(({ sheet }) => sheet === n)).sort()
   : []
-const panelSheets = [join(STYLES, 'tokens.css'), ...moduleSheets].filter(existsSync)
+if (strays.length > 0) throw new Error(`sheets not on the shipping manifest (tools/lib/sheets.mjs) — they ship nowhere: ${strays.join(', ')}`)
+const panelSheets = manifestSheets
 const pages = existsSync(PREVIEW)
   ? readdirSync(PREVIEW).filter(n => n.endsWith('.html')).sort().map(n => join(PREVIEW, n))
   : []
 
 if (!existsSync(THEME_SHEET)) throw new Error(`no theme sheet at ${THEME_SHEET}`)
-if (panelSheets.length < 2) throw new Error(`no panel sheets found under ${STYLES}`)
 
 const rel = (p) => relative(ROOT, p).split(sep).join('/')
 const themeRules = parseRules(read(THEME_SHEET))
@@ -249,7 +230,11 @@ function paletteMap(palette) {
 
 const PALETTES = { light: paletteMap('light'), dark: paletteMap('dark') }
 
-/* ------------------------------------------------------- 1. colours, aliases */
+/* Section banners carry names, not numbers: the source's blocks are laid out by subject, not
+ * in report order, and a number here would drift against the report's own index. The report
+ * below is where the rows are numbered. */
+
+/* ------------------------------------------------------ colours, aliases */
 
 const LITERAL = /(#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\()/i
 /** Aliases a feature sheet may spend. Anything else is either the theme's own
@@ -273,13 +258,15 @@ for (const file of [...panelFiles, { path: THEME_SHEET, rules: themeRules }]) {
 }
 /** Properties a page's script passes in, each with a fallback where it is read. */
 const optional = new Set([...[...panelFiles].flatMap(file => [...read(file.path).matchAll(/var\(\s*(--[\w-]+)\s*,/g)].map(([, name]) => name))])
+/* Custom properties the client's TSX writes inline, so no sheet may declare a value for them:
+ * the map's card box (`map.tsx`, from `map-layout.ts`'s `CARD_W` / `CARD_H`). The sheet reads
+ * them fallback-less on purpose — the inline style is the only writer, and a CSS-declared copy
+ * could only drift. */
+const scriptWritten = new Set(['--card-w', '--card-h'])
 for (const file of panelFiles) {
   for (const rule of file.rules) {
     for (const [property, value] of rule.declarations) {
-      if (property.startsWith('--pf-') && LITERAL.test(value)) {
-        literalCount += 1
-        fail('literal colour', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
-      } else if (!property.startsWith('--pf-') && LITERAL.test(value)) {
+      if (LITERAL.test(value)) {
         literalCount += 1
         fail('literal colour', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
       }
@@ -287,7 +274,7 @@ for (const file of panelFiles) {
         if (name.startsWith('--dsw-static-')) {
           rawStepCount += 1
           fail('raw palette step', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
-        } else if (!ALIAS_FAMILIES.test(name) && !declared.has(name) && !optional.has(name)) {
+        } else if (!ALIAS_FAMILIES.test(name) && !declared.has(name) && !optional.has(name) && !scriptWritten.has(name)) {
           fail('unknown token family', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${name} }`)
         }
       }
@@ -313,6 +300,8 @@ for (const file of panelFiles) {
   }
 }
 
+/* --------------------------------------------------------- theme aliases */
+
 /* Both palettes have to define every alias the panel reads. */
 const panelTokens = new Set()
 for (const file of panelFiles) {
@@ -329,6 +318,8 @@ for (const name of [...panelTokens].sort()) {
   }
 }
 
+/* ---------------------------------------------------------- panel tokens */
+
 /* The same question on the panel's own side: a `--pf-*` name with a letter off
  * (`--pf-ink44`) paints nothing in either palette, raises nothing, and every mark it
  * inks just goes missing. A name a page's script hands in is written with a fallback. */
@@ -341,7 +332,7 @@ for (const name of [...panelTokens].sort()) {
   }
 }
 
-/* ------------------------------------------- 2. radius scale, full-round pair */
+/* --------------------------------------------- radius scale, full-round pair */
 
 const themeTokens = new Set([...PALETTES.light.keys()])
 let radiusOffScale = 0
@@ -368,7 +359,7 @@ for (const file of [...panelFiles, { path: THEME_SHEET, rules: themeRules }]) {
   }
 }
 
-/* ------------------------------------------------ 3/4. borders and elevation */
+/* ------------------------------------------------ borders and elevation */
 
 const ELEVATED_SHADOW = /--dsw-(?:elevation-|shadow-lv)/
 const NEUTRAL_BORDER = /--dsw-alias-border-/
@@ -376,8 +367,9 @@ const STATE_COLOR = /--dsw-alias-state-|--dsw-alias-link/
 const BORDER_EDGE = /^border(?:-top|-bottom|-left|-right)?(-width)?$/
 /* Ring tracks: the border is the drawn graphic (a rotating ring), not an outline,
  * so it keeps its width — the same exemption the theme's elevation spec spells out.
- * The panel draws this ring in two places, and both are listed. */
-const RING_TRACKS = new Set(['tokens.css .pf-state.is-run', 'lines.css .pf-linemark.is-run'])
+ * The panel draws this ring in two places, but the rule lives once, in the
+ * tokens.css shared block (lines.css keeps only the linemark size box). */
+const RING_TRACKS = new Set(['tokens.css .pf-state.is-run'])
 let elevationPairedWithBorder = 0
 let neutralBorderWide = 0
 let stateBorderNarrow = 0
@@ -421,7 +413,7 @@ for (const file of panelFiles) {
   }
 }
 
-/* --------------------------------------------------------- 5. menus, 6. links */
+/* ------------------------------------------------------ menus, links */
 
 let menuRoleContainers = 0
 let nativeSelects = 0
@@ -461,7 +453,7 @@ for (const file of panelFiles) {
   }
 }
 
-/* ------------------------------------------------ 11. hover and the card face */
+/* -------------------------------------------- hover and the card face */
 
 /* A card carries a reading on its own surface: the amber ring that says a person
  * has to move is an inset shadow on `.pf-card`, and the card's raised look is its
@@ -484,7 +476,7 @@ for (const file of panelFiles) {
   }
 }
 
-/* ------------------------- 12. panel tokens that would resolve to nothing */
+/* -------------------------- panel tokens that would resolve to nothing */
 
 /* The theme declares its aliases on `body`, and a custom property's var() is
  * substituted where the declaration sits. A panel token declared on `:root` or
@@ -520,7 +512,7 @@ function panelTokensFeed(value, depth = 0) {
   return false
 }
 
-/* ------------------------------------------------ 8. the mark inks and floors */
+/* -------------------------------------------- the mark inks and floors */
 
 const floorOf = (name, fallback) => {
   const found = PALETTES.light.get(name)
@@ -570,7 +562,6 @@ const MARKS = [
    * itself stands on is its ground — the amber tint under the sentence is 8%, so the
    * bar reads against that layer and the check can keep saying so. */
   { what: '删除这一条 · 警报区的左缘', where: '.pf-del-warn', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-layer-2', tier: null },
-  { what: '会话栏的点', where: '.pf-side-dot', property: 'background', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-base', tier: null },
   { what: '主题自己的空闲点（1.5 那一档的依据）', where: null, property: null, ink: 'var(--dsw-alias-state-idle-primary)', ground: '--dsw-alias-bg-base', tier: null },
 ]
 
@@ -622,7 +613,7 @@ for (const mark of MARKS) {
   readings.push(row)
 }
 
-/* ---------------------------------------------- 9. names meaning two things */
+/* -------------------------------------------- names meaning two things */
 
 /* A name's own declarations in one file: the rules whose selector is a compound that
  * starts with it (`.pf-mark`, `.pf-mark:hover`). Rules that merely mention it further
@@ -674,7 +665,7 @@ for (const [selector, perFile] of [...bySelector].sort()) {
   }
 }
 
-/* ------------------------------------------------- 10. sheets and their pages */
+/* --------------------------------------------- sheets and their pages */
 
 /* Every link a preview page writes must resolve. The other half this section used to hold — "every
  * shipped sheet is linked by some page" — went with the arrangement it belonged to: the pages now

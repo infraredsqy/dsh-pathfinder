@@ -7,20 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readLine, readPool, readProject, readWeights } from '../src/model/index.ts'
-
-const AT = new Date('2026-03-10T12:00:00.000Z')
-
-function issue(fields = {}) {
-  return { id: 'i1', title: '一处对不上的判据', severity: 'P3', status: 'open', discovered: '2026-03-01T00:00:00.000Z', ...fields }
-}
-
-function cycle(fields = {}) {
-  return { id: 'c1', status: 'active', holding: [], path: [], ...fields }
-}
-
-function record(parts = {}) {
-  return { nodes: {}, cycles: [], instructions: [], issues: {}, ...parts, at: parts.at ?? AT }
-}
+import { AT, cycle, issue, record } from './helpers/record-fixtures.mjs'
 
 /** The maintenance chore that carries the weight table. */
 const CARRIER = { title: '清理问题池', description: '各等级按 P3/P2/P1/P0 = 1/2/4/8 折算成重量。' }

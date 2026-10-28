@@ -11,8 +11,7 @@
 import * as React from 'react'
 import type { IssueGroupReading, IssueReading, PoolReading, ProjectReading } from '../model/index.ts'
 import { useT } from './locale.ts'
-import type { Translate } from './locale.ts'
-import { issueWord } from './words.ts'
+import { issueWord, otherStatesWord } from './words.ts'
 import { NOT_ENABLED_WORD } from './constants.ts'
 import { Grip, Pill } from './widgets.tsx'
 
@@ -30,11 +29,19 @@ function sevClass(severity: string | undefined): string {
   return `is-${severity ?? 'P3'}`
 }
 
-/** The record's three not-owed states, one phrase each: the "full" button and the combined pill say the same thing. */
-function otherStatesWord(t: Translate, pool: PoolReading): string {
-  return (['acknowledged', 'rejected', 'resolved'] as const)
-    .map((key) => `${issueWord(t, key)} ${String(pool.census[key])}`)
-    .join(' · ')
+/** The severity badge: one word, its weight on hover; absent when the record names no severity. */
+function SevChip(props: { readonly issue: IssueReading }): React.ReactElement | null {
+  const t = useT()
+  const { issue } = props
+  if (issue.severity === undefined) return null
+  return (
+    <span
+      className={`pf-sev ${sevClass(issue.severity)}`}
+      title={t('pool.severity.tip', { severity: issue.severity, weight: issue.weight })}
+    >
+      {issue.severity}
+    </span>
+  )
 }
 
 export function IssuePool(props: {
@@ -334,7 +341,6 @@ function RegisterRow(props: {
   readonly current: boolean
   readonly onPick: (id: string) => void
 }): React.ReactElement {
-  const t = useT()
   const { issue } = props
   return (
     <button
@@ -346,16 +352,7 @@ function RegisterRow(props: {
     >
       <span className="pf-lead">
         <i className={`pf-cell is-${issue.status}`} />
-        {issue.severity === undefined
-          ? null
-          : (
-            <span
-              className={`pf-sev ${sevClass(issue.severity)}`}
-              title={t('pool.severity.tip', { severity: issue.severity, weight: issue.weight })}
-            >
-              {issue.severity}
-            </span>
-          )}
+        <SevChip issue={issue} />
       </span>
       <span className="pf-title" title={issue.title ?? ''}>{issue.title ?? ''}</span>
       {issue.module === undefined ? null : <span className="pf-mod" title={issue.module}>{issue.module}</span>}
@@ -369,16 +366,7 @@ function CaseFile(props: { readonly issue: IssueReading }): React.ReactElement {
   return (
     <React.Fragment>
       <div className="pf-case-head">
-        {issue.severity === undefined
-          ? null
-          : (
-            <span
-              className={`pf-sev ${sevClass(issue.severity)}`}
-              title={t('pool.severity.tip', { severity: issue.severity, weight: issue.weight })}
-            >
-              {issue.severity}
-            </span>
-          )}
+        <SevChip issue={issue} />
         <h2 className="pf-case-title">{issue.title ?? ''}</h2>
       </div>
       <span className="pf-case-id" title={issue.id}>{issue.id}</span>

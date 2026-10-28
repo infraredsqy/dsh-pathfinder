@@ -9,7 +9,14 @@
  * whenever a page is refused.
  */
 import { RECORD_DIR, RECORD_SOURCES } from './contract.ts'
-import type { PathfinderReading, PathfinderSourceState } from './contract.ts'
+import type {
+  PathfinderCycle,
+  PathfinderInstruction,
+  PathfinderIssue,
+  PathfinderNode,
+  PathfinderReading,
+  PathfinderSourceState,
+} from './contract.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Where to read from during a fetch. */
@@ -105,31 +112,52 @@ function isMapLike(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * One collected piece, ready to land in its slot: the slot name travels with
+ * the value, so the fill site in {@link readReading} is judged against the
+ * matching accumulator's own field types instead of a bare `unknown`.
+ */
+type Collected =
+  | { readonly slot: 'nodes'; readonly value: Record<string, PathfinderNode> }
+  | { readonly slot: 'cycles'; readonly value: readonly PathfinderCycle[] }
+  | { readonly slot: 'instructions'; readonly value: readonly PathfinderInstruction[] }
+  | { readonly slot: 'issues'; readonly value: Record<string, PathfinderIssue> }
+
+/**
  * Collect one collection: key names as in the records, entries copied
  * field-for-field; fields present in the records but not listed here come
  * along too — no trimming, no default-filling.
- * @returns The collection when the shape matches, `undefined` otherwise (the piece counts as unreadable).
+ * @returns The piece with the slot it belongs to when the shape matches,
+ * `undefined` otherwise (the piece counts as unreadable).
  */
-function collect(key: keyof typeof COLLECTION_KEY, parsed: unknown): unknown {
+function collect(key: keyof typeof COLLECTION_KEY, parsed: unknown): Collected | undefined {
   if (!isMapLike(parsed)) return undefined
   const value = parsed[COLLECTION_KEY[key]]
   if (key === 'cycles' || key === 'instructions') {
     if (!Array.isArray(value)) return undefined
     // One pass: validate and copy per item; an ill-shaped item marks the whole piece unreadable on the spot.
-    const out: Record<string, unknown>[] = []
+    const items: Record<string, unknown>[] = []
     for (const item of value) {
       if (!isMapLike(item)) return undefined
-      out.push({ ...item })
+      items.push({ ...item })
     }
-    return out
+    return key === 'cycles' ? { slot: 'cycles', value: items } : { slot: 'instructions', value: items }
   }
   if (!isMapLike(value)) return undefined
-  const out: Record<string, unknown> = {}
+  // The map slots walk separately so each builds its own entry type: the item copy lands through a judged write, not a claim.
+  if (key === 'nodes') {
+    const entries: Record<string, PathfinderNode> = {}
+    for (const [id, item] of Object.entries(value)) {
+      if (!isMapLike(item)) return undefined
+      entries[id] = { ...item }
+    }
+    return { slot: 'nodes', value: entries }
+  }
+  const entries: Record<string, PathfinderIssue> = {}
   for (const [id, item] of Object.entries(value)) {
     if (!isMapLike(item)) return undefined
-    out[id] = { ...item }
+    entries[id] = { ...item }
   }
-  return out
+  return { slot: 'issues', value: entries }
 }
 
 /**
@@ -212,18 +240,23 @@ export async function readReading(
     instructions: 'missing',
     issues: 'missing',
   }
-  const reading = {
+  /* The accumulators wear the reading's own field types: every fill below is judged against them. The reading itself is assembled once, by the contextually typed literal in `finish`, both at the no-records early exit and at the end. */
+  const nodes: Record<string, PathfinderNode> = {}
+  const cycles: PathfinderCycle[] = []
+  const instructions: PathfinderInstruction[] = []
+  const issues: Record<string, PathfinderIssue> = {}
+  const finish = (): PathfinderReading => ({
     workspaceRoot: scope.workspaceRoot,
     recordPath: RECORD_DIR,
     sources,
-    nodes: {} as Record<string, never>,
-    cycles: [] as never[],
-    instructions: [] as never[],
-    issues: {} as Record<string, never>,
-  }
+    nodes,
+    cycles,
+    instructions,
+    issues,
+  })
 
   // List the records' directory layer once first: a listing means the workspace has records; no listing means "no such records".
-  if ((await listDir(RECORD_DIR)) === undefined) return reading as PathfinderReading
+  if ((await listDir(RECORD_DIR)) === undefined) return finish()
 
   for (const key of Object.keys(RECORD_SOURCES) as (keyof typeof RECORD_SOURCES)[]) {
     const segments = RECORD_SOURCES[key].split('/')
@@ -243,8 +276,11 @@ export async function readReading(
         sources[key] = 'unusable'
         continue
       }
-      if (key === 'nodes' || key === 'issues') Object.assign(reading[key], collection)
-      else reading[key] = collection as never[]
+      /* Fill the accumulator the piece names: the map slots merge by key, the array slots append in order — the slot's own field types judge every write, so a mistyped or misplaced fill fails to compile. */
+      if (collection.slot === 'nodes') for (const [id, node] of Object.entries(collection.value)) nodes[id] = node
+      else if (collection.slot === 'issues') for (const [id, issue] of Object.entries(collection.value)) issues[id] = issue
+      else if (collection.slot === 'cycles') for (const cycle of collection.value) cycles.push(cycle)
+      else for (const instruction of collection.value) instructions.push(instruction)
       sources[key] = 'read'
     } catch (error) {
       // Cancellation is rethrown: the caller did not ask for a half-read reading.
@@ -252,5 +288,5 @@ export async function readReading(
       sources[key] = 'unusable'
     }
   }
-  return reading as PathfinderReading
+  return finish()
 }

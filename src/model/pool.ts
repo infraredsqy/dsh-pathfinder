@@ -22,7 +22,7 @@ import type {
   PoolReading,
   PoolWeights,
 } from './contract.ts'
-import { cutAt, text, toMoment, writtenBy } from './fields.ts'
+import { cutAt, field, text, toMoment, writtenBy } from './fields.ts'
 
 /** The weight table's sentence: how many times each tier counts. */
 const WEIGHT_MAP = /P3\s*\/\s*P2\s*\/\s*P1\s*\/\s*P0\s*=\s*(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/u
@@ -192,11 +192,4 @@ function touchedAt(row: IssueReading): number {
 /** A pile's weighted sum: non-paying issues stay out of the sum. */
 function sumWeight(entries: readonly IssueReading[]): number {
   return entries.filter((entry) => entry.payable).reduce((total, entry) => total + entry.weight, 0)
-}
-
-/** A field emitted only for a written string: unwritten (or not a string) means the field is absent, never an empty string standing in. */
-function field<K extends string>(key: K, value: string | undefined): Partial<Record<K, string>> {
-  const out: Partial<Record<K, string>> = {}
-  if (value !== undefined) out[key] = value
-  return out
 }

@@ -11,6 +11,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 import { parseConfigList } from '../src/host/project-config.ts'
+import { fakeContext, fakeSubprocess, wordsOf } from './helpers/host-fixtures.mjs'
 
 /** The four lines printed by a local `pf config list`, verbatim. */
 const LISTED = [
@@ -19,40 +20,6 @@ const LISTED = [
   'worktree_mode = off（项目 .pf/config.json）',
   'issue_repair  = on（出厂默认）',
 ].join('\n')
-
-function fakeSubprocess({ executable = 'C:\\tools\\bin\\pf.cmd', exitCode = 0, stdout = '', stderr = '' } = {}) {
-  const specs = []
-  return {
-    specs,
-    async resolveExecutable() {
-      return executable
-    },
-    spawn(spec) {
-      specs.push(spec)
-      return {
-        done: Promise.resolve({ exitCode }),
-        collected: {
-          stdout: { readFrom: () => ({ text: stdout }) },
-          stderr: { readFrom: () => ({ text: stderr }) },
-        },
-      }
-    },
-  }
-}
-
-/** A minimal host context, enough for this layer: the command runs at whatever root the session header points to. */
-function fakeContext({ subprocess, workspaceRoot = 'C:\\workspace' } = {}) {
-  return {
-    workspaceFiles: {},
-    sessions: { get: () => ({ header: { cwd: workspaceRoot } }) },
-    sandboxPolicy: { workspaceRoot },
-    get: (service) => (service === 'subprocess' ? subprocess : undefined),
-  }
-}
-
-function wordsOf(spec) {
-  return spec.argv[spec.argv.length - 1].split(' ').slice(1)
-}
 
 test('工具印的四行：值与它住哪一层都读出来', () => {
   const entries = parseConfigList(LISTED)

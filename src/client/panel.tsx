@@ -17,7 +17,7 @@ import type { PathfinderReading } from '../host/contract.ts'
 import type { InstructionReading } from '../model/index.ts'
 import { everySourceIs, readProject, readSessions } from '../model/index.ts'
 import type { PrefField, PrefsSource, ViewId } from './prefs.ts'
-import { clampSide, DEFAULT_SOURCE, PANEL_PREF_FIELDS, VIEW_WORDS } from './prefs.ts'
+import { clampSide, DEFAULT_SOURCE, PANEL_PREF_FIELDS, VIEW_IDS, VIEW_WORDS } from './prefs.ts'
 import { useT } from './locale.ts'
 import { failureWord } from './words.ts'
 import type { Failure, Outcome } from './failure.ts'
@@ -32,21 +32,10 @@ import { LineSettings } from './line-settings.tsx'
 import { NotesPane } from './notes.tsx'
 import { IssuePool } from './pool.tsx'
 
-interface View {
-  readonly id: ViewId
-  /** The panes with a built-in height floor stretch to the viewport; the rest grow with their content. */
-  readonly fill: boolean
-}
-
-/* Only the layout is stated here; the word on each tab is looked up when the tab row is drawn, so
- * the settings dropdown and the tab row cannot drift apart and neither knows the language. */
-const VIEWS: readonly View[] = [
-  { id: 'map', fill: true },
-  { id: 'detail', fill: true },
-  { id: 'notes', fill: true },
-  { id: 'issue', fill: true },
-  { id: 'config', fill: true },
-]
+/* The five views, in tab order: the ids are the settings document's own list (VIEW_IDS), so the
+ * settings dropdown and the tab row cannot drift apart and neither knows the language. Every pane
+ * fills the stage's footprint; the word on each tab is looked up when the tab row is drawn. */
+const VIEWS = VIEW_IDS
 
 export interface PanelProps {
   readonly port: PanelPort
@@ -294,8 +283,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     keep(PANEL_PREF_FIELDS.showOtherStates, on)
   }, [keep])
 
-  const active = VIEWS.find((view) => view.id === tab) ?? VIEWS[0] as View
-
   /* Whether this screen has anything to say. Picking "ungrouped" while this session has a home
    * means that pane has no record under it; none of the four sources listed means this workspace
    * has no such record; listed but none parseable means unreadable. In all three cases all five
@@ -336,18 +323,18 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
         </div>
         {nothing === null ? (
           <div className="pf-tabs" role="tablist">
-            {VIEWS.map((view) => (
+            {VIEWS.map((id) => (
               <button
-                key={view.id}
+                key={id}
                 type="button"
                 className="pf-tab"
-                id={`tab-${view.id}`}
+                id={`tab-${id}`}
                 role="tab"
-                aria-selected={view.id === tab}
-                aria-controls={`pane-${view.id}`}
-                onClick={() => pickView(view.id)}
+                aria-selected={id === tab}
+                aria-controls={`pane-${id}`}
+                onClick={() => pickView(id)}
               >
-                {t(VIEW_WORDS[view.id])}
+                {t(VIEW_WORDS[id])}
               </button>
             ))}
           </div>
@@ -356,10 +343,9 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
 
       {nothing === null ? (
       <div className="pf-stage">
-        {/* The one-sentence screen stretches too: the stage centers non-stretching modules both ways,
-            so the sentence floats in the middle, one step right of the header's left edge; once
-            stretched it shares the lot with the other four panes — this pane's own top-left corner. */}
-        <div className={`pf-frame${active.fill || noNodes ? ' is-fill' : ''}`} id="frame">
+        {/* The frame fills the footprint in every view — each pane scrolls what does not fit inside
+            itself — and every pane inside it is a direct child, so its own `flex` does the sharing. */}
+        <div className="pf-frame is-fill" id="frame">
           <MapPane
             active={tab === 'map'}
             noNodes={noNodes}

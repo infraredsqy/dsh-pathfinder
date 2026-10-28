@@ -1,32 +1,17 @@
 /**
- * Reading widgets shared by the detail rows, the instruction book, and the map's cards: a state mark,
- * a dependency line, a gate hint, and a moment formatter.
+ * Reading widgets shared by the detail rows, the instruction book, and the map's cards: a state mark
+ * and a dependency line.
  *
  * These readings exist only once: the state mark on the map's cards and on detail rows is the same
- * one, and the gate hint and time formatting are the same set — each cell just passes its own cell
- * and moment.
+ * one, and the dependency line wears the same face — each cell just passes its own cell and moment.
+ * The words themselves (a gate's hint, a moment's day, a line's state) are spelled in `words.ts`.
  */
 import * as React from 'react'
-import type { DetailGroupKey, NodeReading } from '../model/index.ts'
-import { clock, dayParts, duration, readDeps } from '../model/index.ts'
+import type { NodeReading } from '../model/index.ts'
+import { bucketOf, duration, readDeps } from '../model/index.ts'
 import type { Translate } from './locale.ts'
 import { useT } from './locale.ts'
-import { dayLabel, depsSentence, gateWord } from './words.ts'
-
-/** A card column's identity: the state mark is drawn by it. */
-export type CardKind = 'shelved' | 'run' | 'next' | 'done'
-
-/** The reading's moment rendered via moment; `--` when there is no moment. */
-export function timeOf(t: Translate, moment: Date | null, at: Date): string {
-  return moment === null ? '--' : `${dayLabel(t, dayParts(moment, at))} ${clock(moment)}`
-}
-
-/** The cell's gate: which word, since when. */
-export function gateTitle(t: Translate, node: NodeReading, at: Date): string {
-  if (node.gate === null) return ''
-  const word = gateWord(t, node.gate)
-  return node.gate.since === null ? word : `${word} · ${timeOf(t, node.gate.since, at)}`
-}
+import { depsSentence, gateTitle } from './words.ts'
 
 /**
  * What the running ring says: how long this step has been open, or just "in hand" when the line
@@ -37,14 +22,18 @@ export function runningTitle(t: Translate, node: NodeReading): string {
   return node.elapsedSeconds === null ? t('state.running') : t('marks.running.elapsed', { elapsed: duration(node.elapsedSeconds) })
 }
 
-/** State mark: gated cells always show the pause mark, the rest is drawn by column. */
-export function StateMark(props: { readonly node: NodeReading; readonly kind: CardKind | DetailGroupKey; readonly at: Date }): React.ReactElement {
+/**
+ * State mark: the model's one bucket, drawn. A card that wants a person (a gate, or the shelved
+ * verdict, which is its own gate) takes the pause mark; the line's hold takes the spinner; the
+ * card's own state draws the rest. Nothing here judges the record again.
+ */
+export function StateMark(props: { readonly node: NodeReading; readonly at: Date }): React.ReactElement {
   /* The mark's hover text is the only thing it says, so the translator is taken here, where the word
    * is printed. */
   const t = useT()
   const { node } = props
-  const loud = node.gate !== null && node.state !== 'todo'
-  if (loud) {
+  const bucket = bucketOf(node)
+  if (bucket === 'gate' || bucket === 'shelved') {
     return (
       <span className="pf-state is-gate" title={gateTitle(t, node, props.at)}>
         <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
@@ -53,10 +42,10 @@ export function StateMark(props: { readonly node: NodeReading; readonly kind: Ca
       </span>
     )
   }
-  if (props.kind === 'run') {
+  if (bucket === 'run') {
     return <span className="pf-state is-run" title={runningTitle(t, node)} />
   }
-  if (props.kind === 'next' || props.kind === 'wait' || props.kind === 'ready') {
+  if (bucket === 'todo') {
     return <span className="pf-state is-next" title={t('state.next')} />
   }
   return (

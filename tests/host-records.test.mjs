@@ -10,64 +10,33 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readReading, readWholeFile } from '../src/host/records.ts'
+import { fakeWorkspaceFiles } from './helpers/workspace-files-port.mjs'
 
 const scope = { sessionId: 'session-for-tests', workspaceRoot: 'C:\\workspace-for-tests' }
 const signal = new AbortController().signal
 
-/** The code the port gives when the target does not exist; only it counts as "not in the workspace". */
-function missing(path) {
-  const error = new Error(`no entry at ${path}`)
-  error.code = 'workspace-file/not-found'
-  return error
-}
-
-/** The two codes the port gives when it refuses a page: the page's byte count over the cap, or the requested lines over its tier. */
-function refused(code) {
-  const error = new Error(code)
-  error.code = code
-  return error
-}
-
-/** A stand-in port: directories inferred from file names, reads paged by line, paging semantics
- * matching the real port (lines end with `\n`; the trailing `\n` terminates the last line and does
- * not start an empty one; `maxLines` caps a page's lines, `maxBytes` caps its bytes, breaches get
- * the real port's two codes, nothing is truncated). It only has `list` and `read`; any write
- * attempt fails on the spot. */
+/** The stand-in port with this file's own instrumentation: every port call recorded, every page
+ * refusal recorded. The paging itself is the shared one; the tier and byte cap ride on it as
+ * options — the two codes the port refuses pages with are what lands in `refusals`. */
 function fakeWorkspace(files, { pageLines = 2, maxBytes = Infinity } = {}) {
   const calls = []
   const refusals = []
+  const base = fakeWorkspaceFiles(files, { tier: pageLines, maxBytes })
   const port = {
-    async list(_scope, dir) {
+    list(scope, dir) {
       calls.push(['list', dir])
-      const prefix = dir === '' ? '' : `${dir}/`
-      const found = new Map()
-      for (const path of Object.keys(files)) {
-        if (!path.startsWith(prefix)) continue
-        const [head, ...tail] = path.slice(prefix.length).split('/')
-        if (head.length === 0) continue
-        found.set(head, { name: head, type: tail.length === 0 ? 'file' : 'directory' })
-      }
-      if (found.size === 0) throw missing(dir)
-      return { path: dir, entries: [...found.values()], truncated: false }
+      return base.list(scope, dir)
     },
-    async read(_scope, path, range) {
+    async read(scope, path, range) {
       calls.push(['read', path, range.offset, range.limit])
-      const text = files[path]
-      if (text === undefined) throw missing(path)
-      const lines = (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n')
-      const offset = range.offset ?? 1
-      if (range.limit !== undefined && range.limit > pageLines) {
-        refusals.push({ path, offset, limit: range.limit, code: 'gateway/bad-request' })
-        throw refused('gateway/bad-request')
+      try {
+        return await base.read(scope, path, range)
+      } catch (error) {
+        if (error?.code === 'workspace-file/too-large' || error?.code === 'gateway/bad-request') {
+          refusals.push({ path, offset: range.offset ?? 1, limit: range.limit, code: error.code })
+        }
+        throw error
       }
-      const size = Math.min(range.limit ?? pageLines, pageLines)
-      const page = lines.slice(offset - 1, offset - 1 + size)
-      const bytes = page.reduce((sum, line) => sum + Buffer.byteLength(line, 'utf8'), 0) + Math.max(page.length - 1, 0)
-      if (bytes > maxBytes) {
-        refusals.push({ path, offset, limit: range.limit, code: 'workspace-file/too-large' })
-        throw refused('workspace-file/too-large')
-      }
-      return { text: page.join('\n'), lines: page.length, eof: offset - 1 + page.length >= lines.length }
     },
   }
   return { port, calls, refusals }

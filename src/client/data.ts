@@ -14,7 +14,7 @@ import type { PathfinderReading } from '../host/contract.ts'
 import type { PathfinderConfigReading } from '../host/project-config.ts'
 import type { PathfinderSessionsReading } from '../host/sessions.ts'
 import type { CyclePolicyKey, InstructionScope } from '../host/gateway.ts'
-import { RefusedError, type Failure, type Outcome } from './failure.ts'
+import { RefusedError, type Failure, type FailureCode, type Outcome } from './failure.ts'
 
 /** The namespace, named after the host-half service key. */
 export const NAMESPACE = 'pathfinderRecords'
@@ -282,36 +282,37 @@ function failureIn(error: unknown): Failure {
     const detail = typeof held.message === 'string' && held.message.length > 0 ? held.message : undefined
     /* A code this half knows is carried through; an unknown one is the host's own vocabulary
      * (DSH's error codes), which this panel has no words for — it says the message instead. */
-    const code = typeof held.code === 'string' && KNOWN_CODES.has(held.code) ? (held.code as Failure['code']) : undefined
+    const code = typeof held.code === 'string' && Object.hasOwn(KNOWN_CODES, held.code) ? (held.code as Failure['code']) : undefined
     if (code !== undefined) return { code, ...(detail !== undefined ? { detail } : {}) }
     if (detail !== undefined) return { code: 'transport-failed', detail }
   }
   return { code: 'unparsable-answer' }
 }
 
-/** The refusal codes this half can spell; a code outside this set is another system's vocabulary. */
-const KNOWN_CODES: ReadonlySet<string> = new Set<string>([
-  'arg-not-allowed',
-  'no-subprocess',
-  'pf-missing',
-  'pf-path-unsafe',
-  'no-interpreter',
-  'tool-refused',
-  'spawn-failed',
-  'scope-unknown',
-  'empty-text',
-  'policy-key-unknown',
-  'no-operation',
-  'not-connected',
-  'no-write-channel',
-  'unparsable-answer',
-  'transport-failed',
-  'config-unreadable',
-  'config-write-failed',
-  'settings-refused',
-  'settings-unwritable',
-  'unstated',
-])
+/** The refusal codes this half can spell; a code outside this table is another system's vocabulary.
+ * One entry per `FailureCode`, so a code added to the vocabulary fails to compile until it lands here. */
+const KNOWN_CODES = {
+  'arg-not-allowed': true,
+  'no-subprocess': true,
+  'pf-missing': true,
+  'pf-path-unsafe': true,
+  'no-interpreter': true,
+  'tool-refused': true,
+  'spawn-failed': true,
+  'scope-unknown': true,
+  'empty-text': true,
+  'policy-key-unknown': true,
+  'no-operation': true,
+  'not-connected': true,
+  'no-write-channel': true,
+  'unparsable-answer': true,
+  'transport-failed': true,
+  'config-unreadable': true,
+  'config-write-failed': true,
+  'settings-refused': true,
+  'settings-unwritable': true,
+  'unstated': true,
+} as const satisfies Readonly<Record<FailureCode, true>>
 
 function textOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

@@ -7,26 +7,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ledgerDir, readLedgerJson } from './lib/ledger-io.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(HERE, '..', 'design', 'ledger.js');
 
-const argv = process.argv.slice(2);
-const at = argv.indexOf('--ledger');
-if (at < 0 || argv[at + 1] === undefined) {
-  console.error('usage: node tools/gen-ledger.mjs --ledger <path to a .pf ledger>');
-  process.exit(2);
-}
-const LEDGER = path.resolve(argv[at + 1]);
+const LEDGER = ledgerDir(
+  process.argv.slice(2),
+  'usage: node tools/gen-ledger.mjs --ledger <path to a .pf ledger>'
+);
 
-const ideas = JSON.parse(fs.readFileSync(path.join(LEDGER, 'ideas.json'), 'utf8'));
-const state = JSON.parse(fs.readFileSync(path.join(LEDGER, 'state.json'), 'utf8'));
+const ideas = readLedgerJson(LEDGER, 'ideas.json');
+const state = readLedgerJson(LEDGER, 'state.json');
 
 // The user's own sentences, in the order they were said; `note` is the half a
 // reader can act on -- for a closed entry it is why it stopped counting.
-const instrPath = path.join(LEDGER, 'instructions.json');
-const instructions = (fs.existsSync(instrPath)
-  ? JSON.parse(fs.readFileSync(instrPath, 'utf8')).instructions || []
+const instructions = (fs.existsSync(path.join(LEDGER, 'instructions.json'))
+  ? readLedgerJson(LEDGER, 'instructions.json').instructions || []
   : []
 ).map((i) => [
   i.id,

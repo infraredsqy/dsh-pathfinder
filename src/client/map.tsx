@@ -12,6 +12,7 @@
  */
 import * as React from 'react'
 import type { NodeReading, ProjectReading } from '../model/index.ts'
+import { bucketOf } from '../model/index.ts'
 import { NOT_ENABLED_WORD } from './constants.ts'
 import { useT } from './locale.ts'
 import type { Translate } from './locale.ts'
@@ -23,6 +24,7 @@ import {
   fitView,
   focusView,
   lodOf,
+  momentOf,
   panView,
   place,
   rankedOf,
@@ -32,9 +34,9 @@ import {
   type Size,
   type View,
 } from './map-layout.ts'
-import { runningTitle, timeOf } from './marks.tsx'
+import { runningTitle } from './marks.tsx'
 import { nodeHover, nodeName } from './nodes.ts'
-import { gateWord } from './words.ts'
+import { gateWord, timeOf } from './words.ts'
 
 /** The ruler used when the viewport cannot be measured: a hidden pane measures 0, and a reading never comes out as 0. */
 const FALLBACK: Size = { w: 1280, h: 720 }
@@ -481,15 +483,20 @@ function Card(props: {
   )
 }
 
-/** What the frame says: delivered, in hand, and for a cell that wants a person, that above everything. */
-function edgeOf(node: NodeReading): string {
-  if (node.gate !== null) return 'is-gate'
-  if (node.running) return 'is-run'
-  if (node.state === 'completed') return 'is-done'
-  return 'is-todo'
+/**
+ * What the frame says: the model's one bucket, worn as a class. The gate outranks everything, and
+ * the model says so once; a shelved card keeps the gate frame too, because its verdict is a wait
+ * for a person and amber is that wait's colour.
+ */
+export function edgeOf(node: NodeReading): string {
+  const bucket = bucketOf(node)
+  return bucket === 'run' ? 'is-run'
+    : bucket === 'done' ? 'is-done'
+      : bucket === 'todo' ? 'is-todo'
+        : 'is-gate'
 }
 
-/** The one moment this card speaks of: the earliest of what it is waiting for, and the newest of what it did. */
+/** The one moment this card's stamp reads: {@link momentOf} says it, and says it nowhere else. */
 function stampMomentOf(node: NodeReading): Date | null {
-  return node.gate?.since ?? node.heldSince ?? node.endedAt ?? node.completedAt ?? node.createdAt
+  return momentOf(node)
 }

@@ -17,92 +17,13 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { rolldown } from 'rolldown'
+import { cssBlocks } from './lib/cssrules.mjs'
+import { SHEETS } from './lib/sheets.mjs'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
 const STYLES = join(root, 'src', 'client', 'styles')
-
-/**
- * The sheets that ship, in cascade order, each with the one layer class its selectors must lead
- * with.
- *
- * Order is load-bearing. The embedded sheet is a standalone document where it was drawn, and inside
- * the panel it competes with the main panel's sheets for the same element names (`.pf-row` in the
- * detail pane, the main panel's own `.pf-head`); it wins those by "same specificity, later in
- * order", so it follows the main panel's sheets here. The main panel's sheet order follows the layer
- * order a reader sees.
- */
-const SHEETS = [
-  { sheet: 'tokens.css', root: '.pf-page' },
-  { sheet: 'main.css', root: '.pf-page' },
-  { sheet: 'map.css', root: '.pf-page' },
-  { sheet: 'lines.css', root: '.pf-page' },
-  { sheet: 'detail.css', root: '.pf-page' },
-  { sheet: 'notes.css', root: '.pf-page' },
-  { sheet: 'register.css', root: '.pf-issue' },
-  { sheet: 'settings.css', root: '.pf-page' },
-]
-
-/** At-rules that contain rules: the selector walk descends one level into them. */
-const NESTING_AT_RULES = ['@media', '@supports', '@layer']
-
-/** Comments never enter selectors; they are handled separately. */
-function stripComments(text) {
-  return text.replace(/\/\*[\s\S]*?\*\//gu, ' ')
-}
-
-/** These comments stay readable in the artifact. */
-function comments(text) {
-  return text.match(/\/\*[\s\S]*?\*\//gu)?.join('\n') ?? ''
-}
-
-function closingBrace(css, open) {
-  let depth = 1
-  let k = open + 1
-  while (k < css.length && depth > 0) {
-    if (css[k] === '{') depth += 1
-    else if (css[k] === '}') depth -= 1
-    if (depth === 0) break
-    k += 1
-  }
-  return k
-}
-
-/**
- * Walk one sheet, handing each rule's selectors to `rewrite`.
- * @param rewrite - Receives a rule's selectors, returns the rewritten string; returning `null` drops the rule.
- */
-function mapRules(css, rewrite) {
-  let out = ''
-  let i = 0
-  while (i < css.length) {
-    const open = css.indexOf('{', i)
-    if (open < 0) {
-      out += css.slice(i)
-      break
-    }
-    const raw = css.slice(i, open)
-    const close = closingBrace(css, open)
-    const body = css.slice(open + 1, close)
-    const prelude = stripComments(raw).trim()
-    if (NESTING_AT_RULES.some((rule) => prelude.startsWith(rule))) {
-      const inner = mapRules(body, rewrite)
-      if (stripComments(inner).trim().length > 0) out += `${comments(raw)}${prelude}{${inner}}`
-    } else if (prelude.startsWith('@')) {
-      /* @keyframes / @font-face: carried through as-is; no selectors inside to scope. */
-      out += css.slice(i, close + 1)
-    } else if (prelude.length > 0) {
-      const scoped = rewrite(prelude)
-      if (scoped !== null) out += `${comments(raw)}${scoped}{${body}}`
-    } else {
-      /* Comment-only segment: kept as-is. */
-      out += css.slice(i, close + 1)
-    }
-    i = close + 1
-  }
-  return out
-}
 
 /**
  * Whether this selector segment carries the layer's class — compared per token, not by substring:
@@ -135,13 +56,15 @@ function hasScopeClass(part, className) {
 function assertScopedProduct(css, roots) {
   const classes = roots.map((root) => root.replace(/^\./u, ''))
   const leaked = []
-  mapRules(css, (prelude) => {
-    for (const part of prelude.split(',').map((one) => one.trim()).filter((one) => one.length > 0)) {
+  /* The walk is the shared one (tools/lib/cssrules.mjs), containers descended into and
+   * @keyframes carried whole — the same rules the artifact carries are the rules checked. */
+  for (const block of cssBlocks(css)) {
+    if (block.kind !== 'rule') continue
+    for (const part of block.prelude.split(',').map((one) => one.trim()).filter((one) => one.length > 0)) {
       const head = part.split(/[\s>+~]+/u)[0]
       if (!classes.some((className) => hasScopeClass(head, className))) leaked.push(part)
     }
-    return prelude
-  })
+  }
   return [...new Set(leaked)]
 }
 

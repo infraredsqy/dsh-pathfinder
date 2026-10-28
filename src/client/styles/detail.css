@@ -11,12 +11,8 @@
   align-items: center;
   padding: 0 8px;
   border-radius: var(--dsw-radius-xs);
-  /* A row is also a node: clicking it jumps to that node's session in the real plugin; this page
-     cannot jump, but the press must be visible. Hover moves the row's ground; the card face is
-     other layers' business. */
   height: var(--pf-row);
-  cursor: pointer;
-}.pf-page .pf-row:hover{ background: var(--dsw-alias-interactive-bg-hover); }.pf-page .pf-row:active{ background: var(--dsw-alias-interactive-bg-active); }.pf-page .pf-sec.is-folded .pf-row{ display: none; }.pf-page .pf-rowtitle{
+}.pf-page .pf-sec.is-folded .pf-row{ display: none; }.pf-page .pf-rowtitle{
   min-width: 0;
   font-size: 14px;
   line-height: 20px;
@@ -33,12 +29,8 @@
   line-height: 20px;
   color: var(--dsw-alias-label-secondary);
   white-space: nowrap;
-}/* A gated row stands a head taller than the others, with a line of small print below: the mark
-   says "this cell wants a person", and the word says which gate. The row height grows from here;
-   other rows are untouched. */.pf-page .pf-row.has-gate{
-  height: auto;
-  grid-template-rows: var(--pf-row) 18px;
-}.pf-page .pf-rowgate{
+}/* A gated row carries the gate's own word below the title's track: the mark says "this cell wants
+   a person", and the word says which gate. */.pf-page .pf-rowgate{
   grid-column: 2 / -1;
   grid-row: 2;
 }/* The number at a group head's right prints only while the group is folded: folded, it is the one
