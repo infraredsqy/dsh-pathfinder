@@ -232,7 +232,7 @@ function PanelIcon(props: { readonly size?: number }): React.ReactElement {
  * still-drawing components stripped bare for a beat.
  *
  * Services are awaited with dynamic `ctx.inject(['slots'], …)`: when `slots` cannot be fetched,
- * quietly do nothing — this layer never breaks the plugin's `apply`.
+ * quietly do nothing.
  *
  * Unmount ownership splits by context kind: real Cordis contexts all carry `effect`, the cleanup
  * hangs on it, and runs as the plugin unmounts. Contexts without `effect` are only ever stand-ins:

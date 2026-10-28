@@ -2,8 +2,8 @@
  * The host half's session-note fetch: which sessions each node in this
  * workspace has opened, in the directory layer where the notes live.
  *
- * Session identity belongs to this machine, so it lives inside the record
- * store's own directory layer, as small per-node note files. Fetching goes
+ * The notes live inside the record store's own directory layer, as small
+ * per-node note files. Fetching goes
  * through the same gateway as the four records, read-only; this only moves
  * each file back verbatim — which files count as notes, which node they
  * belong to, and which to show are reading judgments, the model layer's pure

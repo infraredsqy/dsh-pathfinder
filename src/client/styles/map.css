@@ -158,8 +158,7 @@
  * this card's own mark.
  *
  * The one state the frame cannot say is motion: the card in hand leads its foot row with the running
- * ring, the same drawing a detail row wears. Every other square this card used to print is gone —
- * the frame already says what they said.
+ * ring, the same drawing a detail row wears.
  *
  * The frame scales with the drawing (1.6px in canvas pixels) but never falls below 0.9px on screen:
  * at the overview it becomes a hairline that still circles every card, and zoomed in it does not grow
@@ -225,9 +224,9 @@
 }
 
 /* Hover is said on the ground, not on the frame: the frame is already carrying this card's state,
- * and a lit card has no headroom left on it — so a frame-only hover answered half the cards on the
- * page and ignored the other half. The veil is the theme's own hover material laid over whatever
- * ground the card has, so an inked card and a dim one answer the pointer by the same amount. */
+ * and a lit card has no headroom left on it. The veil is the theme's own hover material laid over
+ * whatever ground the card has, so an inked card and a dim one answer the pointer by the same
+ * amount. */
 .pf-page .pf-mnode:hover,
 .pf-page .pf-mnode:focus-visible {
   background-image: linear-gradient(var(--dsw-alias-interactive-bg-hover), var(--dsw-alias-interactive-bg-hover));
@@ -281,8 +280,7 @@
 /* The card's foot: the running ring first when this card is in hand, then the line's id when there
  * is one, then whatever the cell is waiting for, and the moment against the right edge. The ring
  * takes a column of its own, so the one card that is running carries its id one step right of its
- * neighbours' — the state square that used to hold that column on every card is gone.
- * `margin-top: auto` pins the row to the foot of the box. */
+ * neighbours'. `margin-top: auto` pins the row to the foot of the box. */
 .pf-page .pf-mmeta {
   display: flex;
   flex: none;

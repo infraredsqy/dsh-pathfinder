@@ -1,8 +1,6 @@
 /* 6f. The language switch: every word on both surfaces follows the port
  *
- * The shared locale-service stand-in is attached, switched and detached; the two word tables stay parallel.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * The shared locale-service stand-in is attached, switched and detached; the two word tables stay parallel. */
 import { fakeLocaleService } from '../../../tests/helpers/dsh-standins.mjs'
 
 /** runLanguage */
@@ -52,7 +50,7 @@ export async function runLanguage(ctx) {
   )
   await act(async () => { languageSettingsRoot.unmount() })
 
-  /* 2. The bundled fallback: a deployment with no locale service keeps every word — Chinese, as before. */
+  /* 2. The bundled fallback: a deployment with no locale service keeps every word — Chinese. */
   const fallbackLanguageHost = languageHost()
   const fallbackLanguageRoot = await languageRoot(
     fallbackLanguageHost,

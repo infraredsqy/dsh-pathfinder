@@ -137,8 +137,8 @@ test('没登记的键照递：这一手不立放行表，键与值一并交工�
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const outcome = await gateway.setConfig('s1', '', 'spawner', 'dsh')
 
-  /* The command is still forwarded and the tool's refusal surfaces as its own code, with the tool's
-   * words in the detail — the repo no longer keeps an "unrecognized config key" gate. */
+  /* The command is still forwarded and the tool's refusal surfaces as its own code, with the
+   * tool's words in the detail. */
   assert.equal(outcome.ok, false)
   assert.deepEqual(wordsOf(subprocess.specs[0]), ['config', 'set', 'spawner', 'dsh'])
   assert.equal(outcome.code, 'tool-refused')

@@ -3,8 +3,7 @@
  * `scenes` parameter), starts the real host half over them (its spawn side through a
  * hidden-window execFile stand-in, its workspace-files gate wired to the real filesystem with
  * the shared stand-in's paging), then boots jsdom + React and mounts the built browser half.
- * Boot readings print through the entry's own `check`, so the output order is the single-file
- * version's. */
+ * Boot readings print through the entry's own `check`. */
 import { execFile } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'

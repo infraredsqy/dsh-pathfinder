@@ -5,11 +5,10 @@
 //
 // The sheets in `src/client/styles/` are written in the shape they ship in: every selector already
 // leads with its cell's layer class (`.pf-page` on the main panel, `.pf-issue` on the embedded issue
-// pane). That is what this entry used to rewrite at build time, and the reason it had to: a sheet
-// written for a document of its own carries `body { overflow: hidden }`, `:root` tokens and a `*`
-// reset, none of which belong on DSH's document — the `overflow` alone would hide the shell. The
-// rewrite happened once, when the sheets moved in here; the source is now the artifact, so all this
-// entry does with styles is read eight files in order and join them.
+// pane). A sheet written for a document of its own carries `body { overflow: hidden }`, `:root`
+// tokens and a `*` reset, none of which belong on DSH's document — the `overflow` alone would hide
+// the shell. The source is the artifact, so all this entry does with styles is read the sheets in
+// order and join them.
 //
 // One check stays at build time: a selector that escapes its layer lands on the host page, fails
 // silently inside the panel, and can break DSH's own shell. A leak stops the build.

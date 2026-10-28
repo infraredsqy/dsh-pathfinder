@@ -3,15 +3,10 @@
 //
 //   node tools/panel-check.mjs
 //
-// Expected wall clock ~10 s (three-run medians: 10.16 s before / 10.94 s after the split): the
-// weight is the fixture's own boot — jsdom plus React load once — and the ~140 checks driving the
-// real panel end to end; the split neither bought nor cost meaningful time. Readings:
-// .tmp/repair/batch-7b-panelcheck/.
-//
 // Layout: this entry carries the scene parameters, the check-section sequence and the summary
 // report. The stages the checks stand on live in panel-check/fixtures.mjs (record scenes, host
 // wiring, jsdom/React boot), the DOM drivers in panel-check/drivers.mjs, and the check sections
-// themselves in panel-check/sections/ — one module per ---- banner of the old single file.
+// themselves in panel-check/sections/ — one module per ---- banner.
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 

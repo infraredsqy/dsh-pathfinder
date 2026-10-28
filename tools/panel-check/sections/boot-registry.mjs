@@ -1,8 +1,6 @@
 /* Boot registry: the panel mounted as a service, the three seats it registers, the effect discipline
  *
- * Runs right after the fixture boots; every later section reuses its roster and backend.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * Runs right after the fixture boots; every later section reuses its roster and backend. */
 
 /** runBootRegistry */
 export async function runBootRegistry(ctx) {

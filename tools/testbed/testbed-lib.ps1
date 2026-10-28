@@ -189,7 +189,7 @@ function Get-ChangedPaths {
 }
 
 # Lightweight scan: only "relative path -> length|mtime tick", never reads file content (the main
-# home's session store is 1.5 GB; reading content is reserved for the two full fingerprints the
+# home's session store is large; reading content is reserved for the two full fingerprints the
 # criteria actually compare). For "did it move" this is enough.
 function Get-AreaMetaScan {
   param([Parameter(Mandatory=$true)][string]$Path)
@@ -676,7 +676,7 @@ function Test-TestbedSessionFixture {
 # layer smooths over both:
 #   * every path handed to tar is converted to forward slashes. MSYS2 re-decodes backslash escapes
 #     in arguments received from native processes, so a fragment like `logs\tarball` gets eaten into
-#     a tab and the path stops matching (measured: `…\logs\x1` passes, `…\logs\tarball` and `…\logs\bb` fail).
+#     a tab and the path stops matching.
 #   * GNU tar reads the colon in `C:...` as a remote host; `--force-local` makes it read locally.
 #     Implementations without that flag fall back to "cd into the archive's directory, hand over the leaf name only".
 # Read-only: list entries and extract named members to a directory; never modifies the archive or anything else.
@@ -1158,8 +1158,8 @@ function Get-StrayTestbedProcess {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
     # The default is the profile name this entry point uses: the shipped entry always passes
-    # -Profile explicitly; this default is for callers elsewhere (the earlier probe rounds did pass
-    # only -Root), so that changing the criteria here does not break their invocation style.
+    # -Profile explicitly; this default is for callers elsewhere that pass only -Root, so that
+    # changing the criteria here does not break their invocation style.
     [string]$Profile = 'pf-testbed',
     [AllowEmptyCollection()][int[]]$InstancePids = @()
   )

@@ -44,8 +44,8 @@ const LAYER_CLASSES = ['pf-page', 'pf-wires', 'pf-issue']
  * Fold a shipped selector back into the page shape this checker asks its questions in.
  *
  * The sheets are stored in the shape they ship in, so a selector leads with its cell's layer class
- * (`.pf-page .pf-cell`, `.is-embed.pf-wires .pf-bar`, and plain `.pf-page` for what used to be the
- * page root). Every expectation downstream — the mark table's `.pf-cell` / `.is-P0`, the per-name
+ * (`.pf-page .pf-cell`, `.is-embed.pf-wires .pf-bar`, and plain `.pf-page` for the page
+ * root). Every expectation downstream — the mark table's `.pf-cell` / `.is-P0`, the per-name
  * rules, the palette map's `:root` / `body` — is written in the sheets' page shape, and those
  * expectations are the check's whole point, so the shape is restored once here rather than rewritten
  * in a dozen places. Only the first class comes off: `.pf-wires .pf-page` is a rule whose page
@@ -667,9 +667,8 @@ for (const [selector, perFile] of [...bySelector].sort()) {
 
 /* --------------------------------------------- sheets and their pages */
 
-/* Every link a preview page writes must resolve. The other half this section used to hold — "every
- * shipped sheet is linked by some page" — went with the arrangement it belonged to: the pages now
- * link their own page-shaped sheets, so a shipped sheet missing from them says nothing. */
+/* Every link a preview page writes must resolve; a shipped sheet missing from the pages' links
+ * says nothing — the pages link their own page-shaped sheets. */
 const linked = new Set()
 let brokenHref = 0
 for (const page of pages) {

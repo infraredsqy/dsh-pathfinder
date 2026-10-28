@@ -158,7 +158,6 @@ export function dayLabel(t: Translate, parts: DayParts | null): string {
   return t('date.month-day', { month: parts.month, day: parts.day })
 }
 
-/** The reading's moment rendered via moment; `--` when there is no moment. */
 export function timeOf(t: Translate, moment: Date | null, at: Date): string {
   return moment === null ? '--' : `${dayLabel(t, dayParts(moment, at))} ${clock(moment)}`
 }

@@ -2,8 +2,7 @@
  * Shared word keys used across the client.
  *
  * Each phrase is named once: the five node-following cells say the same thing, so they share one key
- * and look it up through the same translator — the same discipline as before, with the word itself
- * moved into the dictionary where the reader's language decides it.
+ * and look it up through the same translator.
  */
 import type { WordKey } from './locales/index.ts'
 

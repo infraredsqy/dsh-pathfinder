@@ -84,9 +84,8 @@ test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条�
 
   registerSeats(ctx, panel, () => undefined)
 
-  /* The two seats land in different slots; registration order carries no semantics in DSH
-   * (`order` only matters inside a single list slot): this only measures "which two are
-   * registered", not their relative order. */
+  /* The two seats land in different slots, where registration order carries no semantics; this
+   * only measures which two are registered, not their relative order. */
   assert.deepEqual([...ledger.keys()].sort(), [
     `main:${PANEL_ID}`,
     `sidebar.panellist:${PANEL_ID}`,

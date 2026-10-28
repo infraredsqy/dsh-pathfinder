@@ -71,7 +71,6 @@ interface NodeFacts {
 }
 
 /**
- * Read the project at that moment.
  * @throws A TypeError when the input is not a moment: with an unspeakable moment, no word of the reading counts.
  */
 export function readProject(input: RecordsAtMoment): ProjectReading {

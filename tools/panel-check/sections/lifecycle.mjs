@@ -1,8 +1,6 @@
 /* 6b-6e. Restart from the same document, the localStorage sweep, the unload pass and the hot-reload pass
  *
- * Positive readings at all three clear points: roster, seats, the two injected style tags.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * Positive readings at all three clear points: roster, seats, the two injected style tags. */
 
 /** runLifecycle */
 export async function runLifecycle(ctx) {

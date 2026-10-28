@@ -304,7 +304,6 @@ function Row(props: {
   )
 }
 
-/** The dropdown: when the reading has no value for the key, no option is selected (left blank) rather than picking the first. */
 function Pick(props: {
   readonly row: ConfigRow
   readonly entry: ConfigEntry | undefined

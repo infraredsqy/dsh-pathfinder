@@ -1,5 +1,5 @@
 /* I · issue pool — the debt, read the way a register is read: a case is a real row of the record's
- * issue register (severity, evidence, disposition; weights P3/P2/P1/P0 = 1/2/4/8 against a policy
+ * issue register (severity, evidence, disposition; weights against a policy
  * line). The pool is what nobody has closed, so that is the page; one movable hairline cuts it in
  * two, and the page reads without writing — closing a case is the agent's move in this version. */.pf-issue{
   --pf-pad: 24px;
@@ -35,8 +35,7 @@
  * Four readings over one vocabulary with the census in the panel's header
  * (`../tokens.css`): an amber ring is a case nobody has taken — the pool's own
  * awaiting-handling — a hollow ring is a case that is known and still counted, a dim
- * hollow one is a case that was put down, and settled ink is a case that is
- * done. No fifth hue was needed and none was added. */
+ * hollow one is a case that was put down, and settled ink is a case that is done. */
 /* ---- the band -----------------------------------------------------------
  * One thin row: the control over the list, the instrument, and the counts that
  * go with it. The strip is the weight drawn and the squares are the cases -- one

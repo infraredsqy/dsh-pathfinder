@@ -1,8 +1,6 @@
 /* 4d. The settings pane: this workspace’s own project settings, read here and edited here
  *
- * Expected rows come from the real tool’s own listing plus the shipped layout table; invalid values must bounce.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * Expected rows come from the real tool’s own listing plus the shipped layout table; invalid values must bounce. */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -134,8 +132,7 @@ export async function runConfigPane(ctx) {
   )
 
   /* Each row's control gets a driver from the shared set at the top: dropdown and number box go
-   * through the **prototype setter** (React remembers the last value on the node itself; assigning
-   * `element.value` directly would read as unchanged), and the on-off toggle just needs a click. */
+   * through the shared drivers' prototype-setter path, and the on-off toggle just needs a click. */
   const rowIn = (scope, key) => [...(scope?.querySelectorAll('#pane-config .pf-cfgrow') ?? [])]
     .find((row) => row.getAttribute('data-key') === key)
   const pressToggle = async (row, word) => {

@@ -9,9 +9,6 @@
  */
 import type { DepsReading, GraphEdge, GraphReading, NodeReading } from './contract.ts'
 
-/**
- * Read the dependency field at that moment.
- */
 export function readGraph(nodes: readonly NodeReading[]): GraphReading {
   const depends = new Map<string, readonly string[]>()
   for (const node of nodes) depends.set(node.id, node.dependencies)

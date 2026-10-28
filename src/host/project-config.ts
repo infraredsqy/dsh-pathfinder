@@ -23,7 +23,7 @@ export type ConfigLayer = 'default' | 'project' | 'global'
  * they map to the same three layers. These are INBOUND tokens matched against the tool's stdout, not
  * words this plugin says: they are never rendered, so they are not in the client's dictionary and
  * must not move there. Accepting both is what keeps this reader working across the tool's own
- * wording changes; a layer name neither spelling covers still yields no layer, as before.
+ * wording changes; a layer name neither spelling covers still yields no layer.
  */
 const LAYER_HEADS: readonly (readonly [ConfigLayer, string])[] = [
   ['default', '出厂默认'],

@@ -1,8 +1,6 @@
 /* The two dispatch-center seats mounted for real, then the four off-record workspaces: empty, unreadable, bare, pool-only
  *
- * Each render pins what the panel collapses to when a source is missing or unreadable.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * Each render pins what the panel collapses to when a source is missing or unreadable. */
 
 /** runWorkspaces */
 export async function runWorkspaces(ctx) {
@@ -79,8 +77,7 @@ export async function runWorkspaces(ctx) {
 
   /* The empty-record workspace case: no `.pf` at all, the read succeeds and all four sources report
    * `missing`. The panel body collapses to one line, and the tabs, the panes and the header's counts
-   * (which the header no longer carries) are withdrawn with it (the testbed's synthetic workspace is
-   * exactly this case). */
+   * are withdrawn with it (the testbed's synthetic workspace is exactly this case). */
   const flat = (node) => (node?.textContent ?? '').replace(/\s+/gu, ' ').trim()
   const emptyHost = window.document.createElement('div')
   window.document.body.appendChild(emptyHost)
@@ -184,10 +181,9 @@ export async function runWorkspaces(ctx) {
   )
 
   /* The panes left with one sentence: the module fills its area. Unfilled, the stage centers the
-   * module vertically, so the sentence floats mid-pane one step right of the header's left edge
-   * (measured in a 1400-wide window: 300px from the left edge, 317px below the tabs); filled, it sits
-   * at this pane's own top-left, the same spot as the other five. jsdom does no layout, so what is
-   * measured here is the marker class. */
+   * module vertically, so the sentence floats mid-pane one step right of the header's left edge;
+   * filled, it sits at this pane's own top-left, the same spot as the other five. jsdom does no
+   * layout, so what is measured here is the marker class. */
   const poorFrame = poorHost.querySelector('#frame')
   check(
     '只剩一句话的那几格：模块撑满地界（那句话因此落在这一格自己的左上角）',

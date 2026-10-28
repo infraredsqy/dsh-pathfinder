@@ -190,10 +190,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   /**
    * Write one of a cycle's own policy numbers.
    *
-   * The parameter list stays on one line with no trailing comma: the gateway
-   * splits method parameters from source, first by comma then per segment by
-   * name — a trailing comma would split out an empty segment and the whole
-   * endpoint would be judged "unclear signature".
+   * The parameter list stays on one line with no trailing comma, same reason as `read`.
    * @param workspaceRoot - The workspace root to write; an empty string means this session's own root.
    * @param value - A positive integer; `off` means "this cycle sets no such limit".
    */

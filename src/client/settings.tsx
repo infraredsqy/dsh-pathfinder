@@ -226,8 +226,8 @@ function SettingsPage(props: SettingsSectionProps): React.ReactElement {
  * unreachable, the first still attaches and is still withdrawn.
  *
  * Services are awaited with dynamic `ctx.inject` (`ctx.get` comes up empty in this deployment, and
- * silently); when `slots` / `configForms` cannot be fetched, quietly do nothing — this layer never
- * breaks the plugin's `apply`. The section is deliberately not hung on the `configForms.whileServed`
+ * silently); when `slots` / `configForms` cannot be fetched, quietly do nothing. The section is
+ * deliberately not hung on the `configForms.whileServed`
  * gate: that gate omits the registration entirely when the host does not serve this namespace, and
  * the omission is reported nowhere — the settings simply lack this page. A page that stands there
  * and states what it cannot do beats a page that silently never appears.
@@ -269,8 +269,8 @@ export function registerSettingsSection(ctx: unknown, store: PrefsStore, locale:
           name: SECTION_SLOT,
           id: SETTINGS_NAMESPACE,
           order: SECTION_ORDER,
-          /* Marked with the dictionary this outlet speaks, and the word is looked up per frame: DSH
-           * redraws the row on a language switch, the same way it does for its own rows. */
+          /* Marked with the dictionary this outlet speaks, and the word is looked up per frame, so
+           * a language switch redraws the row. */
           locale: LOCALE_NS,
           label: () => localeOf(locale).t(SECTION_WORD),
           /* The reading binds only when the slot actually renders: this layer does not read it early on the slot's behalf. */

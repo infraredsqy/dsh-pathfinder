@@ -1,8 +1,6 @@
 /* 5. The detail split: really present, really draggable, still there after reopening; then 6a-2, rejected writes must not be silent
  *
- * The settings section’s existing note line speaks on refusal — on both surfaces.
- * Cut as-is from the single-file fixture (8743643): the criteria, the readings, the section
- * names and their order are untouched — this is a move, not a rewrite. */
+ * The settings section’s existing note line speaks on refusal — on both surfaces. */
 
 /** runDetailAndRefuse */
 export async function runDetailAndRefuse(ctx) {

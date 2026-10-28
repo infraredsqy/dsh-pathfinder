@@ -7,7 +7,6 @@ import type { InstructionReading } from '../model/index.ts'
 import { useT } from './locale.ts'
 import { ModalShell } from './widgets.tsx'
 
-/** Delete one entry: verbatim quote, second click to act. */
 export function DeleteConfirm(props: {
   readonly instruction: InstructionReading
   readonly said: string
