@@ -6,16 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readDeps, readProject } from '../src/model/index.ts'
-
-const AT = new Date('2026-03-10T12:00:00.000Z')
-
-function record(parts = {}) {
-  return { nodes: {}, cycles: [], instructions: [], issues: {}, ...parts, at: parts.at ?? AT }
-}
-
-function node(fields = {}) {
-  return { mode: 'auto', status: 'todo', dependencies: [], ...fields }
-}
+import { node, record } from './helpers/record-fixtures.mjs'
 
 const layerIds = (reading) => reading.graph.layers.map((layer) => layer.map((item) => item.id))
 

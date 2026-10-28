@@ -13,53 +13,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
+import { fakeContext, fakeSubprocess as sharedSubprocess, wordsOf } from './helpers/host-fixtures.mjs'
 
-function fakeSubprocess({
-  executable = 'C:\\tools\\bin\\pf.cmd',
-  python = 'C:\\python\\python.exe',
-  py = 'C:\\Windows\\py.exe',
-  exitCode = 0,
-  stdout = '',
-  stderr = '',
-} = {}) {
-  const specs = []
-  const found = (name, path) => {
-    if (path === null) throw new Error(`${name} 不在 PATH 上`)
-    return path
-  }
-  return {
-    specs,
-    async resolveExecutable(command) {
-      if (command === 'python') return found('python', python)
-      if (command === 'py') return found('py', py)
-      return executable
-    },
-    spawn(spec) {
-      specs.push(spec)
-      return {
-        done: Promise.resolve({ exitCode }),
-        collected: {
-          stdout: { readFrom: () => ({ text: stdout }) },
-          stderr: { readFrom: () => ({ text: stderr }) },
-        },
-      }
-    },
-  }
-}
-
-/** A minimal host context, enough for this layer: writes go to whatever root the session header points to. */
-function fakeContext({ subprocess, workspaceRoot = 'C:\\workspace' } = {}) {
-  return {
-    workspaceFiles: {},
-    sessions: { get: () => ({ header: { cwd: workspaceRoot } }) },
-    sandboxPolicy: { workspaceRoot },
-    get: (service) => (service === 'subprocess' ? subprocess : undefined),
-  }
-}
-
-function wordsOf(spec) {
-  const line = spec.argv[spec.argv.length - 1]
-  return line.split(' ').slice(1)
+/** The shared subprocess stand-in wearing this file's own interpreter defaults: the two names
+ * `pf.py` can be launched through, each overridable per case (pass `null` to take it off PATH). */
+function fakeSubprocess({ python = 'C:\\python\\python.exe', py = 'C:\\Windows\\py.exe', ...rest } = {}) {
+  return sharedSubprocess({ ...rest, interpreters: { python, py } })
 }
 
 test('归档一条：pf instruction resolve <id> --state withdrawn', async () => {

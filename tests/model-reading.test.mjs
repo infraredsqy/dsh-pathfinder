@@ -11,20 +11,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { bucketOf, everySourceIs, nodesOf, readProject } from '../src/model/index.ts'
-
-const AT = new Date('2026-03-10T12:00:00.000Z')
-
-function record(parts = {}) {
-  return { nodes: {}, cycles: [], instructions: [], issues: {}, ...parts, at: parts.at ?? AT }
-}
-
-function node(fields = {}) {
-  return { mode: 'auto', status: 'todo', dependencies: [], ...fields }
-}
-
-function cycle(fields = {}) {
-  return { id: 'c1', status: 'active', holding: [], path: [], ...fields }
-}
+import { cycle, node, record } from './helpers/record-fixtures.mjs'
 
 function readingWithSources(sources) {
   return { sources: Object.fromEntries(['nodes', 'cycles', 'instructions', 'issues'].map((key) => [key, sources[key] ?? sources.all])) }

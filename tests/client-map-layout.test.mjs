@@ -7,6 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readProject } from '../src/model/index.ts'
+import { node, record } from './helpers/record-fixtures.mjs'
 import {
   CARD_H,
   CARD_W,
@@ -30,17 +31,6 @@ import {
   wirePath,
   zoomAt,
 } from '../src/client/map-layout.ts'
-
-const AT = new Date('2026-03-10T12:00:00.000Z')
-
-/** A record at the fixture's own moment: only the parts a case needs are named. */
-function record(parts = {}) {
-  return { nodes: {}, cycles: [], instructions: [], issues: {}, ...parts, at: parts.at ?? AT }
-}
-
-function node(fields = {}) {
-  return { mode: 'auto', status: 'todo', dependencies: [], ...fields }
-}
 
 /** The reading a case starts from, cut at the fixture's moment. */
 function readingOf(parts) {

@@ -10,40 +10,27 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { NOT_FOUND } from '../src/host/records.ts'
+import { absentError, fakeWorkspaceFiles } from './helpers/workspace-files-port.mjs'
 import { readSessionNotes } from '../src/host/sessions.ts'
 
+/** This file's own cases on top of the shared stand-in: the whole layer absent from the workspace,
+ * and files listed but unreadable (plus a directory entry nothing should try to carry over). */
 function fakePort(files, { absent = false, phantom = [] } = {}) {
-  /* The fake port fakes "absent" using the code exported by records.ts: the contract lives in one place repo-wide; if anyone drifts, it snaps here. */
-  const missing = () => {
-    const error = new Error('no entry here')
-    error.code = NOT_FOUND
-    return error
-  }
+  const port = fakeWorkspaceFiles(files)
   return {
     async list(scope, path) {
-      if (absent) throw missing()
+      if (absent) throw absentError(path)
+      const listing = await port.list(scope, path)
       return {
-        path,
+        ...listing,
         entries: [
-          ...Object.keys(files)
-            .filter((one) => one.startsWith(`${path}/`))
-            .map((one) => ({ name: one.slice(path.length + 1), type: 'file' })),
-          /* Listed but unreadable: only shows up when carried over. */
+          ...listing.entries,
           ...phantom.map((name) => ({ name, type: 'file' })),
           { name: 'notes', type: 'directory' },
         ],
-        truncated: false,
       }
     },
-    async read(scope, path, range) {
-      if (!(path in files)) throw missing()
-      const lines = files[path].split('\n')
-      const offset = range?.offset ?? 1
-      const limit = range?.limit ?? 400
-      const slice = lines.slice(offset - 1, offset - 1 + limit)
-      return { text: slice.join('\n'), lines: slice.length, eof: offset - 1 + slice.length >= lines.length }
-    },
+    read: port.read,
   }
 }
 

@@ -17,6 +17,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
+import { absentError, readPage } from './helpers/workspace-files-port.mjs'
 
 /** The nine endpoints, matching the table in `gateway.ts`. */
 const ENDPOINTS = [
@@ -71,15 +72,13 @@ async function liveGateway(root) {
   const { TypertRegistry } = await import('@deepseek-ai/dsh-typert-registry')
 
   const ctx = new Context()
+  /* The wiring here is its own: this is a live gateway over a real directory on disk, so `list`
+   * reads the directory itself. The paging a read answers with, though, is the shared one. */
   ctx.provide('workspaceFiles', {
     async list(scope, path) {
       const { readdirSync, existsSync } = await import('node:fs')
       const target = join(root, path)
-      if (!existsSync(target)) {
-        const error = new Error('no entry here')
-        error.code = 'workspace-file/not-found'
-        throw error
-      }
+      if (!existsSync(target)) throw absentError(target)
       return {
         path,
         entries: readdirSync(target, { withFileTypes: true }).map((entry) => ({
@@ -92,16 +91,8 @@ async function liveGateway(root) {
     async read(scope, path, range) {
       const { existsSync, readFileSync } = await import('node:fs')
       const target = join(root, path)
-      if (!existsSync(target)) {
-        const error = new Error('no entry here')
-        error.code = 'workspace-file/not-found'
-        throw error
-      }
-      const lines = readFileSync(target, 'utf8').split('\n')
-      const offset = range?.offset ?? 1
-      const limit = range?.limit ?? 400
-      const slice = lines.slice(offset - 1, offset - 1 + limit)
-      return { text: slice.join('\n'), lines: slice.length, eof: offset - 1 + slice.length >= lines.length }
+      if (!existsSync(target)) throw absentError(target)
+      return readPage(readFileSync(target, 'utf8'), range)
     },
   })
   ctx.provide('sessions', { get: (id) => (id === 's1' ? { header: { cwd: root } } : undefined) })
