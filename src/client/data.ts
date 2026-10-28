@@ -13,7 +13,7 @@
 import type { PathfinderReading } from '../host/contract.ts'
 import type { PathfinderConfigReading } from '../host/project-config.ts'
 import type { PathfinderSessionsReading } from '../host/sessions.ts'
-import type { CyclePolicyKey, InstructionScope } from '../host/gateway.ts'
+import type { InstructionScope } from '../host/gateway.ts'
 import { RefusedError, type Failure, type FailureCode, type Outcome } from './failure.ts'
 
 /** The namespace, named after the host-half service key. */
@@ -50,8 +50,6 @@ export interface PanelPort {
   say(sessionId: string, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<Outcome>
   /** Archive / revive / delete an instruction. */
   write(verb: WriteVerb, sessionId: string, workspaceRoot: string, id: string): Promise<Outcome>
-  /** Write one policy number of a line. */
-  setPolicy(sessionId: string, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<Outcome>
   /** The named workspace's project settings: effective values and which layer each lives on, from the tool's command. */
   readConfig(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderConfigReading>
   /** Write one project setting; it always lands on this project's layer. */
@@ -143,7 +141,6 @@ const REMOTE_PARAM_ORDER: Readonly<Record<string, readonly string[]>> = {
   archiveInstruction: ['sessionId', 'workspaceRoot', 'id'],
   reviveInstruction: ['sessionId', 'workspaceRoot', 'id'],
   removeInstruction: ['sessionId', 'workspaceRoot', 'id'],
-  setCyclePolicy: ['sessionId', 'workspaceRoot', 'cycle', 'key', 'value'],
   readConfig: ['sessionId', 'workspaceRoot'],
   setConfig: ['sessionId', 'workspaceRoot', 'key', 'value'],
 }
@@ -166,7 +163,7 @@ function refused(failure: Failure): Outcome {
 }
 
 /**
- * The common skeleton of the panel's port: the seven methods written once, with the two paths
+ * The common skeleton of the panel's port: the six methods written once, with the two paths
  * differing only in the `call` layer and how the signal is passed.
  *
  * A read that cannot happen rejects with {@link RefusedError} — a caller awaiting a reading has
@@ -194,10 +191,6 @@ function portFromCall(source: PanelPort['source'], call: PortCall): PanelPort {
     },
     async write(verb, sessionId, workspaceRoot, id) {
       const answer = await call<Outcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
-      return answer.ok ? answer.value : refused(answer.failure)
-    },
-    async setPolicy(sessionId, workspaceRoot, cycle, key, value) {
-      const answer = await call<Outcome>('setCyclePolicy', { sessionId, workspaceRoot, cycle, key, value })
       return answer.ok ? answer.value : refused(answer.failure)
     },
     async readConfig(sessionId, workspaceRoot, signal) {
@@ -258,7 +251,7 @@ function absentPort(): PanelPort {
     throw new RefusedError({ code: 'not-connected' })
   }
   const refusedWrite = async (): Promise<Outcome> => ({ ok: false, code: 'no-write-channel' })
-  return { source: 'none', read: missing, readSessions: missing, say: refusedWrite, write: refusedWrite, setPolicy: refusedWrite, readConfig: missing, setConfig: refusedWrite }
+  return { source: 'none', read: missing, readSessions: missing, say: refusedWrite, write: refusedWrite, readConfig: missing, setConfig: refusedWrite }
 }
 
 /**
@@ -301,7 +294,6 @@ const KNOWN_CODES = {
   'spawn-failed': true,
   'scope-unknown': true,
   'empty-text': true,
-  'policy-key-unknown': true,
   'no-operation': true,
   'not-connected': true,
   'no-write-channel': true,

@@ -129,23 +129,6 @@ test('记下一条：空话与不认识的范围当场说清，命令一条都�
   assert.deepEqual(subprocess.specs, [])
 })
 
-test('一个策略数：pf cycle policy <线> <键> <值>', async () => {
-  const subprocess = fakeSubprocess()
-  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  await gateway.setCyclePolicy('s1', '', 'panel-to-plugin', 'test_seconds_limit', '90')
-
-  assert.deepEqual(wordsOf(subprocess.specs[0]), ['cycle', 'policy', 'panel-to-plugin', 'test_seconds_limit', '90'])
-})
-
-test('无法识别的策略键：不递命令，直接拒', async () => {
-  const subprocess = fakeSubprocess()
-  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.setCyclePolicy('s1', '', 'panel-to-plugin', 'spawner', 'dsh')
-
-  assert.deepEqual(outcome, { ok: false, code: 'policy-key-unknown', detail: 'spawner' }, '不在那三个可写键里就不递命令')
-  assert.deepEqual(subprocess.specs, [])
-})
-
 test('参数闸：命令行元字符进不去，命令也就不递', async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))

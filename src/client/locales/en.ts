@@ -81,7 +81,6 @@ export const en: Readonly<Record<WordKey, string>> = {
 
   /* ── The detail view ──────────────────────────────────────────────────────────────────────── */
   'detail.lines.aria': 'Lines',
-  'detail.line.settings.aria': 'Settings for {cycle}',
   'detail.side-grip.aria': 'Resize the line sidebar',
   'detail.folded.cells.one': ' cell',
   'detail.folded.cells.other': ' cells',
@@ -156,14 +155,6 @@ export const en: Readonly<Record<WordKey, string>> = {
   'config.row.test_seconds_limit.name': 'Test suite time limit (seconds)',
   'config.row.test_seconds_limit.caption': 'How long the whole suite took; the next close must stay below it. Blank means no judgement.',
 
-  /* ── A line's own policy numbers ──────────────────────────────────────────────────────────── */
-  'line.row.parallel.name': 'Parallel session cap',
-  'line.row.parallel.note': 'How many sessions one line may start in parallel; the default is 1.',
-  'line.row.test_seconds_limit.name': 'Test suite time limit (seconds)',
-  'line.row.test_seconds_limit.note': 'The threshold for a full verification run; past it, a leaner or faster test node is added automatically.',
-  'line.row.issue_pool_weight_limit.name': 'Issue pool weight limit',
-  'line.row.issue_pool_weight_limit.note': 'The threshold for the pool’s weighted sum, each tier weighed by the table written in the records; past it, a repair node is added automatically.',
-
   /* ── What a node is waiting on ────────────────────────────────────────────────────────────── */
   /* The head is empty in English: the number leads, so nothing stands before it. */
   'deps.owed.head': '',
@@ -202,7 +193,6 @@ export const en: Readonly<Record<WordKey, string>> = {
   'failure.spawn-failed': '{detail}',
   'failure.scope-unknown': 'Unrecognized scope: {detail}',
   'failure.empty-text': 'Nothing to record: write the sentence first.',
-  'failure.policy-key-unknown': 'Unrecognized policy key: {detail}',
   'failure.no-operation': 'This channel has no {detail} operation.',
   'failure.not-connected': 'This deployment is not connected to the pathfinder record service, so records cannot be read.',
   'failure.no-write-channel': 'This deployment has no usable write channel.',

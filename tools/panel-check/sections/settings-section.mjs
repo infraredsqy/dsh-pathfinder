@@ -1,12 +1,12 @@
 /* 4a. The settings section: a navigation row plus the page it opens, reading the same settings form as the panel
  *
- * Flip one row and the panel reading follows at once; also carries the detail-group readings, the instruction CRUD and the policy numbers. */
+ * Flip one row and the panel reading follows at once; also carries the detail-group readings and the instruction CRUD. */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** runSettingsSection */
 export async function runSettingsSection(ctx) {
-  const { window, React, act, createRoot, settle, click, typeNumber, setSelect, check, lines, container, tabs, booted, backend, client, t, groupWord, project, gateway, record, sessionId, outcomeText } = ctx
+  const { window, React, act, createRoot, settle, click, setSelect, check, lines, container, tabs, booted, backend, client, t, groupWord, project, gateway, record, sessionId, outcomeText } = ctx
 
   /**
    * Which groups the instructions pane should show: recomputed from the record as of now, ordered by
@@ -277,38 +277,6 @@ export async function runSettingsSection(ctx) {
       field.value === '' && (container.querySelector('#pane-notes')?.textContent ?? '').includes(said),
       `框里=${field.value} ｜ 页面上找得到=${String((container.querySelector('#pane-notes')?.textContent ?? '').includes(said))}`,
     )
-  }
-
-  /* Policy numbers: change one through the line-settings modal and the readings follow. */
-  const cycles = JSON.parse(readFileSync(join(record, 'state.json'), 'utf8')).cycles
-  const line = cycles[0]
-  check('记录里有一条线可以写策略', line !== undefined, `id=${String(line?.id)}`)
-  if (line !== undefined) {
-    await act(async () => { tabs[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-    const settingsKey = [...container.querySelectorAll('#pane-detail .pf-lineitem')]
-      .flatMap((item) => [...item.querySelectorAll('.pf-mini')])
-      .find((button) => button.textContent === '设置')
-    check('明细那一行上有设置这一枚', settingsKey !== undefined, '设置')
-    if (settingsKey !== undefined) {
-      await click(settingsKey)
-      const fields = () => [...container.querySelectorAll('.pf-setrow .pf-numin')]
-      check('模态里三个数摆出来了', container.querySelectorAll('.pf-setrow').length === 3 && fields().length === 3, `rows=${String(container.querySelectorAll('.pf-setrow').length)}`)
-      const rowAt = (index) => container.querySelectorAll('.pf-setrow')[index]
-      /* Each of the three policy numbers is written once through the one number-box driver: three
-       * rows in the same modal, same endpoint, the cost being three Enters. The reading lands on the
-       * **record file** (the three keys in `state.json`); what the panel reads back on its own does
-       * not count. */
-      const targets = [['parallel', 5], ['test_seconds_limit', 900], ['issue_pool_weight_limit', 7]]
-      const wrote = []
-      for (const [index, [key, target]] of targets.entries()) {
-        await typeNumber(rowAt(index), target)
-        const stored = JSON.parse(readFileSync(join(record, 'state.json'), 'utf8')).cycles.find((entry) => entry.id === line.id)
-        wrote.push(`${key} 要 ${String(target)} → 记录里 ${String(stored?.policies?.[key])}`)
-        check(`策略「${key}」：记录里确实是写进去那个值`, stored?.policies?.[key] === target, `${key}=${String(stored?.policies?.[key])}`)
-        check(`策略「${key}」：框里跟着读数换成新的那个`, fields()[index]?.value === String(target), `value=${String(fields()[index]?.value)}`)
-      }
-      lines.push(`      三个策略数各写一次：${wrote.join(' ｜ ')}`)
-    }
   }
 
   ctx.settingsForm = settingsForm

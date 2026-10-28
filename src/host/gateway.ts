@@ -23,21 +23,11 @@ import { readReading } from './records.ts'
 import { readSessionNotes, type PathfinderSessionsReading } from './sessions.ts'
 import { runPf } from './write.ts'
 
-/** The writable keys among a cycle's three policy numbers. */
-export type CyclePolicyKey = 'parallel' | 'test_seconds_limit' | 'issue_pool_weight_limit'
-
 /** The three scopes an instruction can bind to: global / a cycle / a node. */
 export type InstructionScope = 'global' | 'cycle' | 'node'
 
 /** The three scopes this write path accepts, verbatim as the tool spells them. */
 export const INSTRUCTION_SCOPES: readonly InstructionScope[] = ['global', 'cycle', 'node']
-
-/** The keys this write path accepts, verbatim as the tool spells them. */
-export const CYCLE_POLICY_KEYS: readonly CyclePolicyKey[] = [
-  'parallel',
-  'test_seconds_limit',
-  'issue_pool_weight_limit',
-]
 
 /** Endpoint table: each method listed here gets an endpoint of the same name; a method on the class missing from this table fails construction on the spot. */
 const REMOTE_METHODS: readonly string[] = [
@@ -46,7 +36,6 @@ const REMOTE_METHODS: readonly string[] = [
   'archiveInstruction',
   'reviveInstruction',
   'removeInstruction',
-  'setCyclePolicy',
   'readConfig',
   'setConfig',
   'readSessions',
@@ -145,8 +134,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    * the records.
    *
    * The parameter list stays on one line with no trailing comma: the gateway
-   * splits method parameters from source, same reason as `setCyclePolicy`
-   * below.
+   * splits method parameters from source, same reason as `read` above.
    * @param workspaceRoot - The workspace root to write; an empty string means this session's own root.
    * @param cycle - Which cycle to bind, by cycle id; pass an empty string for other scopes.
    * @param node - Which node to bind, by node id; pass an empty string for other scopes.
@@ -185,18 +173,6 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
    */
   async removeInstruction(sessionId: SessionId, workspaceRoot: string, id: string): Promise<PfOutcome> {
     return this.#pf(sessionId, workspaceRoot, ['instruction', 'rm', id])
-  }
-
-  /**
-   * Write one of a cycle's own policy numbers.
-   *
-   * The parameter list stays on one line with no trailing comma, same reason as `read`.
-   * @param workspaceRoot - The workspace root to write; an empty string means this session's own root.
-   * @param value - A positive integer; `off` means "this cycle sets no such limit".
-   */
-  async setCyclePolicy(sessionId: SessionId, workspaceRoot: string, cycle: string, key: CyclePolicyKey, value: string): Promise<PfOutcome> {
-    if (!CYCLE_POLICY_KEYS.includes(key)) return { ok: false, code: 'policy-key-unknown', detail: key }
-    return this.#pf(sessionId, workspaceRoot, ['cycle', 'policy', cycle, key, value])
   }
 
   /**
@@ -273,7 +249,7 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * The single command-running path shared by the six write endpoints; the true private `#pf` is not on the prototype, so the endpoint table's missing-registration scan cannot see it. A write never carries a caller signal: "never cancelled" is this layer's standing trade-off, taken once in {@link NEVER_ABORT}.
+   * The single command-running path shared by the five write endpoints; the true private `#pf` is not on the prototype, so the endpoint table's missing-registration scan cannot see it. A write never carries a caller signal: "never cancelled" is this layer's standing trade-off, taken once in {@link NEVER_ABORT}.
    */
   async #pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[], said?: string): Promise<PfOutcome> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)

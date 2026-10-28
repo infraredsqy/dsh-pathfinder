@@ -34,10 +34,6 @@ export async function runViews(ctx) {
       writeCalls.push(`say/${scope}`)
       return track(panel.port.say(id, workspaceRoot, text, scope, cycle, node))
     },
-    setPolicy(id, workspaceRoot, cycle, key, value) {
-      writeCalls.push(`setPolicy/${key}`)
-      return track(panel.port.setPolicy(id, workspaceRoot, cycle, key, value))
-    },
     readConfig(id, workspaceRoot) {
       return track(panel.port.readConfig(id, workspaceRoot))
     },

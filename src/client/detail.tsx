@@ -1,11 +1,10 @@
 /**
- * The second pane of the main panel: detail. A line sidebar on the left (each line with a pick
- * button and a "Settings" button), and the body is the picked line's node list grouped into five
- * sections; a movable split sits between sidebar and body.
+ * The second pane of the main panel: detail. A line sidebar on the left (one pick button per line),
+ * and the body is the picked line's node list grouped into five sections; a movable split sits
+ * between sidebar and body.
  *
- * Picking a line, opening a line's settings, and moving the split are all handed back to the shell
- * (`onPickLine` / `onOpenSettings` / `onSideWidth` / `onSideCommit`); writing back to the settings
- * document is the shell's job.
+ * Picking a line and moving the split are both handed back to the shell (`onPickLine` /
+ * `onSideWidth` / `onSideCommit`); writing back to the settings document is the shell's job.
  */
 import * as React from 'react'
 import type { CycleReading, DetailGroupKey, NodeReading, ProjectReading } from '../model/index.ts'
@@ -45,7 +44,7 @@ const SPLIT_STEP = 16
  * The full layout of the detail pane: the line sidebar, the split, and the body.
  * @param props - Visibility, whether to collapse to one sentence, the record's lines with the
  *   picked one, the reading at this moment, the split width with its two write-backs, and where
- *   the pick-line and open-settings actions go.
+ *   the pick-line action goes.
  */
 export function DetailPane(props: {
   readonly active: boolean
@@ -57,7 +56,6 @@ export function DetailPane(props: {
   readonly onSideWidth: (px: number) => void
   readonly onSideCommit: (px: number) => void
   readonly onPickLine: (id: string) => void
-  readonly onOpenSettings: (id: string) => void
 }): React.ReactElement {
   const t = useT()
   return (
@@ -83,14 +81,6 @@ export function DetailPane(props: {
               >
                 <LineMark cycle={cycle} />
                 <span className="pf-cycle">{cycle.id}</span>
-              </button>
-              <button
-                type="button"
-                className="pf-mini"
-                aria-label={t('detail.line.settings.aria', { cycle: cycle.id })}
-                onClick={() => props.onOpenSettings(cycle.id)}
-              >
-                {t('common.settings')}
               </button>
             </div>
           ))}

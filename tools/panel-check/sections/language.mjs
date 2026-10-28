@@ -104,7 +104,6 @@ export async function runLanguage(ctx) {
     readSessions: () => neverAnswers,
     say: async () => ({ ok: false, code: 'no-write-channel' }),
     write: async () => ({ ok: false, code: 'no-write-channel' }),
-    setPolicy: async () => ({ ok: false, code: 'no-write-channel' }),
     readConfig: () => neverAnswers,
     setConfig: async () => ({ ok: false, code: 'no-write-channel' }),
   }

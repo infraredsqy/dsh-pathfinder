@@ -1,13 +1,12 @@
-/* dsh-pathfinder · the line-name column left of the detail pane, and a line's own three numbers.
+/* dsh-pathfinder · the line-name column left of the detail pane.
  *
- * The left column answers only "which line to look at": the mark is drawn left of the name, the row
- * carries no numbers, and a "Settings" appears at the row's end only under the pointer. The three
- * numbers live in the modal that Setting opens; an edit there is handed back to the shell and
- * written with a `pf cycle policy` command.
+ * The column answers only "which line to look at": the mark is drawn left of the name, and the row
+ * carries no numbers and no action of its own — a line's own numbers are written outside the panel
+ * (`pf cycle policy`), where the tool is the one that judges them.
  *
  * The row itself — its height, its inset, the cell left of the name, the name's face — is the object
  * this column and the map's rail both use, so it is declared in `tokens.css`. What stands here is
- * what this column owns: the split, the draggable width, and the cell the row-end action keeps. */.pf-page .pf-detail{
+ * what this column owns: the split, the draggable width, and the body. */.pf-page .pf-detail{
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -22,37 +21,15 @@
   /* The rail and the list sit on one top line: both take the page's own inset rather than the rail
    * starting a step higher than the first head. */
   padding: var(--pf-detail-top) 0 var(--pf-detail-foot);
-}/* The name button fills the row and leaves the last cell to the row-end "Settings": one row of two
- * controls, so the name never re-flows under the pointer. */.pf-page .pf-linepick{
+}/* The whole row is the one control it holds: the column lists lines to look at, and picking one is
+ * the only act a row carries. */.pf-page .pf-linepick{
   flex: 1 1 auto;
   height: 100%;
   padding: 0;
-}/* The row-end "Settings": the `.pf-mini` small action, uninked unless the pointer is on it, but
-   always occupying its cell and always reachable — keyboard focus inside the row (`focus-within`)
-   reveals it too; a button that takes a pointer to touch is one a keyboard cannot reach. */.pf-page .pf-lineitem .pf-mini{
-  opacity: 0;
-  pointer-events: none;
-}.pf-page .pf-lineitem:hover .pf-mini, .pf-page .pf-lineitem:focus-within .pf-mini{
-  opacity: 1;
-  pointer-events: auto;
 }.pf-page .pf-linemain{
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-}/* The three-numbers block: one number per row — name, one sentence saying what the number is, the
-   control at the right end. The shape copies DSH's settings page: name a tier up, the sentence
-   below a tier down, the control against the right edge, a hairline between rows (`.pf-setrow`,
-   living in tokens.css). */.pf-page .pf-fold{
-  flex: none;
-  padding: 2px 14px 4px;
-  display: flex;
-  align-items: center;
-  column-gap: 18px;
-}.pf-page .pf-fold[hidden]{ display: none; }.pf-page .pf-set{
-  flex: 1 1 auto;
-  min-width: 0;
   display: flex;
   flex-direction: column;
 }

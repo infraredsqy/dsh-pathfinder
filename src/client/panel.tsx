@@ -4,7 +4,7 @@
  *
  * Each pane's own layout is its own document: the map `map.tsx` (with its layout engine in
  * `map-layout.ts`), detail `detail.tsx`, instruction book `notes.tsx`, project settings `config.tsx`,
- * and the issue pane `pool.tsx`; the two modals are `line-settings.tsx` and `delete-confirm.tsx`; the
+ * and the issue pane `pool.tsx`; the modal is `delete-confirm.tsx`; the
  * reading widgets shared by the map, detail, and instruction book are in `marks.tsx`.
  *
  * Not a single reading is computed here: the four records arrive through the port, and the pure
@@ -28,7 +28,6 @@ import { MapPane, type CardGo } from './map.tsx'
 import { ConfigPane } from './config.tsx'
 import { DeleteConfirm } from './delete-confirm.tsx'
 import { DetailPane } from './detail.tsx'
-import { LineSettings } from './line-settings.tsx'
 import { NotesPane } from './notes.tsx'
 import { IssuePool } from './pool.tsx'
 
@@ -142,7 +141,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const [tick, setTick] = React.useState(0)
   const [note, setNote] = React.useState<Note | null>(null)
   const [lineId, setLineId] = React.useState<string | null>(null)
-  const [settingsFor, setSettingsFor] = React.useState<string | null>(null)
   const [deleting, setDeleting] = React.useState<InstructionReading | null>(null)
 
   /* Fetching: read once on the pass this view becomes visible; again when the workspace changes or
@@ -364,7 +362,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             onSideWidth={setSideWidth}
             onSideCommit={(px) => keep(PANEL_PREF_FIELDS.sideWidth, clampSide(px))}
             onPickLine={setLineId}
-            onOpenSettings={setSettingsFor}
           />
 
           <NotesPane
@@ -415,15 +412,6 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
 
       {note === null ? null : (
         <p className="pf-innone">{note.kind === 'said' ? note.text : failureWord(t, note.failure)}</p>
-      )}
-
-      {settingsFor === null ? null : (
-        <LineSettings
-          cycle={cycles.find((candidate) => candidate.id === settingsFor) ?? null}
-          raw={reading?.cycles.find((candidate) => candidate.id === settingsFor)}
-          onClose={() => setSettingsFor(null)}
-          onWrite={(key, value) => onWrite(() => port.setPolicy(sessionId ?? '', workspaceRoot, settingsFor, key, value))}
-        />
       )}
 
       {deleting === null ? null : (

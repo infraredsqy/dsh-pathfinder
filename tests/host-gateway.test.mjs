@@ -19,14 +19,13 @@ import { join } from 'node:path'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 import { absentError, readPage } from './helpers/workspace-files-port.mjs'
 
-/** The nine endpoints, matching the table in `gateway.ts`. */
+/** The eight endpoints, matching the table in `gateway.ts`. */
 const ENDPOINTS = [
   'read',
   'addInstruction',
   'archiveInstruction',
   'reviveInstruction',
   'removeInstruction',
-  'setCyclePolicy',
   'readConfig',
   'setConfig',
   'readSessions',
@@ -250,7 +249,7 @@ test('记下一条那条端点：原话过网关这一关，落成工具那一�
   }
 })
 
-test('三个写端点与那条策略端点：网关也都叫得动', { skip: !wired }, async () => {
+test('三个写端点与设置那两条：网关也都叫得动', { skip: !wired }, async () => {
   const root = syntheticWorkspace()
   const { ctx, call } = await liveGateway(root)
   try {
@@ -260,8 +259,6 @@ test('三个写端点与那条策略端点：网关也都叫得动', { skip: !wi
     assert.equal(revived.ok, true, String(revived.message))
     const removed = await call('removeInstruction', { sessionId: 's1', workspaceRoot: '', id: 'i-1' })
     assert.equal(removed.ok, true, String(removed.message))
-    const policy = await call('setCyclePolicy', { sessionId: 's1', workspaceRoot: '', cycle: 'line-1', key: 'parallel', value: '2' })
-    assert.equal(policy.ok, true, String(policy.message))
     const listed = await call('readConfig', { sessionId: 's1', workspaceRoot: '' })
     assert.equal(listed.ok, true, String(listed.message))
     assert.equal(listed.value.workspaceRoot, root)

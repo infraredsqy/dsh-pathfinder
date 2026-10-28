@@ -69,7 +69,6 @@ test('出口面收在插件协议要的那四样上：内部件不再从入口�
   for (const internal of [
     'rootFor',
     'workspaceRootOf',
-    'CYCLE_POLICY_KEYS',
     'runPf',
     'readReading',
     'readWholeFile',

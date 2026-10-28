@@ -18,7 +18,7 @@ import { createPanelPort } from '../src/client/data.ts'
 function fakeNamespace(answer = { ok: true, value: { workspaceRoot: 'C:\\ws' } }) {
   const calls = []
   const namespace = {}
-  for (const method of ['read', 'readSessions', 'addInstruction', 'archiveInstruction', 'reviveInstruction', 'removeInstruction', 'setCyclePolicy', 'readConfig', 'setConfig']) {
+  for (const method of ['read', 'readSessions', 'addInstruction', 'archiveInstruction', 'reviveInstruction', 'removeInstruction', 'readConfig', 'setConfig']) {
     namespace[method] = async (...values) => {
       calls.push({ method, values })
       return answer
@@ -84,16 +84,13 @@ test('远程那条路上，三个写动作各叫哪一个端点', async () => {
   await port.write('archive', 's1', 'C:\\picked', 'i-1')
   await port.write('revive', 's1', 'C:\\picked', 'i-1')
   await port.write('remove', 's1', 'C:\\picked', 'i-1')
-  await port.setPolicy('s1', 'C:\\picked', 'panel-to-plugin', 'parallel', '3')
 
   assert.deepEqual(calls.map((call) => call.method), [
     'archiveInstruction',
     'reviveInstruction',
     'removeInstruction',
-    'setCyclePolicy',
   ])
   assert.deepEqual(calls[0].values, ['s1', 'C:\\picked', 'i-1'])
-  assert.deepEqual(calls[3].values, ['s1', 'C:\\picked', 'panel-to-plugin', 'parallel', '3'])
 })
 
 test('远程那条路上，设置那两条各叫哪一个端点', async () => {
@@ -174,25 +171,21 @@ test('命名空间没装上：退到载体那一层，端点与参数都指名�
   assert.equal(calls[1].endpoint, 'pathfinderRecords/removeInstruction')
   assert.deepEqual(calls[1].payload, { args: { sessionId: 's1', workspaceRoot: 'C:\\picked', id: 'i-1' } })
 
-  await port.setPolicy('s1', 'C:\\picked', 'panel-to-plugin', 'parallel', '3')
-  assert.equal(calls[2].endpoint, 'pathfinderRecords/setCyclePolicy')
-  assert.deepEqual(calls[2].payload, { args: { sessionId: 's1', workspaceRoot: 'C:\\picked', cycle: 'panel-to-plugin', key: 'parallel', value: '3' } })
-
   await port.readConfig('s1', '')
-  assert.equal(calls[3].endpoint, 'pathfinderRecords/readConfig')
-  assert.deepEqual(calls[3].payload, { args: { sessionId: 's1', workspaceRoot: '' } })
+  assert.equal(calls[2].endpoint, 'pathfinderRecords/readConfig')
+  assert.deepEqual(calls[2].payload, { args: { sessionId: 's1', workspaceRoot: '' } })
 
   await port.setConfig('s1', '', 'issue_repair', 'off')
-  assert.equal(calls[4].endpoint, 'pathfinderRecords/setConfig')
-  assert.deepEqual(calls[4].payload, { args: { sessionId: 's1', workspaceRoot: '', key: 'issue_repair', value: 'off' } })
+  assert.equal(calls[3].endpoint, 'pathfinderRecords/setConfig')
+  assert.deepEqual(calls[3].payload, { args: { sessionId: 's1', workspaceRoot: '', key: 'issue_repair', value: 'off' } })
 
   await port.readSessions('s1', '')
-  assert.equal(calls[5].endpoint, 'pathfinderRecords/readSessions')
-  assert.deepEqual(calls[5].payload, { args: { sessionId: 's1', workspaceRoot: '' } })
+  assert.equal(calls[4].endpoint, 'pathfinderRecords/readSessions')
+  assert.deepEqual(calls[4].payload, { args: { sessionId: 's1', workspaceRoot: '' } })
 
   await port.say('s1', 'C:\\picked', '先看一眼记录再动手', 'node', '', '3fac279b')
-  assert.equal(calls[6].endpoint, 'pathfinderRecords/addInstruction')
-  assert.deepEqual(calls[6].payload, {
+  assert.equal(calls[5].endpoint, 'pathfinderRecords/addInstruction')
+  assert.deepEqual(calls[5].payload, {
     args: { sessionId: 's1', workspaceRoot: 'C:\\picked', text: '先看一眼记录再动手', scope: 'node', cycle: '', node: '3fac279b' },
   })
 })
@@ -208,8 +201,6 @@ test('两条都没接上：口子说实话，读不出来就是读不出来', as
   assert.deepEqual(outcome, { ok: false, code: 'no-write-channel' }, '写面没有通道，报的是它自己的码')
   const said = await port.say('s1', '', '一句话', 'global', '', '')
   assert.deepEqual(said, { ok: false, code: 'no-write-channel' })
-  const policy = await port.setPolicy('s1', '', 'panel-to-plugin', 'parallel', '3')
-  assert.deepEqual(policy, { ok: false, code: 'no-write-channel' })
   const refused = await port.setConfig('s1', '', 'test_tier', 'minimal')
   assert.deepEqual(refused, { ok: false, code: 'no-write-channel' })
 })

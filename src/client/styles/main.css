@@ -1,7 +1,7 @@
 /* dsh-pathfinder · main panel (f-main) —— this page's skeleton: the header's two-row grid, the tab
- * row, the box shared by the six panes, and the modal shared by a line's own settings and "delete
- * one". Each pane's own layout lives in the module stylesheet beside it; the page never touches
- * vh / vw (headless screenshots re-wrap viewport-hooked sizes mid-shutter). */.pf-page{
+ * row, the box shared by the six panes, and the modal ("delete one"). Each pane's own layout lives
+ * in the module stylesheet beside it; the page never touches vh / vw (headless screenshots re-wrap
+ * viewport-hooked sizes mid-shutter). */.pf-page{
   --pf-pad: 24px;        /* header side padding */
   --pf-row: 34px;        /* one row = one node; the title's line sits in it with a breath above and below */
   --pf-mark: 14px;       /* the cell left of a line name: its state at this moment */
@@ -9,7 +9,7 @@
   --pf-detail-top: 12px; /* the rail and the list start on one line, this far under the tab rail */
   --pf-detail-foot: 20px;/* what the same list keeps under its last row, once it is scrolled to the end */
 }.pf-page{ overflow: hidden; }.pf-page{
-  /* The positioning base: the line-settings modal covers this footprint (not the whole window) and measures against it. */
+  /* The positioning base: the modal covers this footprint (not the whole window) and measures against it. */
   position: relative;
   height: 100%;
   display: flex;
@@ -182,8 +182,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}/* -- The head's "Close" is `tokens.css`'s `.pf-mini`, the same object as the "Settings" at a
-   sidebar row's end, so it has no rule of its own here. */.pf-page .pf-modal-acts{
+}/* -- The head's "Close" is `tokens.css`'s `.pf-mini`, the same object an instruction row's actions
+   are, so it has no rule of its own here. */.pf-page .pf-modal-acts{
   display: flex;
   justify-content: flex-end;
   gap: 8px;

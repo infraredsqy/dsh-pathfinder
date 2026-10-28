@@ -93,7 +93,6 @@ export const zh = {
 
   /* ── The detail view ──────────────────────────────────────────────────────────────────────── */
   'detail.lines.aria': '线路',
-  'detail.line.settings.aria': '{cycle} 的设置',
   'detail.side-grip.aria': '调整线路侧栏的宽度',
   'detail.folded.cells.one': ' 格',
   'detail.folded.cells.other': ' 格',
@@ -168,14 +167,6 @@ export const zh = {
   'config.row.test_seconds_limit.name': '测试耗时上限（秒）',
   'config.row.test_seconds_limit.caption': '整套测试的实际耗时，下一次关单要低于这个秒数；留空就不判',
 
-  /* ── A line's own policy numbers ──────────────────────────────────────────────────────────── */
-  'line.row.parallel.name': '可并行的会话数上限',
-  'line.row.parallel.note': '单条管线可以并行启动的会话数量，默认值为 1。',
-  'line.row.test_seconds_limit.name': '测试套件的运行时间上限（秒）',
-  'line.row.test_seconds_limit.note': '全量验证的实际时长上限阈值；超过该上限会自动加入精简或加速测试的节点。',
-  'line.row.issue_pool_weight_limit.name': '问题池加权和的上限',
-  'line.row.issue_pool_weight_limit.note': '问题池里不同等级的问题，按记录里写明的重量表折算出的总和上限阈值；超过该阈值会自动加入解决问题的节点。',
-
   /* ── What a node is waiting on ────────────────────────────────────────────────────────────── */
   /* The owed-prerequisite sentence is asked for in two pieces, around the number: the panel styles
    * that number, and a language is free to put it first (see the English table, where the head
@@ -223,7 +214,6 @@ export const zh = {
   'failure.spawn-failed': '{detail}',
   'failure.scope-unknown': '无法识别的范围：{detail}',
   'failure.empty-text': '空话不落笔：先写一句原话。',
-  'failure.policy-key-unknown': '无法识别的策略键：{detail}',
   'failure.no-operation': '这条通道上没有 {detail} 这个操作。',
   'failure.not-connected': '该部署未连接寻路记录服务，无法读取记录。',
   'failure.no-write-channel': '该部署没有可用的写入通道。',

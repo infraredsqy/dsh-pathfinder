@@ -31,8 +31,6 @@ export type PfRefusalCode =
   | 'scope-unknown'
   /** An empty verbatim sentence: nothing to record. */
   | 'empty-text'
-  /** A cycle policy key outside the three that are writable. */
-  | 'policy-key-unknown'
 
 /** A refusal: which one, plus the untranslatable detail that goes with it. */
 export interface PfRefusal {

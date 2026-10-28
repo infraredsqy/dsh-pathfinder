@@ -192,7 +192,6 @@ const FAILURE_WORDS: Readonly<Record<FailureCode, WordKey>> = {
   'spawn-failed': 'failure.spawn-failed',
   'scope-unknown': 'failure.scope-unknown',
   'empty-text': 'failure.empty-text',
-  'policy-key-unknown': 'failure.policy-key-unknown',
   'no-operation': 'failure.no-operation',
   'not-connected': 'failure.not-connected',
   'no-write-channel': 'failure.no-write-channel',

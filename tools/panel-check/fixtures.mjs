@@ -232,7 +232,6 @@ export async function startFixture({ check, scenes }) {
     archiveInstruction: wrapped((...values) => gateway.archiveInstruction(...values)),
     reviveInstruction: wrapped((...values) => gateway.reviveInstruction(...values)),
     removeInstruction: wrapped((...values) => gateway.removeInstruction(...values)),
-    setCyclePolicy: wrapped((...values) => gateway.setCyclePolicy(...values)),
     readConfig: wrapped((...values) => gateway.readConfig(...values)),
     setConfig: wrapped((...values) => gateway.setConfig(...values)),
   }

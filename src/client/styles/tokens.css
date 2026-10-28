@@ -448,21 +448,7 @@
 }.pf-page .pf-trim:hover{
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-tertiary);
-}/* Name, one line saying what the number is, control at the right edge, and the
- * hairline between two rows. The three views that show a setting — the panel's
- * own settings cell, a line's own three numbers, and the standalone settings page —
- * all read this one row. */.pf-page .pf-setrow{
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 24px;
-  padding: 6px 0;
-}.pf-page .pf-setrow + .pf-setrow{
-  border-top: 0.5px solid var(--dsw-alias-border-l1);
-}/* The text column shrinks, so a long sentence wraps inside its track instead of
- * pushing the control off the right edge. */.pf-page .pf-settext{
-  min-width: 0;
-}.pf-page .pf-setlabel{
+}/* The setting's name: the row's one prominent word, at the reading tier. */.pf-page .pf-setlabel{
   font: var(--dsw-font-s-14);
   color: var(--dsw-alias-label-primary);
 }/* The line under the name. It does not describe the interface: it says what the
@@ -471,9 +457,8 @@
   margin-top: 1px;
   font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-tertiary);
-}/* A number box, at the standard control's height and radius: one object in both
- * settings views, so the two of them cannot drift apart. Digits go through the
- * code face with tabular figures, and each view sets its own width. */.pf-page .pf-numin{
+}/* A number box, at the standard control's height and radius. Digits go through the
+ * code face with tabular figures, and the view that draws it sets its own width. */.pf-page .pf-numin{
   flex: none;
   width: 76px;
   height: 34px;
