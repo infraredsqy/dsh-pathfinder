@@ -276,12 +276,11 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * The single command-running path shared by the six write endpoints; the true private `#pf` is not on the prototype, so the endpoint table's missing-registration scan cannot see it.
-   * @param signal - Caller cancellation; falls back to {@link NEVER_ABORT} when omitted.
+   * The single command-running path shared by the six write endpoints; the true private `#pf` is not on the prototype, so the endpoint table's missing-registration scan cannot see it. A write never carries a caller signal: "never cancelled" is this layer's standing trade-off, taken once in {@link NEVER_ABORT}.
    */
-  async #pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[], said?: string, signal?: AbortSignal): Promise<PfOutcome> {
+  async #pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[], said?: string): Promise<PfOutcome> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
-    return runPf(this.ctx, root, args, signal ?? NEVER_ABORT, said)
+    return runPf(this.ctx, root, args, NEVER_ABORT, said)
   }
 }
 

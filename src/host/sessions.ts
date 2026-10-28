@@ -11,7 +11,7 @@
  * returned as usual.
  */
 import { RECORD_SESSIONS } from './contract.ts'
-import { isAbsent, readWholeFile, type PathfinderScope, type WorkspaceFilesPort } from './records.ts'
+import { isAbsent, readWholeFile, type PathfinderScope, type WorkspaceDirectoryEntry, type WorkspaceFilesPort } from './records.ts'
 
 /** What the panel gets when it fetches session notes. */
 export interface PathfinderSessionsReading {
@@ -42,7 +42,7 @@ export async function readSessionNotes(
   signal: AbortSignal,
 ): Promise<PathfinderSessionsReading> {
   const reading = { workspaceRoot: scope.workspaceRoot, recordPath: RECORD_SESSIONS }
-  let entries: readonly { readonly name: string; readonly type: string }[]
+  let entries: readonly WorkspaceDirectoryEntry[]
   try {
     entries = (await port.list(scope, RECORD_SESSIONS, signal)).entries
   } catch (error) {
