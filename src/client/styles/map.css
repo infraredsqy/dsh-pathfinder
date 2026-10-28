@@ -20,10 +20,8 @@
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  /* One card's box is stated in `map-layout.ts` and written onto this element; the sheet reads the
-     same pair of numbers rather than keeping a second copy that could drift. */
-  --card-w: 380px;
-  --card-h: 96px;
+  /* One card's box is stated once, in `map-layout.ts` (`CARD_W` / `CARD_H`), and arrives written
+     on this element as `--card-w` / `--card-h`; the sheet only reads it. */
 }
 
 /* The hit scope: the whole workspace plus each line. It only says "search under here first" — the

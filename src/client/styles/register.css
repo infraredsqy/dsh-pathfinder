@@ -24,17 +24,7 @@
  *
  * The top of the page does not yield all the way either: the host's own cell lays 8px under the tab
  * row, and the band keeps 12px of its own on top of that — the distance the map's rail and the
- * detail's first head keep. It is the band's side margins that yield, not its top. */.is-embed.pf-issue .pf-top{ display: none; }.is-embed.pf-issue .pf-page{ padding: 0; }.is-embed.pf-issue .pf-band{ padding-top: 12px; }/* ---- header: the nameplate and the workspace -----------------------------
- * The panel's header, at the panel's own elbows: nameplate, then the workspace
- * it is read for, both at the left, exactly as the main panel has them. A page
- * that hangs inside the panel does not restate the header or move its parts. */.pf-issue .pf-top{
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 14px;
-  border-bottom: var(--pf-rule) solid var(--dsw-alias-border-l1);
-}/* The panel's own reading, in the panel's own marks: one small square per mass the
+ * detail's first head keep. It is the band's side margins that yield, not its top. */.is-embed.pf-issue .pf-page{ padding: 0; }.is-embed.pf-issue .pf-band{ padding-top: 12px; }/* The panel's own reading, in the panel's own marks: one small square per mass the
  * band is reading, and how many cases are in it. Those marks are what the panel's
  * node counts are made of, which is why the reading belongs in the body rather
  * than the header's corner, where the shell's own figure stands. It is the last

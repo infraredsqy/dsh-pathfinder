@@ -273,6 +273,11 @@ for (const file of [...panelFiles, { path: THEME_SHEET, rules: themeRules }]) {
 }
 /** Properties a page's script passes in, each with a fallback where it is read. */
 const optional = new Set([...[...panelFiles].flatMap(file => [...read(file.path).matchAll(/var\(\s*(--[\w-]+)\s*,/g)].map(([, name]) => name))])
+/* Custom properties the client's TSX writes inline, so no sheet may declare a value for them:
+ * the map's card box (`map.tsx`, from `map-layout.ts`'s `CARD_W` / `CARD_H`). The sheet reads
+ * them fallback-less on purpose — the inline style is the only writer, and a CSS-declared copy
+ * could only drift. */
+const scriptWritten = new Set(['--card-w', '--card-h'])
 for (const file of panelFiles) {
   for (const rule of file.rules) {
     for (const [property, value] of rule.declarations) {
@@ -287,7 +292,7 @@ for (const file of panelFiles) {
         if (name.startsWith('--dsw-static-')) {
           rawStepCount += 1
           fail('raw palette step', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${value} }`)
-        } else if (!ALIAS_FAMILIES.test(name) && !declared.has(name) && !optional.has(name)) {
+        } else if (!ALIAS_FAMILIES.test(name) && !declared.has(name) && !optional.has(name) && !scriptWritten.has(name)) {
           fail('unknown token family', `${rel(file.path)} ${rule.selectors.join(', ')} { ${property}: ${name} }`)
         }
       }
@@ -376,8 +381,9 @@ const STATE_COLOR = /--dsw-alias-state-|--dsw-alias-link/
 const BORDER_EDGE = /^border(?:-top|-bottom|-left|-right)?(-width)?$/
 /* Ring tracks: the border is the drawn graphic (a rotating ring), not an outline,
  * so it keeps its width — the same exemption the theme's elevation spec spells out.
- * The panel draws this ring in two places, and both are listed. */
-const RING_TRACKS = new Set(['tokens.css .pf-state.is-run', 'lines.css .pf-linemark.is-run'])
+ * The panel draws this ring in two places, but the rule lives once, in the
+ * tokens.css shared block (lines.css keeps only the linemark size box). */
+const RING_TRACKS = new Set(['tokens.css .pf-state.is-run'])
 let elevationPairedWithBorder = 0
 let neutralBorderWide = 0
 let stateBorderNarrow = 0
@@ -573,7 +579,6 @@ const MARKS = [
    * itself stands on is its ground — the amber tint under the sentence is 8%, so the
    * bar reads against that layer and the check can keep saying so. */
   { what: '删除这一条 · 警报区的左缘', where: '.pf-del-warn', property: 'box-shadow', ink: 'var(--dsw-alias-state-warn-primary)', ground: '--dsw-alias-bg-layer-2', tier: null },
-  { what: '会话栏的点', where: '.pf-side-dot', property: 'background', ink: 'var(--dsw-alias-state-success-primary)', ground: '--dsw-alias-bg-base', tier: null },
   { what: '主题自己的空闲点（1.5 那一档的依据）', where: null, property: null, ink: 'var(--dsw-alias-state-idle-primary)', ground: '--dsw-alias-bg-base', tier: null },
 ]
 

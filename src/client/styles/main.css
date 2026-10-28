@@ -28,19 +28,14 @@
 }/* The frame is the panes' shared box, and it always fills: every pane takes the footprint's full
    width and height — that is exactly the ground they asked for — and the overflow scrolls inside
    them. Once filling, each pane absorbs the extra height itself — every pane is a direct child of
-   the module, so `.pf-pane`'s own `flex` is enough.
-
-   The floating grip pair (`.pf-grip.is-float`) exists to tune a fixed width, and a frame with no
-   width of its own leaves it nothing to tune, so it does not appear inside the frame. The seam
-   inside the detail pane stands in the flow and has its own draggable width; it does not fall
-   under this rule. */.pf-page .pf-frame{
+   the module, so `.pf-pane`'s own `flex` is enough. */.pf-page .pf-frame{
   position: relative;
   display: flex;
   flex-direction: column;
 }.pf-page .pf-frame.is-fill{
   width: 100%;
   height: 100%;
-}.pf-page .pf-frame.is-fill .pf-grip.is-float{ display: none; }/* ---- Header: nameplate · workspace · three numbers · a row of tabs --------
+}/* ---- Header: nameplate · workspace · three numbers · a row of tabs --------
  * Two grid rows, structured after DSH's session header (`ConversationRoot`'s `header`): the top
  * row holds the footprint's two ends — nameplate and workspace at left (column one), the three
  * numbers at right (column two); the whole second row is the tab row (`grid-column: 1/-1`).
@@ -121,17 +116,11 @@
   display: flex;
   flex-direction: column;
   padding-top: 8px;
-}.pf-page .pf-pane[hidden]{ display: none; }/* Wires and the issue pool are both whole-block things that need ground to spread on: they carry
-   a min-height of their own, the module fills the whole footprint, and the drawing grows with it. */.pf-page .pf-pane.is-frame{
+}.pf-page .pf-pane[hidden]{ display: none; }/* The issue pool is a whole-block thing that needs ground to spread on: it carries a min-height of
+   its own, the module fills the whole footprint, and the drawing grows with it. */.pf-page .pf-pane.is-frame{
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-}.pf-page .pf-pane.is-frame iframe{
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: var(--dsw-alias-bg-base);
 }/* ---- This pane has nothing to say ------------------------------------------
  * The panel reads the record of one workspace. When that workspace has no such record, or none of
  * the four files parses, all six panes have nothing to say: a row of empty tabs over an empty

@@ -108,6 +108,11 @@
  * for a gate, a dashed ring for work that has not started. Two views, one
  * drawing — a card and a row are two sizes of the same reading.
  *
+ * The spinning ring is one drawing shared a third time: the line column's cell
+ * beside a line name (`.pf-linemark`, `lines.css`) wears the same ring while its
+ * line is in service, so the rule below names both and the reduced-motion
+ * fallback rides with it — one ring, one still form.
+ *
  * The spinning ring's track is the one place a structure colour stands as a
  * graphic (DSH's own spinner draws its track the same way) and the head of the
  * ring is the mark's own ink, so the ring keeps its width. */.pf-page .pf-state{
@@ -119,7 +124,7 @@
   height: 14px;
 }.pf-page .pf-state svg{
   display: block;
-}.pf-page .pf-state.is-run{
+}.pf-page .pf-state.is-run, .pf-page .pf-linemark.is-run{
   color: var(--dsw-alias-link);
   border: 1.5px solid var(--dsw-alias-border-l3);
   border-top-color: currentColor;
@@ -128,8 +133,6 @@
   animation: pf-spin 0.9s linear infinite;
 }.pf-page .pf-state.is-done{
   color: var(--dsw-alias-state-success-primary);
-}.pf-page .pf-state.is-fail{
-  color: var(--dsw-alias-state-error-primary);
 }/* Human gate: amber, the color this layout reserves for "this cell wants a person". The
    mark itself is a pause: it is not running and delivered nothing, it is waiting for a
    person; which gate it is, the word right of the mark says. */.pf-page .pf-state.is-gate{
@@ -146,7 +149,7 @@
   to {
     transform: rotate(1turn);
   }
-}@media (prefers-reduced-motion: reduce){.pf-page .pf-state.is-run{
+}@media (prefers-reduced-motion: reduce){.pf-page .pf-state.is-run, .pf-page .pf-linemark.is-run{
     animation: none;
     border-style: dashed;
   }
@@ -199,23 +202,6 @@
   color: var(--dsw-alias-label-tertiary);
 }.pf-page .pf-deps.is-ready b{
   color: var(--dsw-alias-label-secondary);
-}/* ---- how long something has been open ------------------------------------
- * Static. A second hand turns a panel into a launch console and puts the reader
- * under a clock they did not ask for; the panel is read between other work, and
- * a number that changes while you read it is a number you cannot finish
- * reading.
- *
- * `--` means the ledger does not know, which happens whenever a line has
- * claimed a node whose step has not opened yet. Printing 0 there would be an
- * assertion the data does not support. */.pf-page .pf-elapsed{
-  font: var(--dsw-font-xxs-12);
-  color: var(--dsw-alias-label-caption);
-  white-space: nowrap;
-}.pf-page .pf-elapsed.is-unknown{
-  color: var(--dsw-alias-label-dimmed);
-}/* A failed step is a real outcome in the ledger, so it gets a mark of its own
- * rather than being folded into "completed". */.pf-page .pf-failed{
-  color: var(--dsw-alias-state-warn-primary);
 }/* ---- tags ------------------------------------------------------------------
  * coding / writing / art are the ledger's own three kinds, and they are a
  * filter set, not a category tree -- `maint:*` rides alongside them. A tag is
@@ -471,102 +457,17 @@
 }.pf-page .pf-mini:hover{
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
-}/* Not the panel: in DSH the session rail, the seam and the page's outer gutter
- * are DSH's own furniture, and the plugin's panel is born inside them. The mock
- * has to stand one up to be read at all, so the two pages that need it (the main
- * panel and the settings page) share one copy here instead of one apiece.
- *
- * The seam moves the rail's width and the panel takes what is left: the seam
- * follows the pointer and the panel's right edge stays pinned to the window. The
- * panel's own width is a result, not a setting.
- */.pf-page .pf-shell{
-  height: 100%;
-  display: flex;
-}.pf-page .pf-side{
-  flex: 0 0 var(--rail-w, 208px);
-  padding: 14px 10px;
-  border-right: 0.5px solid var(--dsw-alias-border-l1);
-  user-select: none;
-  overflow: hidden;
-}.pf-page .pf-side-ws{
-  margin: 0 8px 14px;
-  font: var(--dsw-font-xs-13);
-  color: var(--dsw-alias-label-secondary);
-}.pf-page .pf-side-item{
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: var(--dsw-radius-xs);
-}.pf-page .pf-side-text{
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  font: var(--dsw-font-xxs-12);
-  color: var(--dsw-alias-label-tertiary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}.pf-page .pf-side-item.is-live .pf-side-text{
-  color: var(--dsw-alias-label-secondary);
-}/* The dot is a circle, so it states its own arc back to the superellipse. */.pf-page .pf-side-dot{
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  corner-shape: round;
-  background: var(--dsw-alias-state-success-primary);
-}.pf-page .pf-side-time{
-  flex: none;
-  font: var(--dsw-font-xxxs-11);
-  color: var(--dsw-alias-label-dimmed);
-}.pf-page .pf-dock{
-  flex: none;
-  width: 6px;
-  position: relative;
-  cursor: col-resize;
-  touch-action: none;
-}.pf-page .pf-dock::after{
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 2px;
-  width: 2px;
-  background: transparent;
-}.pf-page .pf-dock:hover::after, .pf-page .pf-dock:focus-visible::after, .pf-page .pf-dock.is-drag::after{
-  background: var(--dsw-alias-state-success-primary);
-}.pf-page .pf-main{
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  border-right: 0.5px solid var(--dsw-alias-border-l1);
-}/* The appearance switch. Same object as the panel's segmented control — a word
- * per reading of one thing, one of them in play — because DSH draws its own
- * appearance choice that way; this rule only says where it stands. The window's
- * own corner, off the panel's layout: the panel is read at both palettes, and
- * turning the switch must not move a pixel of it.
- *
- * It sits above the panel's own editable layers rather than under them: the
- * panel's modal dims the page it stands in, and the switch is the mock's own
- * furniture, not part of that page. */.pf-page .pf-theme{
-  position: fixed;
-  right: 12px;
-  bottom: 12px;
-  z-index: 5;
 }/* ---- the width handle ------------------------------------------------------
- * One object in three places: the pair beside the core module, the seam between
- * the two halves of the detail pane, and the pair beside the settings column. The hit box
- * is 10px wide, and what the reader sees is the edge of the thing it moves while
- * what the pointer catches is the quiet ground beside it. Two stations, which is
- * the only difference between them: a seam standing in the flow between two
- * columns (the default), and the floating pair beside the core module, which
- * sits 24px outside that module's own edge (`is-float`).
+ * One object on this panel: the seam between the detail pane's two halves. It
+ * stands in the flow and moves the sidebar's width; the body swaps, the window
+ * does not. The hit box is 10px wide, and what the reader sees is the edge of
+ * the thing it moves while what the pointer catches is the quiet ground beside
+ * it.
  *
- * The mark is one 2px segment: solid for ±8px around the pointer, fading out
- * 28px each way, 72px in all. Nothing is drawn until the pointer lands, and
- * while dragging it travels with the pointer. A solid segment is not a divider,
- * so it is painted with the scrollbar ink rather than a border alpha. The side
- * the line is drawn on follows `data-side`. */.pf-page .pf-grip{
+ * The mark is one 2px segment, 72px tall and soft at both ends, standing at the
+ * seam's middle; nothing is drawn until the pointer lands or the keyboard
+ * reaches it. A solid segment is not a divider, so it is painted with the
+ * scrollbar ink rather than a border alpha. */.pf-page .pf-grip{
   flex: none;
   position: relative;
   width: 10px;
@@ -575,14 +476,6 @@
   background: none;
   cursor: col-resize;
   touch-action: none;
-}.pf-page .pf-grip.is-float{
-  position: absolute;
-  top: 0;
-  bottom: 0;
-}.pf-page .pf-grip.is-float[data-side='left']{
-  right: calc(100% + 24px);
-}.pf-page .pf-grip.is-float[data-side='right']{
-  left: calc(100% + 24px);
 }.pf-page .pf-grip::after{
   content: '';
   position: absolute;
@@ -598,9 +491,6 @@
     transparent calc(var(--pf-handle-y, 50%) + 36px));
   opacity: 0;
   pointer-events: none;
-}.pf-page .pf-grip[data-side='left']::after{
-  left: auto;
-  right: 4px;
-}.pf-page .pf-grip:hover::after, .pf-page .pf-grip:focus-visible::after, .pf-page .pf-grip.is-drag::after{
+}.pf-page .pf-grip:hover::after, .pf-page .pf-grip:focus-visible::after{
   opacity: 1;
 }

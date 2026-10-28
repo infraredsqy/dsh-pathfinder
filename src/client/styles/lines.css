@@ -2,8 +2,8 @@
  *
  * The left column answers only "which line to look at": the mark is drawn left of the name, the row
  * carries no numbers, and a "Settings" appears at the row's end only under the pointer. The three
- * numbers live in the modal that Setting opens; start/stop and the numbers each go through a
- * `pf cycle` command; this page is a mock and both acts live only on screen. */.pf-page .pf-detail{
+ * numbers live in the modal that Setting opens; an edit there is handed back to the shell and
+ * written with a `pf cycle policy` command. */.pf-page .pf-detail{
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -77,22 +77,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}.pf-page .pf-tags{ display: flex; gap: 6px; }/* The cell left of the line name: running wears the card spinner (the same animation), blocked
-   carries an amber dot — this layout's color reserved for "waiting for a person". Stopped draws
-   nothing but keeps its place, so the lines stay aligned. */.pf-page .pf-linemark{
+}/* The cell left of the line name: running wears the shared spinner (`tokens.css` draws the ring
+   once, for the state mark and this cell), blocked carries an amber dot — this layout's color
+   reserved for "waiting for a person". Stopped draws nothing but keeps its place, so the lines
+   stay aligned. */.pf-page .pf-linemark{
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: var(--pf-mark);
   height: var(--pf-mark);
-}.pf-page .pf-linemark.is-run{
-  color: var(--dsw-alias-link);
-  border: 1.5px solid var(--dsw-alias-border-l3);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  corner-shape: round;
-  animation: pf-spin 0.9s linear infinite;
 }.pf-page .pf-linemark.is-blocked::before{
   content: '';
   width: 7px;
@@ -100,11 +94,6 @@
   border-radius: 50%;
   corner-shape: round;
   background: var(--dsw-alias-state-warn-primary);
-}/* The animation is not what these marks mean: with motion turned off at the OS, the ring becomes
-   dashed and says the same thing. */@media (prefers-reduced-motion: reduce){.pf-page .pf-linemark.is-run{
-    animation: none;
-    border-style: dashed;
-  }
 }/* The three-numbers block: one number per row — name, one sentence saying what the number is, the
    control at the right end. The shape copies DSH's settings page: name a tier up, the sentence
    below a tier down, the control against the right edge, a hairline between rows (`.pf-setrow`,
@@ -119,32 +108,4 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-}/* The three marks and the key at the right end: stopped is play (the brightest thing on this
-   page), running a square (retiring to a quiet one), blocked an up-right arrow — clicking it
-   enters that cell's session, the same act as the card above, so the glyph draws "going there"
-   too. The command and the cell's title stay on the title. */.pf-page .pf-act{
-  flex: none;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 22px;
-  padding: 0;
-  color: var(--dsw-alias-link);
-  background: none;
-  border: 1px solid color-mix(in srgb, var(--dsw-alias-link) 40%, transparent);
-  border-radius: var(--dsw-radius-xs);
-  cursor: pointer;
-}.pf-page .pf-act:hover{ background: color-mix(in srgb, var(--dsw-alias-link) 14%, transparent); }.pf-page .pf-act.is-off{
-  color: var(--dsw-alias-label-tertiary);
-  border-color: var(--dsw-alias-border-l2);
-}.pf-page .pf-act.is-off:hover{
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
-}.pf-page .pf-act.is-blocked{
-  color: var(--dsw-alias-state-warn-primary);
-  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 45%, transparent);
-}.pf-page .pf-act.is-blocked:hover{
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 14%, transparent);
-}.pf-page .pf-act svg{ display: block; }
+}
