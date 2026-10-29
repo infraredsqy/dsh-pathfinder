@@ -54,6 +54,23 @@ type Note =
   | { readonly kind: 'said'; readonly text: string }
   | { readonly kind: 'failure'; readonly failure: Failure }
 
+/**
+ * How tall the page's own content stands, the tail left out: the last section's bottom measured in
+ * the page's own coordinates, plus the page's bottom padding. The tail's own child is skipped, so
+ * the answer stays the same however much room a jump has already asked for.
+ *
+ * `scrollHeight` cannot answer this while the rows are shorter than the scrollport — it stops at the
+ * scrollport's own height, which is the very case the tail exists for.
+ */
+function contentHeight(box: HTMLDivElement): number {
+  const standing = Array.from(box.children).filter((node) => !node.classList.contains('pf-cfgtail'))
+  const last = standing[standing.length - 1]
+  if (last === undefined) return 0
+  const bottom = last.getBoundingClientRect().bottom - box.getBoundingClientRect().top + box.scrollTop
+  const padding = Number.parseFloat(getComputedStyle(box).paddingBottom)
+  return bottom + (Number.isNaN(padding) ? 0 : padding)
+}
+
 export interface ConfigPaneProps {
   readonly port: PanelPort
   /** Session identity: the workspace file gateway resolves paths by it. */
@@ -80,9 +97,19 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
      this state from an effect. */
   const [at, setAt] = React.useState<ConfigGroup | null>(null)
   const page = React.useRef<HTMLDivElement>(null)
+  /* The page's own tail, in pixels: the room a jump needs past the range the rows already leave.
+     Rows that leave no range at all are the ordinary case here (three short categories all on
+     screen), and the browser would clamp the jump back to nothing; the page grows this much tail
+     on demand. It draws nothing and reads as nothing — the scroll range is all it carries. */
+  const [tail, setTail] = React.useState(0)
+  /* The scroll a jump owes: filled by the click, spent once the room above has landed in the layout. */
+  const owed = React.useRef<number | null>(null)
+  /* Jumps are counted, so two clicks that need the very same room still move the page: writing an
+     equal number into the state is passed over, and the owed scroll would never leave. */
+  const [jumps, setJumps] = React.useState(0)
   /* A jump moves the page itself, and the browser reports that move as a scroll like any other. This
      flag swallows that one report so the index does not wander back to the category the reader just
-     left — a category the page could not quite bring to the top keeps its line lit. */
+     left; the line they clicked keeps the light. */
   const jumped = React.useRef(false)
   /* Who left the last note on the note line: a failed read's note is retracted by the next
      successful read; a failed write's by the next successful write. A note left by other parts
@@ -155,17 +182,37 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
   /* The index points at the picked category while it still has rows; otherwise at the first one. */
   const pointed = at === null ? sections[0]?.group : sections.find((section) => section.group === at)?.group
 
-  /* A line in the index: bring that category's head to the top of the page. Measured off the two
-     rectangles rather than `offsetTop`, so the pane's own padding cannot put the head under the
-     page's edge. */
+  /* A line in the index: bring that category's head to the page's own top — the height the first
+     head rests on with the page unscrolled — so the first category asks for nothing and the reader
+     who has come back up can always come home. Measured off the two rectangles rather than
+     `offsetTop`, so the pane's own padding cannot put the head under the page's edge, and measured
+     afresh on every click: a resize between two clicks changes nothing but the numbers.
+     Rows shorter than the scrollport are the ordinary case here (three short categories all on
+     screen), and a page with nothing to scroll has no range for the write at all. A jump needs a
+     whole scrollport standing below its head, so the tail is what that misses from the content the
+     page already has; the scroll itself leaves from the effect below, on the layout that carries it. */
   const jump = React.useCallback((group: ConfigGroup): void => {
     const box = page.current
     const head = box?.querySelector<HTMLElement>(`.pf-cfgsec[data-cat="${group}"]`) ?? null
-    if (box === null || head === null) return
-    const from = box.scrollTop
-    box.scrollTop = from + (head.getBoundingClientRect().top - box.getBoundingClientRect().top)
-    if (box.scrollTop !== from) jumped.current = true
+    const first = box?.querySelector<HTMLElement>('.pf-cfgsec') ?? null
+    if (box === null || head === null || first === null) return
+    const to = Math.max(0, head.getBoundingClientRect().top - first.getBoundingClientRect().top)
+    owed.current = to
+    setTail(to === 0 ? 0 : Math.max(0, to + box.clientHeight - contentHeight(box)))
+    setJumps((count) => count + 1)
   }, [])
+
+  /* The room rides in with the render that carries it, so the scroll is written here, once the page
+     has it — written in the click itself it would be clamped back to the range the page had then. */
+  React.useLayoutEffect(() => {
+    const box = page.current
+    const to = owed.current
+    if (box === null || to === null) return
+    owed.current = null
+    const from = box.scrollTop
+    box.scrollTop = to
+    if (box.scrollTop !== from) jumped.current = true
+  }, [tail, jumps])
 
   /* Scrolling the page by hand moves the index to the category whose head is the last one above the
      page's top edge. At the very top of the page no head has crossed that edge yet — the first
@@ -237,6 +284,9 @@ export function ConfigPane(props: ConfigPaneProps): React.ReactElement {
               onWrite={send}
             />
           ))}
+          {tail > 0 ? (
+            <div className="pf-cfgtail" aria-hidden="true" style={{ ['--pf-cfgtail' as string]: `${String(tail)}px` }} />
+          ) : null}
         </div>
       </div>
       )}

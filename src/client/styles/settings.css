@@ -83,6 +83,12 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 36px 26px 30px;
+}/* The room a jump needs. A page whose rows are shorter than the scrollport has no scroll range at
+   all, and the browser would clamp the index's jump back to nothing; the page grows this much tail
+   on demand — what the jump needs (a whole scrollport standing below its head) past the content
+   already standing. It draws nothing and reads as nothing: the scroll range is all it carries. */
+.pf-page .pf-cfgtail{
+  height: var(--pf-cfgtail, 0);
 }/* ---- section heads -------------------------------------------------------------------------
  * The category's name over a hairline to the page's right edge, held at the top while its rows are
  * read — the reader who has scrolled a long category can still say which category it is. */.pf-page
