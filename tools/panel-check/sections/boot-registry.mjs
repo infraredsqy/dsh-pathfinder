@@ -34,9 +34,9 @@ export async function runBootRegistry(ctx) {
     `名册=${JSON.stringify(byKey(rosterOf(booted.ledger)))} ｜ 插件=0 排期=10 这一项=${String(client.PANEL_ORDER)}`,
   )
   check(
-    '侧栏那一行上的名字是「调度中心」，中央栏那一格与它同一个 id',
+    '侧栏那一行上的名字是「寻路中心」，中央栏那一格与它同一个 id',
     booted.ledger.get(`sidebar.panellist:${client.PANEL_ID}`)?.options.label() === t(client.SEAT_WORD)
-      && client.SEAT_WORD === 'seat.label' && t(client.SEAT_WORD) === '调度中心'
+      && client.SEAT_WORD === 'seat.label' && t(client.SEAT_WORD) === '寻路中心'
       && booted.ledger.get(`main:${client.PANEL_ID}`)?.options.key === client.PANEL_ID,
     `label()=${String(booted.ledger.get(`sidebar.panellist:${client.PANEL_ID}`)?.options.label())} ｜ 词键=${String(client.SEAT_WORD)} 词典里=${t(client.SEAT_WORD)} ｜ main key=${String(booted.ledger.get(`main:${client.PANEL_ID}`)?.options.key)}`,
   )

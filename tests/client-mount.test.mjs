@@ -1,4 +1,4 @@
-/* The two mount points of the dispatch center: locks in "which two seats get registered" and "unmount cleans up".
+/* The two mount points of Pathfinder Center: locks in "which two seats get registered" and "unmount cleans up".
  *
  * For each seat: the slot name, entry id / key, order, the word the sidebar row shows (looked up
  * through the lookup table, not a literal), and the fact that the central section is handed exactly
@@ -69,7 +69,7 @@ function fakePanel({ locale = createLocalePort() } = {}) {
   const Panel = () => null
   return {
     id: PANEL_ID,
-    title: '寻路',
+    title: '寻路中心',
     port: { source: 'none' },
     prefs: {},
     locale,
@@ -101,7 +101,7 @@ test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条�
   assert.equal(SEAT_WORD, 'seat.label')
   assert.equal(side.locale, LOCALE_NS)
   const t = localeOf(port).t
-  assert.equal(t(SEAT_WORD), '调度中心', '随包的中文词典里那一行就是这个字')
+  assert.equal(t(SEAT_WORD), '寻路中心', '随包的中文词典里那一行就是这个字')
   assert.equal(side.label(), t(SEAT_WORD), '那一行画出来的应当是词典里的字')
   assert.notEqual(side.label(), SEAT_WORD, '那一行不能把键本身画出来')
 
@@ -110,7 +110,7 @@ test('两处注册：槽位、id / key、order、侧栏那一行的名字逐条�
   const service = fakeLocaleService()
   port.attach(service)
   service.switchTo('en')
-  assert.equal(side.label(), 'Dispatch Center')
+  assert.equal(side.label(), 'Pathfinder Center')
   assert.equal(side.label(), WORD_TABLES.en[SEAT_WORD])
 
   const main = ledger.get(`main:${PANEL_ID}`).options
@@ -398,7 +398,7 @@ test('切换语言：那一行换成另一种语言，订阅者当场收到新�
   assert.notEqual(after, before, '换语言后读数必须是一份新的：useSyncExternalStore 靠这个身份判断要不要重画')
   assert.equal(after.revision, before.revision + 1)
   assert.equal(after.active, 'en')
-  assert.equal(after.t(SEAT_WORD), 'Dispatch Center')
+  assert.equal(after.t(SEAT_WORD), 'Pathfinder Center')
   assert.equal(after.t(SEAT_WORD), WORD_TABLES.en[SEAT_WORD], '画出来的那个字要出自词典')
   /* Every key moves with the language, not just the one the row asks for. */
   assert.equal(after.t('view.notes'), 'Instructions')
@@ -418,8 +418,8 @@ test('没有语言服务在场：这一层说中文，取的是随包那份词�
   const service = fakeLocaleService()
   port.attach(service)
   service.switchTo('en')
-  assert.equal(port.getSnapshot().t(SEAT_WORD), 'Dispatch Center')
+  assert.equal(port.getSnapshot().t(SEAT_WORD), 'Pathfinder Center')
   port.attach(null)
   assert.equal(port.getSnapshot().active, FALLBACK_LOCALE)
-  assert.equal(port.getSnapshot().t(SEAT_WORD), '调度中心')
+  assert.equal(port.getSnapshot().t(SEAT_WORD), '寻路中心')
 })

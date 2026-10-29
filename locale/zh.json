@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "寻路",
+    "title": "dsh-pathfinder",
     "description": "把 agent-pathfinder 的管线搬进 DSH：宿主半身按会话所属的工作区读那份记录，浏览器半身把读数画成工作面板。"
   }
 }

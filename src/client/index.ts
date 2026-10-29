@@ -1,6 +1,6 @@
 /**
  * Entry of the browser-half plugin: mounts the panel as the service `ctx.pathfinderPanel`, then
- * wires up the settings section, the dispatch-center sidebar items, and the center-column cell.
+ * wires up the settings section, Pathfinder Center's sidebar items, and the center-column cell.
  *
  * Readings arrive through the port; the panel only draws. The panel's own preferences come from
  * settings and are written back to settings.
@@ -10,7 +10,7 @@ import { report } from './context.ts'
 import { injectAt } from './context.ts'
 import { createPanelPort, serviceAt, type PanelPort } from './data.ts'
 import { createLocalePort, LocaleProvider, localeOf, type LocaleService, type LocaleSource } from './locale.ts'
-import { currentSessionOf, knownSessionsOf, registerSeats, sessionsSnapshotOf } from './mount.ts'
+import { currentSessionOf, knownSessionsOf, registerSeats, SEAT_WORD, sessionsSnapshotOf } from './mount.ts'
 import { PathfinderPanel } from './panel.tsx'
 import { createPrefsSource, type PrefsStore } from './prefs.ts'
 import { dropSettingsStyle, registerSettingsSection } from './settings.tsx'
@@ -39,7 +39,7 @@ export {
   SettingsSection,
 } from './settings.tsx'
 
-/** The identities of the two dispatch-center spots, for the self-check fixture to read against. */
+/** The identities of the two Pathfinder Center spots, for the self-check fixture to read against. */
 export {
   createWorkspaceNav,
   currentSessionOf,
@@ -109,9 +109,10 @@ export function apply(ctx: unknown): void {
   const api: PathfinderPanelApi = {
     id: PANEL_ID,
     /* A getter rather than a captured string: the panel's name is read by whoever asks, which may be
-     * after the reader has changed language. */
+     * after the reader has changed language. The panel and the row it sits on are one object, so
+     * both say the same word. */
     get title() {
-      return localeOf(locale).t('panel.title')
+      return localeOf(locale).t(SEAT_WORD)
     },
     port,
     prefs,

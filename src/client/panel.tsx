@@ -303,7 +303,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
       <header className="pf-head">
         <div className="pf-head-left">
           <div className="pf-head-top">
-            <span className="pf-brand">PATHFINDER</span>
+            <span className="pf-brand">{t('brand.mark')}</span>
             {items.length === 0 ? null : (
               <span className="pf-pick">
                 <select

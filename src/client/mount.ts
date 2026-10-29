@@ -1,5 +1,5 @@
 /**
- * The mount points of the dispatch center in DSH's own two spots: an item in the sidebar's panel
+ * The mount points of Pathfinder Center in DSH's own two spots: an item in the sidebar's panel
  * icon column, and the center-column cell.
  *
  * Both slots are already declared by others (the seats are declared at runtime by ui-layout /
@@ -26,10 +26,10 @@ export const PANEL_ORDER = 1
 /**
  * The word on that sidebar row.
  *
- * A key rather than the word: the UI calls that spot the dispatch center, the package and repo call
- * it `dsh-pathfinder`, and which language says it is the reader's business. The row is registered
- * with a `label` FUNCTION, which DSH calls while drawing, so the word is looked up on every frame
- * and a language switch needs no re-registration.
+ * A key rather than the word: the row carries the panel's own name — the wordmark over the panel is
+ * the product's English name, the package and repo stay `dsh-pathfinder` — and which language says
+ * it is the reader's business. The row is registered with a `label` FUNCTION, which DSH calls while
+ * drawing, so the word is looked up on every frame and a language switch needs no re-registration.
  */
 export const SEAT_WORD: WordKey = 'seat.label'
 
@@ -224,7 +224,7 @@ function PanelIcon(props: { readonly size?: number }): React.ReactElement {
 }
 
 /**
- * Wire the dispatch center's two spots onto their slots.
+ * Wire Pathfinder Center's two spots onto their slots.
  *
  * The two registrations happen in one pass, and both withdrawers go to the same `effect`'s cleanup;
  * the cleanup's order is: withdraw the registrations first, then take down the two style tags — the
@@ -247,7 +247,7 @@ export function registerSeats(
   api: PathfinderPanelApi,
   dropStyles: () => void,
 ): void {
-  injectAt(ctx, ['slots'], '调度中心那两处没挂上', (owner) => {
+  injectAt(ctx, ['slots'], '寻路中心那两处没挂上', (owner) => {
     const slots = serviceAt(owner, 'slots') as SlotsService | undefined
     if (slots === undefined || typeof slots.inject !== 'function' || typeof slots.register !== 'function') return
     const nav = createSessionNav(ctx)

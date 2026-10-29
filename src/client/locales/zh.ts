@@ -17,13 +17,17 @@
  */
 export const zh = {
   /* ── The panel's identity ─────────────────────────────────────────────────────────────────── */
-  'panel.title': '寻路',
-  'seat.label': '调度中心',
-  'settings.section': '寻路面板',
+  /* Three words, one family: the wordmark over the panel is the product's own name, the row in
+   * DSH's sidebar is where that panel sits, and the settings section is its knobs. The section
+   * deliberately reads 配置 rather than 设置 — the panel's own 设置 pane holds the project's knobs
+   * from the record, and two objects must not share one word. */
+  'brand.mark': 'PATHFINDER',
+  'seat.label': '寻路中心',
+  'settings.section': '寻路配置',
 
   /* ── When the panel has nothing to draw ───────────────────────────────────────────────────── */
-  'panel.not-enabled': '当前工作区尚未启用 Pathfinder。',
-  'panel.no-record': '当前工作区没有 pathfinder 的记录。',
+  'panel.not-enabled': '当前工作区的寻路记录里还没有节点。',
+  'panel.no-record': '当前工作区没有寻路记录。',
   'panel.ungrouped-empty': '未分组名下没有记录；这条会话属于清单里的某个工作区。',
   'panel.unreadable': '无法读取当前工作区的记录。',
   'panel.no-session': '尚未选中会话，无法确定工作区。',

@@ -154,7 +154,7 @@ export async function runLanguage(ctx) {
   check(
     '把语言服务摘掉：当场回到随包那份中文，不留上一个语言的尾巴',
     attachedSeat === client.WORD_TABLES.en['seat.label']
-      && detachedSeat === '调度中心'
+      && detachedSeat === '寻路中心'
       && detachLanguagePort.getSnapshot().active === client.FALLBACK_LOCALE,
     `接上英文时=${JSON.stringify(attachedSeat)} ｜ 摘掉后=${JSON.stringify(detachedSeat)} ｜ 在册语言=${detachLanguagePort.getSnapshot().active}`,
   )

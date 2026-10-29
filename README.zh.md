@@ -5,7 +5,7 @@
 `dsh-pathfinder` 是一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件：把
 [agent-pathfinder](https://github.com/infraredsqy/agent-pathfinder) 的那份记录画成 DSH Web UI 里的一块面板。
 
-宿主半身按当前会话的工作区读那份记录（`.pf/`），经网关交出去；浏览器半身把它画成侧栏里的「调度中心」。
+宿主半身按当前会话的工作区读那份记录（`.pf/`），经网关交出去；浏览器半身把它画成侧栏里的「寻路中心」。
 屏上的一切——指令、节点明细、谁欠谁的那张地图、问题池——都从那份记录上来，面板里的写回也进同一条路。
 
 ## 状态
@@ -28,8 +28,8 @@ dsh plugin --profile <名字> add dsh-pathfinder
 
 ## 装完有什么
 
-- 侧栏多出「调度中心」一项：地图、明细、指令、问题池，以及面板自己的设置
-- DSH 设置里多出「寻路面板」一节：默认标签页、指令里显不显已归档、问题池里显不显未解决之外的
+- 侧栏多出「寻路中心」一项：地图、明细、指令、问题池，以及面板自己的设置
+- DSH 设置里多出「寻路配置」一节：默认标签页、指令里显不显已归档、问题池里显不显未解决之外的
 - 核一下装没装上：`dsh --profile <名字> --dump-config`，找 `# == dsh-pathfinder` 那一节
 
 ## 开发
