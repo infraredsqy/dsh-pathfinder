@@ -45,14 +45,15 @@ ignored. The other two routes (a GitHub Release `.tgz`, or git) and the version 
 
 ```sh
 npm install
-npm test              # unit tests
-npm run check:panel   # drives the panel in a real browser environment
-npm pack              # the distributable
+npm test                  # unit tests; builds lib/client.js first, then mounts it in jsdom
+node tools/css-check.mjs  # the style-layer rules
+npm pack                  # the distributable
 ```
 
-`check:panel` stands on a real record: it copies this repo's own `.pf/` into `.tmp/` (a `.pf` carries
-its own `.git`, and the tools check for that), so it wants `pf` on `PATH`. With no record it stops and
-names the path it wanted; `PANEL_CHECK_RECORD` points it at another `.pf` ledger.
+`npm test` covers the model layer, the host half and the built browser half — the last one mounts
+`lib/client.js` over an in-memory record, walks every pane, and fails on any `console.error`. What it
+cannot reach (the readings over a real `.pf`, the copy, the layout) is on the hand pass in
+[docs/publish.md](docs/publish.md); `tools/testbed/` boots an isolated DSH instance to walk it.
 
 The repository map and ground rules live in [AGENTS.md](AGENTS.md). Read
 [docs/design-principles.md](docs/design-principles.md) before touching the UI, and

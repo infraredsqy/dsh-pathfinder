@@ -96,7 +96,7 @@ export interface SettingsSectionProps {
   readonly locale?: LocaleSource | undefined
 }
 
-/** This section's stylesheet body, for the self-check fixture to measure against the same copy. */
+/** This section's stylesheet body, as the bundle carries it. */
 export const SETTINGS_CSS: string = CSS
 
 function Row(props: {

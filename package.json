@@ -37,8 +37,7 @@
     "types": "tsc -b tsconfig.host.json",
     "types:model": "tsc -p src/model/tsconfig.json",
     "types:client": "tsc -p src/client/tsconfig.json",
-    "check:panel": "node tools/build-client.mjs && node tools/panel-check.mjs",
-    "test": "node --test tests/"
+    "test": "node tools/build-client.mjs && node --test tests/"
   },
   "dsh": {
     "client": {

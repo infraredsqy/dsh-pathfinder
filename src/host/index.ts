@@ -10,10 +10,9 @@
  * The export surface is only the four things the plugin protocol requires
  * (`name` / `inject` / `apply` / `Config`) plus the gateway class itself: the
  * line is installed by DSH's plugin loader (mount point in
- * `cordis.patch.yml`), which reads only those four; the other in-repo consumer
- * is `tests/host-plugin`. Readers of the gateway class are the self-check
- * fixture `tools/panel-check.mjs`, which builds a gateway from a fake host
- * context to drive the panel. Everything else is internal, each piece in its
+ * `cordis.patch.yml`), which reads only those four; the other in-repo consumers
+ * are `tests/host-plugin` and `tests/client-render`, which build a gateway over
+ * a fake host context to drive the panel. Everything else is internal, each piece in its
  * own module; the browser half and tests import via deep paths, not through
  * the entry — names unused on the entry surface are not exported.
  */
@@ -46,7 +45,7 @@ export const inject = ['workspaceFiles', 'sessions', 'sandboxPolicy']
  */
 export { Config }
 
-/** The gateway class itself; the self-check fixture `tools/panel-check.mjs` builds one from a fake host context to drive the panel. */
+/** The gateway class itself; `tests/host-plugin` and `tests/client-render` each build one over a fake host context to drive the panel. */
 export { PathfinderRecordsGateway }
 
 /**

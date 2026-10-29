@@ -77,7 +77,7 @@ test('出口面收在插件协议要的那四样上：内部件不再从入口�
   ]) {
     assert.equal(entry[internal], undefined, `${internal} 没有外部消费者，不该再从入口出口`)
   }
-  /* The gateway class stays on the export surface: the self-check fixture tools/panel-check.mjs builds a fresh gateway from the entry. */
+  /* The gateway class stays on the export surface: `tests/client-render` builds a fresh gateway from the entry. */
   assert.equal(typeof entry.PathfinderRecordsGateway, 'function')
 })
 

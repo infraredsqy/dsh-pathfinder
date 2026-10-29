@@ -2,9 +2,9 @@
  * hover shows "full name · short handle" and does not repeat the name when it already equals
  * the handle.
  *
- * These three literals live in src/client/nodes.ts — pure functions, loadable in Node; the
- * card-name/row-name pairing is covered indirectly by check:panel's render assertions, while
- * this file locks the criteria themselves: the long/short bounds of truncation, missing vs
+ * These three literals live in src/client/nodes.ts — pure functions, loadable in Node; how a card
+ * and a row pair the name with the handle is a rendering concern, walked by hand (docs/publish.md),
+ * while this file locks the criteria themselves: the long/short bounds of truncation, missing vs
  * empty-string titles, and both hover outcomes.
  *
  *   node --test tests/

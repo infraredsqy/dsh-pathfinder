@@ -36,14 +36,14 @@ dsh plugin --profile <名字> add dsh-pathfinder
 
 ```sh
 npm install
-npm test              # 单测
-npm run check:panel   # 在真的浏览器环境里把面板走一遍
-npm pack              # 打出分发件
+npm test                  # 单测；先把 lib/client.js 构建出来，再把它挂进 jsdom
+node tools/css-check.mjs  # 样式层的规矩
+npm pack                  # 打出分发件
 ```
 
-`check:panel` 站在一份真记录上跑：它把这个仓自己的 `.pf/` 拷进 `.tmp/`（`.pf` 带自己的 `.git`，工具
-要认这一层），所以它要 `pf` 在 PATH 上。没有记录时它停下并印出它想的那个路径，`PANEL_CHECK_RECORD`
-可以把它指到另一份 `.pf` 记录。
+`npm test` 管到三块：模型层、宿主半身、构建出来的浏览器半身——最后那块把 `lib/client.js` 挂到一份内存里
+的记录上、逐格走一遍，控制台里出现一条 error 就算失败。它管不到的那些（真记录下的读数、文案、布局）在
+[docs/publish.md](docs/publish.md) 有一张手动单子；`tools/testbed/` 能起一个隔离的 DSH 实例来走它。
 
 仓库的路牌与规矩在 [AGENTS.md](AGENTS.md)。改界面前先读
 [docs/design-principles.md](docs/design-principles.md)，发一版前看

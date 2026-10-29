@@ -23,13 +23,12 @@ export const PANEL_ID = 'pathfinder'
 export const SERVICE_KEY = 'pathfinderPanel'
 
 /**
- * The body of the panel's stylesheet, re-exported for the self-check fixture: `npm run
- * check:panel` measures tokens against values parsed from the panel DOM, so it must load this copy
- * from the bundle rather than fetch some other stylesheet.
+ * The body of the panel's stylesheet, as the bundle carries it: re-exported so a caller that holds
+ * only `lib/client.js` can attach the same sheet the panel ships rather than fetch some other copy.
  */
 export { PANEL_CSS } from './styles.ts'
 
-/** The settings section's identity, for callers and the self-check fixture to read against. */
+/** The settings section's identity and component, readable off the bundle. */
 export {
   SECTION_ORDER,
   SECTION_SLOT,
@@ -39,7 +38,7 @@ export {
   SettingsSection,
 } from './settings.tsx'
 
-/** The identities of the two Pathfinder Center spots, for the self-check fixture to read against. */
+/** The identities of the two Pathfinder Center spots, readable off the bundle. */
 export {
   createWorkspaceNav,
   currentSessionOf,
@@ -50,10 +49,10 @@ export {
 } from './mount.ts'
 
 /**
- * The language machinery, for the self-check fixture and the unit tests.
+ * The language machinery and the bundled tables, readable off the bundle.
  *
  * `FALLBACK_WORD_TABLE` is the source-of-truth table, which is also the one an unattached port
- * serves — so a fixture that reads a word off the panel and compares it against this cannot drift
+ * serves — so a caller that reads a word off the panel and compares it against this cannot drift
  * from what a deployment without a locale service really draws.
  */
 export { createLocalePort, FALLBACK_LOCALE, localeOf, LOCALE_NS, LocaleProvider, useT } from './locale.ts'

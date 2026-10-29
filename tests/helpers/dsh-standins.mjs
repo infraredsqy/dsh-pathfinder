@@ -14,7 +14,7 @@
  * absent and undefined alike; a fixture measuring THEM stands its own face up.
  *
  * @param watchCount - adds `watching()`: the subscriber count, so "was the disposer returned" is
- *   judged by count alone (the panel-check fixture's need).
+ *   judged by count alone (the render check's need).
  * @param writeLog - adds `writes` (every `mutate` recorded), `notify()` (wake subscribers without
  *   touching a byte — the "unchanged means no notification" path) and `bump()` (someone else moved
  *   the revision before this side read — the stale-fence path). The client-prefs tests' need.
