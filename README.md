@@ -50,6 +50,10 @@ npm run check:panel   # drives the panel in a real browser environment
 npm pack              # the distributable
 ```
 
+`check:panel` stands on a real record: it copies this repo's own `.pf/` into `.tmp/` (a `.pf` carries
+its own `.git`, and the tools check for that), so it wants `pf` on `PATH`. With no record it stops and
+names the path it wanted; `PANEL_CHECK_RECORD` points it at another `.pf` ledger.
+
 The repository map and ground rules live in [AGENTS.md](AGENTS.md). Read
 [docs/design-principles.md](docs/design-principles.md) before touching the UI, and
 [docs/publish.md](docs/publish.md) before shipping a version.

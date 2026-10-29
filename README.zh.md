@@ -41,6 +41,10 @@ npm run check:panel   # 在真的浏览器环境里把面板走一遍
 npm pack              # 打出分发件
 ```
 
+`check:panel` 站在一份真记录上跑：它把这个仓自己的 `.pf/` 拷进 `.tmp/`（`.pf` 带自己的 `.git`，工具
+要认这一层），所以它要 `pf` 在 PATH 上。没有记录时它停下并印出它想的那个路径，`PANEL_CHECK_RECORD`
+可以把它指到另一份 `.pf` 记录。
+
 仓库的路牌与规矩在 [AGENTS.md](AGENTS.md)。改界面前先读
 [docs/design-principles.md](docs/design-principles.md)，发一版前看
 [docs/publish.md](docs/publish.md)。

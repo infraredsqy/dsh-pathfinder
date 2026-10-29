@@ -76,6 +76,15 @@ export async function startFixture({ check, scenes }) {
    * copy at another record directory — the emptied-pool self-check runs the whole fixture against a
    * cleared copy without touching the snapshot this repo carries. */
   const recordSource = process.env.PANEL_CHECK_RECORD?.trim() || join(root, '.pf')
+  /* No record, no run: every scene but `empty` and `broken` stands on a copy of it, and the readings are
+   * computed from what the record holds, so there would be nothing to read. Say the path that was wanted
+   * and how to point this elsewhere; exit 2 keeps it apart from a check that ran and failed. */
+  if (!existsSync(recordSource)) {
+    console.log(
+      `没有可拷的记录：${recordSource} 不在。把 PANEL_CHECK_RECORD 指向一份 .pf 记录再跑（这一份自检要拿真记录喂真的两半身）。`
+    )
+    process.exit(2)
+  }
 
   /** Copies the record. `.git` comes along: the tools must recognize the directory as their
    * own record store (`pf` verifies it); `worktrees` and each node's `temp` are scratch, copying them wastes time. */
