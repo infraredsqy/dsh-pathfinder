@@ -7,6 +7,9 @@
     "type": "git",
     "url": "git+https://github.com/infraredsqy/dsh-pathfinder.git"
   },
+  "publishConfig": {
+    "tag": "latest"
+  },
   "type": "module",
   "main": "lib/host/index.js",
   "types": "lib/types/host/index.d.ts",
