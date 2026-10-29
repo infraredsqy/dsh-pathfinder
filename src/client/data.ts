@@ -43,15 +43,15 @@ const WRITE_ENDPOINTS: Readonly<Record<WriteVerb, string>> = {
 export interface PanelPort {
   readonly source: 'remote' | 'carrier' | 'none'
   /** Read the four records of the named workspace; rejects with a {@link RefusedError} when it cannot. */
-  read(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderReading>
+  read(sessionId: string, workspaceRoot: string): Promise<PathfinderReading>
   /** The most recent session opened for each cell in the named workspace: where card clicks go. */
-  readSessions(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderSessionsReading>
+  readSessions(sessionId: string, workspaceRoot: string): Promise<PathfinderSessionsReading>
   /** Record an instruction: hand the user's verbatim text and scope to the tool. */
   say(sessionId: string, workspaceRoot: string, text: string, scope: InstructionScope, cycle: string, node: string): Promise<Outcome>
   /** Archive / revive / delete an instruction. */
   write(verb: WriteVerb, sessionId: string, workspaceRoot: string, id: string): Promise<Outcome>
   /** The named workspace's project settings: effective values and which layer each lives on, from the tool's command. */
-  readConfig(sessionId: string, workspaceRoot: string, signal?: AbortSignal): Promise<PathfinderConfigReading>
+  readConfig(sessionId: string, workspaceRoot: string): Promise<PathfinderConfigReading>
   /** Write one project setting; it always lands on this project's layer. */
   setConfig(sessionId: string, workspaceRoot: string, key: string, value: string): Promise<Outcome>
 }
@@ -68,7 +68,6 @@ interface Carrier {
       path: string,
       endpoint: string,
       payload: { readonly args: Readonly<Record<string, unknown>> },
-      signal: AbortSignal | undefined,
     ): Promise<unknown>
   }
 }
@@ -154,7 +153,6 @@ function positional(method: string, args: Readonly<Record<string, unknown>>): re
 type PortCall = <T>(
   method: string,
   args: Readonly<Record<string, unknown>>,
-  signal?: AbortSignal,
 ) => Promise<Answer<T>>
 
 /** A refusal in the shape a write hands back, without the `ok` tag the reading already carries. */
@@ -164,24 +162,28 @@ function refused(failure: Failure): Outcome {
 
 /**
  * The common skeleton of the panel's port: the six methods written once, with the two paths
- * differing only in the `call` layer and how the signal is passed.
+ * differing only in the `call` layer.
+ *
+ * Every call is a read or a write the panel means to see through: the panel draws what comes back,
+ * and a call nobody waits for is a call nobody wanted. So none of them carries a cancellation — a
+ * read runs to its answer, and the panel drops a late one on its own side.
  *
  * A read that cannot happen rejects with {@link RefusedError} — a caller awaiting a reading has
  * nowhere to put a failure but the rejection. A write answers with the failure instead, because its
  * callers place the reason on the panel's note line and carry on.
  * @param source - Which layer this port ultimately connected through.
- * @param call - Given the endpoint name, named arguments, and abort signal; it unfolds the answer into the two branches.
+ * @param call - Given the endpoint name and named arguments; it unfolds the answer into the two branches.
  */
 function portFromCall(source: PanelPort['source'], call: PortCall): PanelPort {
   return {
     source,
-    async read(sessionId, workspaceRoot, signal) {
-      const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot), signal)
+    async read(sessionId, workspaceRoot) {
+      const answer = await call<PathfinderReading>('read', readArgs(sessionId, workspaceRoot))
       if (!answer.ok) throw new RefusedError(answer.failure)
       return answer.value
     },
-    async readSessions(sessionId, workspaceRoot, signal) {
-      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot }, signal)
+    async readSessions(sessionId, workspaceRoot) {
+      const answer = await call<PathfinderSessionsReading>('readSessions', { sessionId, workspaceRoot })
       if (!answer.ok) throw new RefusedError(answer.failure)
       return answer.value
     },
@@ -193,8 +195,8 @@ function portFromCall(source: PanelPort['source'], call: PortCall): PanelPort {
       const answer = await call<Outcome>(WRITE_ENDPOINTS[verb], { sessionId, workspaceRoot, id })
       return answer.ok ? answer.value : refused(answer.failure)
     },
-    async readConfig(sessionId, workspaceRoot, signal) {
-      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot }, signal)
+    async readConfig(sessionId, workspaceRoot) {
+      const answer = await call<PathfinderConfigReading>('readConfig', { sessionId, workspaceRoot })
       if (!answer.ok) throw new RefusedError(answer.failure)
       return answer.value
     },
@@ -205,12 +207,11 @@ function portFromCall(source: PanelPort['source'], call: PortCall): PanelPort {
   }
 }
 
-/** The remote-namespace path: lays arguments out positionally per the parameter table, signal last. */
+/** The remote-namespace path: lays arguments out positionally per the parameter table. */
 function remotePort(namespace: Service): PanelPort {
   const call: PortCall = async <T>(
     method: string,
     args: Readonly<Record<string, unknown>>,
-    signal?: AbortSignal,
   ): Promise<Answer<T>> => {
     const implementation = namespace[method]
     if (typeof implementation !== 'function') return { ok: false, failure: { code: 'no-operation', detail: method } }
@@ -218,7 +219,6 @@ function remotePort(namespace: Service): PanelPort {
       const answer = await (implementation as (...values: unknown[]) => Promise<unknown>).call(
         namespace,
         ...positional(method, args),
-        ...(signal === undefined ? [] : [signal]),
       )
       return unwrap<T>(answer)
     } catch (error) {
@@ -233,10 +233,9 @@ function carrierPort(rpc: NonNullable<Carrier['rpc']>): PanelPort {
   const call: PortCall = async <T>(
     method: string,
     args: Readonly<Record<string, unknown>>,
-    signal?: AbortSignal,
   ): Promise<Answer<T>> => {
     try {
-      const answer = await rpc.call('/api', `${NAMESPACE}/${method}`, { args }, signal)
+      const answer = await rpc.call('/api', `${NAMESPACE}/${method}`, { args })
       return unwrap<T>(answer)
     } catch (error) {
       return { ok: false, failure: { code: 'transport-failed', detail: textOf(error) } }
