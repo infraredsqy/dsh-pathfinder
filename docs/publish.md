@@ -148,9 +148,8 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
 
 ## 已知限制
 
-- **发布那一发不在本机做**：要在能写官方 registry、有凭据的机器上执行——本机 `~/.npmrc` 的 `registry`
-  指向一个镜像站，镜像站只收下载、不收发布，所以登录与发布两处都得显式带
-  `--registry=https://registry.npmjs.org`。
+- **发布要显式打到官方 registry**：本机 `~/.npmrc` 的 `registry` 指向一个镜像站，镜像站只收下载、不收
+  发布——登录与发布两处都得带 `--registry=https://registry.npmjs.org`。
 - **GitHub Release 那条腿多一步手工**：把 `npm pack` 出的那一个 `.tgz` 传成 Release 的附件；远端与那个
   release 都得先有。
 - **`engines.dsh` 只对 `0.2.1-rc.2` 实测过**：换一个 DSH 版本要重量一遍再改这一行。被范围挡下是预期
