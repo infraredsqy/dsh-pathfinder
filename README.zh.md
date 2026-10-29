@@ -21,13 +21,17 @@
 前提：装了 `dsh`，手里有一个装得进插件的 profile；要看的工作区里有一份 agent-pathfinder 的记录
 （`.pf/`，`pf` 命令在 PATH 上）。面板按「当前选中的会话」定工作区——没选中会话时它自己会说明。
 
+从本仓的 [Releases](https://github.com/infraredsqy/dsh-pathfinder/releases) 下载那个 `.tgz`，把 DSH
+指到这个文件：
+
 ```sh
-dsh plugin --profile <名字> add dsh-pathfinder
+dsh plugin --profile <名字> add ./dsh-pathfinder-<版本>.tgz
+dsh plugin --profile <名字> add dsh-pathfinder               # 裸名这条，等它上了 npm 才有
 ```
 
 包里是预构建产物，装的时候不跑任何构建。装完 pnpm 若列出几条 `missing peer` 警告：那几个包由 DSH
-本体提供、运行时解析得到，警告可以无视。另外两条路子（GitHub Release 的 `.tgz`、git）与版本兼容的
-口径见 [docs/publish.md](docs/publish.md)。
+本体提供、运行时解析得到，警告可以无视。第三条路（从 git 装）与版本兼容的口径见
+[docs/publish.md](docs/publish.md)。
 
 ## 装完有什么
 

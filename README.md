@@ -26,13 +26,17 @@ Prerequisites: a DSH install with a profile to install into, and a workspace tha
 agent-pathfinder record (`.pf/`, with `pf` on your `PATH`). The panel reads the workspace of the
 session you have selected; with no session selected it says so.
 
+Download the `.tgz` from this repo's [Releases](https://github.com/infraredsqy/dsh-pathfinder/releases)
+and point DSH at the file:
+
 ```sh
-dsh plugin --profile <name> add dsh-pathfinder
+dsh plugin --profile <name> add ./dsh-pathfinder-<version>.tgz
+dsh plugin --profile <name> add dsh-pathfinder                  # by name, once this is on npm
 ```
 
 The package ships prebuilt — installing runs no build steps. pnpm may print a few `missing peer`
 warnings: those packages are provided by DSH itself and resolve at runtime, so the warnings can be
-ignored. The other two routes (a GitHub Release `.tgz`, or git) and the version policy live in
+ignored. The version policy and the third route (installing from git) live in
 [docs/publish.md](docs/publish.md).
 
 ## What you get
