@@ -2,6 +2,7 @@
 
 > 这页只写**做法**与**已知限制**：这个包怎么发出去、别人怎么装进来、装完怎么核。
 > 它写的是**通用口径**，每次发版本都适用；某一次发布里的临时问题、清理残留的事项不进这页。
+> **这页不写版本号**：插件自己的号与 DSH 的号都不进这页。
 > 包名与仓名都是 `dsh-pathfinder`，侧栏那一格叫「寻路中心」，DSH 设置里那一节叫「寻路配置」。
 
 ## 交付形态：预构建产物随包走
@@ -44,8 +45,8 @@ npm run bundle:client  # lib/client.js（浏览器半身）
 设置切换语言这一条就接不上了。
 
 `engines.dsh` 那段范围收得很窄，出处是 `package.json`：宿主半身有一处**运行时的**外部依赖
-`@deepseek-ai/dsh-typert-protocol`（与 DSH 本体锁步同版本发布），0.2.x 里换一个 rc 它就可能动；要放宽
-得先在那个 DSH 上重量一遍。
+`@deepseek-ai/dsh-typert-protocol`（与 DSH 本体锁步同版本发布），DSH 换一个 rc 它就可能动；要放宽得先
+在那个 DSH 上重量一遍。
 
 包面那几条前提由 `tests/package-surface.test.mjs` 看着（`npm test` 跑）。改包面之后跑一遍。
 
@@ -74,9 +75,9 @@ npm publish                                         # 作者侧：要已登录�
 dsh plugin --profile <名字> add dsh-pathfinder      # 用户侧
 ```
 
-`package.json` 的 `publishConfig.tag` 写着 `latest`：这个号是预发布（`-rc.`），npm 11 对预发布号不带
-`--tag` 会直接拒发，声明了这一条才算显式指定。用户侧那条裸名解析的就是 `latest`，所以这一条在，上面
-那行命令才成立。将来发正式的 `0.1.0`，`latest` 会自己移过去。
+`package.json` 的 `publishConfig.tag` 写着 `latest`：这个号是预发布（`-rc.`），npm 对预发布号不带 `--tag`
+会直接拒发，声明了这一条才算显式指定。用户侧那条裸名解析的就是 `latest`，所以这一条在，上面那行命令才
+成立。将来发正式版本时，`latest` 会自己移过去。
 
 ### 2. 从 GitHub Release 的 `.tgz` 装（兜底的那一条）
 
@@ -152,7 +153,7 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
   发布——登录与发布两处都得带 `--registry=https://registry.npmjs.org`。
 - **GitHub Release 那条腿多一步手工**：把 `npm pack` 出的那一个 `.tgz` 传成 Release 的附件；远端与那个
   release 都得先有。
-- **`engines.dsh` 只对 `0.2.1-rc.2` 实测过**：换一个 DSH 版本要重量一遍再改这一行。被范围挡下是预期
+- **`engines.dsh` 只覆盖实测过的那一个 DSH**：换一个 DSH 版本要重量一遍再改这一行。被范围挡下是预期
   行为——DSH 报 `incompatible-version` 并印出 `allow-version` 那条命令，豁免记在 profile 的
   `compatibility.json` 里，插件升版与 DSH 升版都不继承。
 - **git 那条路要用户在 profile 里授权跑构建脚本**（就是让这个包在装的时候执行代码）；预构建产物
