@@ -37,9 +37,11 @@ export const VIEW_IDS: readonly ViewId[] = ['map', 'detail', 'notes', 'issue', '
 /**
  * The shape before anything has been recorded.
  *
- * The sidebar width has no row in the settings page — it is a dragged value — but
- * the value lives in this document all the same, so it still gets a factory
- * default here.
+ * Two fields have no row in the settings page. The sidebar width is a
+ * dragged value; the tab is the view the panel was last left on, which the
+ * panel writes back on every switch — a row for it would read as a default and
+ * then be overwritten by the next click. Both still live in this document, so
+ * both still get a factory default here.
  */
 export const PANEL_PREF_DEFAULTS = {
   sideWidth: SIDE_DEFAULT,

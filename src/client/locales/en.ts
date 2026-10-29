@@ -54,12 +54,10 @@ export const en: Readonly<Record<WordKey, string>> = {
   'view.config': 'Settings',
 
   /* ── The settings section ─────────────────────────────────────────────────────────────────── */
-  'settings.row.help': 'What the {label} row controls',
-  'settings.tab.label': 'Default tab',
   'settings.archived.label': 'Show archived instructions',
-  'settings.archived.tip': 'Archived entries are folded away by default, so the ledger opens on what still counts. Turn this on and they return to their own sections, each with a revive button.',
-  'settings.other-states.label': 'Show issues beyond open',
-  'settings.other-states.tip': 'The pool draws only open issues by default. Turn this on and acknowledged / rejected / resolved come back to the page, each in its own section.',
+  'settings.archived.desc': 'Also lists archived instructions.',
+  'settings.other-states.label': 'Show every issue state',
+  'settings.other-states.desc': 'Also lists acknowledged, rejected, and resolved issues.',
   'settings.unavailable': 'DSH does not expose {ns} as a settings namespace yet, so changes here are not saved.',
 
   /* ── Words shared across the panes ────────────────────────────────────────────────────────── */

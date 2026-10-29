@@ -36,7 +36,7 @@ ignored. The other two routes (a GitHub Release `.tgz`, or git) and the version 
 
 - a **Pathfinder Center** entry in the Web UI sidebar: views over the record — the map, details,
   instructions, the issue pool, and the panel's own settings
-- a **Pathfinder Settings** section in the DSH settings: default tab, whether archived instructions show,
+- a **Pathfinder Settings** section in the DSH settings: whether archived instructions show,
   whether closed issues show
 - to verify an install: `dsh --profile <name> --dump-config`, and look for the
   `# == dsh-pathfinder` section

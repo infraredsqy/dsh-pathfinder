@@ -4,12 +4,12 @@
  * This section lives in DSH's own settings panel, not in the same tree as the main panel, so it
  * cannot reach the sheets bundled into `.pf-page` at build time — it carries its own stylesheet,
  * class names all use the `pfset-` prefix, and colors use only DSH's theme tokens. The page holds
- * only three rows of the panel's own display preferences, and it reads the same settings form as the
- * panel, so flipping a row changes the panel on the spot.
+ * only the panel's two display switches, and it reads the same settings form as the panel, so
+ * flipping a switch changes the panel on the spot.
  */
 import * as React from 'react'
-import { PANEL_PREF_FIELDS, VIEW_IDS } from '../host/settings-fields.ts'
-import { DEFAULT_SOURCE, VIEW_WORDS } from './prefs.ts'
+import { PANEL_PREF_FIELDS } from '../host/settings-fields.ts'
+import { DEFAULT_SOURCE } from './prefs.ts'
 import type { PrefField, PrefsForm, PrefsSource, PrefsStore } from './prefs.ts'
 import { serviceAt } from './data.ts'
 import { injectAt, report, serveOn, type SlotsService } from './context.ts'
@@ -51,29 +51,20 @@ const STYLE_ID = SETTINGS_STYLE_ID
 /**
  * This section's stylesheet.
  *
- * Row shape is name + one hint + the control at the right end; geometry follows DSH's own settings
- * rows. Colors are written only as DSH's own alias tokens, with no
+ * Row shape is DSH's own settings row: the name with one description line under it, the control at
+ * the right end. The numbers are DSH's, so this page reads as a continuation of the pages around it:
+ * 16px 0 padding, 24px gap, a 14/20 name and a 12/18 caption.
+ *
+ * Colors are written only as DSH's own alias tokens, with no
  * fallback literal colors left — this section lives only inside DSH's own settings panel, where the
- * aliases certainly exist. The two fallbacks for border-radius and font-family stay: they are about
- * geometry, independent of whether the tokens exist.
+ * aliases certainly exist.
  */
 const CSS = `
 .pfset-page{display:flex;flex-direction:column;padding:8px 0;max-width:760px;font-family:inherit;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary)}
-.pfset-row{display:flex;align-items:center;gap:12px;min-height:32px;padding:10px 0}
-.pfset-row + .pfset-row{border-top:0.5px solid var(--dsw-alias-border-l2)}
-.pfset-text{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0}
-.pfset-label{font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary)}
-.pfset-info{position:relative;flex:none;width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;padding:0;font-family:var(--ds-font-family-code,monospace);font-size:10px;line-height:1;color:var(--dsw-alias-label-caption);background:none;border:0.5px solid var(--dsw-alias-border-l3);border-radius:50%;corner-shape:round;cursor:help}
-.pfset-info:hover,.pfset-info:focus{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-caption)}
-.pfset-info::after{content:attr(data-tip);position:absolute;top:calc(100% + 8px);left:-4px;z-index:2;width:max-content;max-width:260px;padding:3px 7px;font-size:13px;line-height:1.5;color:var(--dsw-alias-toast-label);background:var(--dsw-alias-tooltip-bg);border:0;border-radius:var(--dsw-radius-sm,8px);opacity:0;visibility:hidden;transition:opacity 120ms ease}
-.pfset-info:hover::after,.pfset-info:focus::after{opacity:1;visibility:visible}
-.pfset-seg{flex:none;display:inline-flex;gap:2px;padding:2px;background:var(--dsw-alias-bg-layer-3);border-radius:var(--dsw-radius-md,10px)}
-.pfset-segbtn{font:inherit;font-size:13px;line-height:18px;padding:5px 10px;border:0;border-radius:var(--dsw-radius-sm,8px);background:none;color:var(--dsw-alias-label-secondary);cursor:pointer}
-.pfset-segbtn:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.pfset-segbtn[aria-pressed='true']{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
-.pfset-select{flex:none;height:34px;padding:0 28px 0 12px;font:inherit;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3);border:0.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,10px);cursor:pointer}
-.pfset-select option{background-color:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-primary)}
-body[data-ds-dark-theme] .pfset-select{color-scheme:dark}
+.pfset-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 0;border-bottom:0.5px solid var(--dsw-alias-border-l2)}
+.pfset-text{display:flex;flex-direction:column;flex:1 1 auto;min-width:0}
+.pfset-label{font-size:14px;line-height:20px;color:var(--dsw-alias-label-primary)}
+.pfset-desc{margin-top:4px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
 .pfset-switch{flex:none;width:36px;height:20px;padding:2px;border:0;border-radius:999px;corner-shape:round;background:var(--dsw-alias-border-l3);cursor:pointer;display:inline-flex}
 .pfset-switch[aria-checked='true']{background:var(--dsw-alias-link)}
 .pfset-swthumb{width:16px;height:16px;border-radius:50%;corner-shape:round;background:var(--dsw-alias-label-primary);transition:transform 120ms ease}
@@ -99,28 +90,17 @@ export interface SettingsSectionProps {
 /** This section's stylesheet body, as the bundle carries it. */
 export const SETTINGS_CSS: string = CSS
 
+/** One row: the name, the line that says what the switch does, and the switch itself. */
 function Row(props: {
   readonly label: string
-  readonly tip: string | null
+  readonly desc: string
   readonly control: React.ReactNode
 }): React.ReactElement {
-  const t = useT()
   return (
     <div className="pfset-row">
       <div className="pfset-text">
         <span className="pfset-label">{props.label}</span>
-        {props.tip === null
-          ? null
-          : (
-            <button
-              type="button"
-              className="pfset-info"
-              data-tip={props.tip}
-              aria-label={t('settings.row.help', { label: props.label })}
-            >
-              i
-            </button>
-          )}
+        <span className="pfset-desc">{props.desc}</span>
       </div>
       {props.control}
     </div>
@@ -155,22 +135,8 @@ function SettingsPage(props: SettingsSectionProps): React.ReactElement {
   return (
     <div className="pfset-page">
       <Row
-        label={t('settings.tab.label')}
-        tip={null}
-        control={(
-          <select
-            className="pfset-select"
-            aria-label={t('settings.tab.label')}
-            value={prefs.tab}
-            onChange={(event) => write(PANEL_PREF_FIELDS.defaultTab, event.target.value)}
-          >
-            {VIEW_IDS.map((id) => <option key={id} value={id}>{t(VIEW_WORDS[id])}</option>)}
-          </select>
-        )}
-      />
-      <Row
         label={t('settings.archived.label')}
-        tip={t('settings.archived.tip')}
+        desc={t('settings.archived.desc')}
         control={(
           <button
             type="button"
@@ -186,7 +152,7 @@ function SettingsPage(props: SettingsSectionProps): React.ReactElement {
       />
       <Row
         label={t('settings.other-states.label')}
-        tip={t('settings.other-states.tip')}
+        desc={t('settings.other-states.desc')}
         control={(
           <button
             type="button"

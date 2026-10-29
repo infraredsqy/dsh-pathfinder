@@ -67,12 +67,14 @@ export const zh = {
   'view.config': '设置',
 
   /* ── The settings section ─────────────────────────────────────────────────────────────────── */
-  'settings.row.help': '{label}这一行管什么',
-  'settings.tab.label': '默认标签页',
-  'settings.archived.label': '指令里显示已归档的',
-  'settings.archived.tip': '归档的条目默认收起来：一屏里先看见现在还算数的。打开这一行，它们回到各自的段里，右边多一枚复原。',
-  'settings.other-states.label': '问题池里显示未解决之外的',
-  'settings.other-states.tip': '问题池那一格默认只画未解决的。打开这一行，已承认 / 已驳回 / 已解决 才回到页面上，各自收在自己的段里。',
+  /* Two switches over what the panel draws, each with the one line DSH's own settings rows carry
+   * under their name. Which view the panel opens on is deliberately not here: the panel remembers
+   * the tab it was left on and writes it back, so a row for it would be a knob the reader keeps
+   * overwriting. */
+  'settings.archived.label': '指令面板中显示已归档指令',
+  'settings.archived.desc': '开启后，已归档的指令一并列出。',
+  'settings.other-states.label': '问题面板中显示未激活的问题',
+  'settings.other-states.desc': '开启后，已承认、已驳回与已解决的问题一并列出。',
   'settings.unavailable': 'DSH 还没把 {ns} 暴露成设置命名空间，这里的改动不会保存。',
 
   /* ── Words shared across the panes ────────────────────────────────────────────────────────── */
