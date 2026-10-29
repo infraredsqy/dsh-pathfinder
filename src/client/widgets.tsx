@@ -45,8 +45,6 @@ export function Grip(props: {
   readonly className?: string
   readonly id?: string
   readonly gripRef?: React.Ref<HTMLDivElement>
-  /** Each site's own markers: the settings column's data-side / data-width go here. */
-  readonly attributes?: Readonly<Record<string, string>>
 }): React.ReactElement {
   const { value, clamp, onChange } = props
   const from = React.useRef(0)
@@ -63,7 +61,6 @@ export function Grip(props: {
       aria-valuenow={value}
       aria-valuemin={props.min}
       aria-valuemax={props.max}
-      {...props.attributes}
       onPointerDown={(event) => {
         from.current = event.clientX
         base.current = value
