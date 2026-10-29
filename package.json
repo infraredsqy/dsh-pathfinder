@@ -1,6 +1,6 @@
 {
   "name": "dsh-pathfinder",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-rc.1",
   "description": "把 agent-pathfinder 的管线搬进 DSH：宿主半身按当前会话的工作区读那份记录，交给浏览器半身",
   "license": "MIT",
   "repository": {
