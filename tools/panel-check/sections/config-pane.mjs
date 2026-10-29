@@ -29,7 +29,7 @@ export async function runConfigPane(ctx) {
   /* A run's outcome carries the tool's output on success and a code-plus-detail refusal otherwise: only
    * the success branch has a text stream to parse. */
   const truth = parseConfigList(listed.ok ? listed.text : '')
-  /** The record's three layer names as the panel's three words (the blueprint's wording). */
+  /** The record's three layer names as the panel's three words. */
   const LAYER_WORD = { default: '默认', project: '本项目', global: '全局' }
   check(
     '设置那一格：真工具对着这份工作区印得出设置行',

@@ -51,8 +51,8 @@ const STYLE_ID = SETTINGS_STYLE_ID
 /**
  * This section's stylesheet.
  *
- * Row shape follows the blueprint page (name + one hint + the control at the right end), geometry
- * follows DSH's own settings rows. Colors are written only as DSH's own alias tokens, with no
+ * Row shape is name + one hint + the control at the right end; geometry follows DSH's own settings
+ * rows. Colors are written only as DSH's own alias tokens, with no
  * fallback literal colors left — this section lives only inside DSH's own settings panel, where the
  * aliases certainly exist. The two fallbacks for border-radius and font-family stay: they are about
  * geometry, independent of whether the tokens exist.

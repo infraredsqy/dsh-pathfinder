@@ -1,10 +1,12 @@
-﻿# testbed-lib.ps1 —— testbed shared implementation: path and on-disk format conversions, synthetic
+# testbed-lib.ps1 —— testbed shared implementation: path and on-disk format conversions, synthetic
 # record fixtures, instance start/stop, HTTP calls, main-home fingerprints.
 #
 # Called only by tools/testbed/testbed.ps1. Everything it creates (isolated home / profile /
 # synthetic workspaces / synthetic sessions) lands under the caller's -Root; this file assumes no concrete paths.
 #
-# Design notes (written from measured behavior on this machine, not copied from elsewhere):
+# Design notes: measured against a live DSH instance, not copied from elsewhere. What they describe
+# is undocumented on-disk format, so a DSH upgrade can move it under the testbed -- re-measure
+# before trusting a note.
 #   * Session root layout: session logs land at <home>\sessions\<projectKey(cwd)>\<encodeSegment(id)>\session.v4.jsonl.
 #     When reading logs the instance cross-checks "the path recomputed from the header's id + cwd" against the on-disk
 #     path; a wrongly computed path gets the session dropped.
@@ -14,7 +16,7 @@
 #   * An invalid session header field name/type raises no error; that session silently vanishes from the list.
 #     Hence validate the header first, then look at the list.
 #   * The workspace registry (<home>\storages\workspace.json) is read once at instance start; it must be written while the instance is stopped.
-#   * The main home is multi-tenant: other projects have live sessions appending to it. Criterion 4 demands
+#   * The main home is shared: while the testbed runs, other projects' live sessions may be appending to it. Criterion 4 demands
 #     **positive ownership evidence for every difference**, unioning two kinds:
 #     S1 structural (project key differs from every key this fixture derives + the encoding suffix is one this profile cannot write) and
 #     S2 witnessed (paths really touched in a "no instance running" observation window). Deletions, paths carrying a

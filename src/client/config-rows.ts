@@ -48,12 +48,12 @@ export interface ConfigRow {
   readonly kind: ControlKind
   /** The category whose section this row stands in. */
   readonly group: ConfigGroup
-  /** Only the dropdown kind has it: the words the tool accepts, in blueprint order. */
+  /** Only the dropdown kind has it: the words the tool accepts, in the order the dropdown lists them. */
   readonly options?: readonly string[]
 }
 
 /**
- * How known keys are described, in the order readers meet them (blueprint order). The tool only
+ * How known keys are described, in the order readers meet them. The tool only
  * mentions its accepted values in the prose of `config --help`, with no machine-readable list, so
  * the candidates are copied here. When the tool side adds a word, the reading will carry an
  * off-table value; {@link pickState} then promotes it to an option on the spot instead of silently
@@ -141,8 +141,8 @@ export function groupOfUnregistered(key: string): ConfigGroup {
 /**
  * Grow this view's rows out of a reading: only keys present in the reading get rows, none are added.
  *
- * Registered keys are laid out per {@link KNOWN_CONFIG_ROWS}, in its order too (the blueprint
- * order, the layout readers recognize — it does not wobble with the order the tool prints);
+ * Registered keys are laid out per {@link KNOWN_CONFIG_ROWS}, in its order too (the order readers
+ * recognize, and one that does not wobble with the order the tool prints);
  * unregistered keys follow, in reading order, showing the key name directly with a text box — the
  * write side does not filter keys, and the tool judges whether a value is valid.
  * @param entries - The key to "value + layer" table read out of `pf config list`.

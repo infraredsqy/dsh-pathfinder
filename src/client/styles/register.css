@@ -69,8 +69,8 @@
   background: var(--dsw-alias-border-l1);
 }/* While the bar is being moved the reading of that one state hangs on the pane
  * itself (`.is-dragging`), not on the page root: the pane is the whole of this
- * document when it is embedded. The blueprint puts the class on
- * `document.documentElement`, which still matches these three. */.pf-issue .pf-gutter:hover::before, .pf-issue .pf-gutter:focus-visible::before, .pf-issue .is-dragging .pf-gutter::before{ background: var(--dsw-alias-border-l3); }.pf-issue .pf-gutter:focus-visible{ outline: none; }.pf-issue .is-dragging{ cursor: col-resize; }.pf-issue .is-dragging *{ user-select: none; }/* ---- the instrument ------------------------------------------------------
+ * document when it is embedded. A class on `document.documentElement` still
+ * matches these three. */.pf-issue .pf-gutter:hover::before, .pf-issue .pf-gutter:focus-visible::before, .pf-issue .is-dragging .pf-gutter::before{ background: var(--dsw-alias-border-l3); }.pf-issue .pf-gutter:focus-visible{ outline: none; }.pf-issue .is-dragging{ cursor: col-resize; }.pf-issue .is-dragging *{ user-select: none; }/* ---- the instrument ------------------------------------------------------
  * The frame is the line: one slot per weight unit, the same slot at every
  * reading. The empty ones are the room a pool has left; a pool past the line
  * adds slots past it, and the line stays where it was.

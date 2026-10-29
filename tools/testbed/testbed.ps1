@@ -1,4 +1,4 @@
-﻿# testbed.ps1 —— testbed entry: one command, three actions.
+# testbed.ps1 —— testbed entry: one command, three actions.
 #
 #   pwsh -File tools/testbed/testbed.ps1 -Action up      start the testbed instance (isolated home + its own profile + synthetic
 #                                                        workspaces + this repo's panel installed into that profile), left running to inspect
@@ -393,8 +393,8 @@ Add-Report ''
 #     stop our own instance first, take a lightweight scan (length and mtime only), then a full
 #     fingerprint; paths touched between the two are the witness set. After the run (including the
 #     restart pass), with the instance fully stopped, take another lightweight scan and another full
-#     fingerprint for a second window. This is positive evidence that "other live sessions really do
-#     write on this machine" — the testbed has no process running during either window.
+#     fingerprint for a second window. This is positive evidence that other live sessions really do
+#     write during the window — the testbed has no process running during either one.
 #   * The post-run full fingerprint is compared with the pre-run one: every change needs positive
 #     ownership evidence to be exempted, and the two kinds of evidence are unioned —
 #     S1 structural (project key differs from every key this fixture derives + the encoding suffix

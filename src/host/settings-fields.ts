@@ -8,7 +8,7 @@
  * here.
  */
 
-/** Ids of the five views; key names line up with the blueprint's two columns (`tab-*` / `pane-*`). */
+/** Ids of the five views; a tab element is `tab-<id>` and its pane `pane-<id>`. */
 export type ViewId = 'map' | 'detail' | 'notes' | 'issue' | 'config'
 
 /**
@@ -23,7 +23,7 @@ export const PANEL_PREF_FIELDS = {
   showOtherStates: 'showOtherStates',
 } as const
 
-/** Lower bound of the wire column width on the detail's left, same tier as the blueprint. */
+/** Lower bound of the wire column width on the detail's left. */
 export const SIDE_MIN = 120
 
 export const SIDE_MAX = 320
@@ -37,9 +37,9 @@ export const VIEW_IDS: readonly ViewId[] = ['map', 'detail', 'notes', 'issue', '
 /**
  * The shape before anything has been recorded.
  *
- * The sidebar width has no row in the settings page — it is a dragged value,
- * absent from the blueprint's page too — but the value lives in this document
- * all the same, so it still gets a factory default here.
+ * The sidebar width has no row in the settings page — it is a dragged value — but
+ * the value lives in this document all the same, so it still gets a factory
+ * default here.
  */
 export const PANEL_PREF_DEFAULTS = {
   sideWidth: SIDE_DEFAULT,

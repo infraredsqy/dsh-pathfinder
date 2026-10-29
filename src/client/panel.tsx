@@ -378,9 +378,9 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             onDelete={(instruction) => setDeleting(instruction)}
           />
 
-          {/* The issue pane is a standalone document in the blueprint; in the panel this pane acts as
-              its page root: the `is-embed` yield marker hangs on it together with the page marker
-              (`pf-issue`), and the build gateway folds that sheet by its own page marker. */}
+          {/* This pane acts as its own page root: the `is-embed` yield marker hangs on it together
+              with the page marker (`pf-issue`), and the build gateway folds that sheet by its own
+              page marker. */}
           <div
             className="pf-pane is-frame is-embed pf-issue"
             id="pane-issue"

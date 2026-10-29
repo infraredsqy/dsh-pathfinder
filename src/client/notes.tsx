@@ -85,11 +85,11 @@ interface ScopeChoice {
 }
 
 /**
- * Which entries the scope column lists: global, the record's lines, and the cell currently in hand.
+ * Which entries the scope column lists, and in which order: global, the record's lines, the cell
+ * currently in hand.
  *
- * The blueprint's row lists the same three, only there the clickable running cell is always the top
- * one; in the real panel which cell is in hand is said by the record itself, and when none, the
- * entry is absent.
+ * The cell in hand is not a fixed row: the record itself says which one it is, and when none is in
+ * hand, the entry is absent.
  *
  * The global entry stands first, which is also what the picker falls back to when the previously
  * picked line is gone; its word, and the cell-bound entry's, are asked for here. A line's own id is a
