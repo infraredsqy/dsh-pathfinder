@@ -17,6 +17,9 @@ Early, and tied to the DSH developer preview. The manifest declares an `engines.
 refuses to install or boot the plugin outside that range (`incompatible-version`, with an opt-in
 exemption command). The range moves as DSH does.
 
+The record it draws comes from [agent-pathfinder](https://github.com/infraredsqy/agent-pathfinder),
+which is early and moving fast too: expect breaking changes on that side.
+
 ## Install
 
 Prerequisites: a DSH install with a profile to install into, and a workspace that holds an
@@ -44,7 +47,7 @@ ignored. The other two routes (a GitHub Release `.tgz`, or git) and the version 
 ## Development
 
 ```sh
-npm install
+pnpm install --frozen-lockfile
 npm test                  # unit tests; builds lib/client.js first, then mounts it in jsdom
 node tools/css-check.mjs  # the style-layer rules
 npm pack                  # the distributable

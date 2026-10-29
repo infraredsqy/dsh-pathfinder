@@ -13,6 +13,9 @@
 早期，跟着 DSH 的开发者预览走。包面用 `engines.dsh` 声明了一段兼容范围，落在范围外时 DSH 会拒装、拒起
 （报 `incompatible-version`，并给出豁免的命令）。DSH 动，这段范围跟着动。
 
+它画的记录出自 [agent-pathfinder](https://github.com/infraredsqy/agent-pathfinder)，那边同样早、动得同样
+快：那边也会有破坏性变更。
+
 ## 安装
 
 前提：装了 `dsh`，手里有一个装得进插件的 profile；要看的工作区里有一份 agent-pathfinder 的记录
@@ -35,7 +38,7 @@ dsh plugin --profile <名字> add dsh-pathfinder
 ## 开发
 
 ```sh
-npm install
+pnpm install --frozen-lockfile
 npm test                  # 单测；先把 lib/client.js 构建出来，再把它挂进 jsdom
 node tools/css-check.mjs  # 样式层的规矩
 npm pack                  # 打出分发件
