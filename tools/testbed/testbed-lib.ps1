@@ -1,4 +1,4 @@
-# testbed-lib.ps1 —— testbed shared implementation: path and on-disk format conversions, synthetic
+﻿# testbed-lib.ps1 —— testbed shared implementation: path and on-disk format conversions, synthetic
 # record fixtures, instance start/stop, HTTP calls, main-home fingerprints.
 #
 # Called only by tools/testbed/testbed.ps1. Everything it creates (isolated home / profile /

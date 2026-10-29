@@ -1,4 +1,4 @@
-# testbed.ps1 —— testbed entry: one command, three actions.
+﻿# testbed.ps1 —— testbed entry: one command, three actions.
 #
 #   pwsh -File tools/testbed/testbed.ps1 -Action up      start the testbed instance (isolated home + its own profile + synthetic
 #                                                        workspaces + this repo's panel installed into that profile), left running to inspect
