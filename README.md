@@ -31,7 +31,7 @@ and point DSH at the file:
 
 ```sh
 dsh plugin --profile <name> add ./dsh-pathfinder-<version>.tgz
-dsh plugin --profile <name> add dsh-pathfinder                  # by name, once this is on npm
+dsh plugin --profile <name> add dsh-pathfinder                  # the same artifact, by name (npm)
 ```
 
 The package ships prebuilt — installing runs no build steps. pnpm may print a few `missing peer`

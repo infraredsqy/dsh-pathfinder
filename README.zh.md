@@ -26,7 +26,7 @@
 
 ```sh
 dsh plugin --profile <名字> add ./dsh-pathfinder-<版本>.tgz
-dsh plugin --profile <名字> add dsh-pathfinder               # 裸名这条，等它上了 npm 才有
+dsh plugin --profile <名字> add dsh-pathfinder               # 同一份产物，按名字装（npm）
 ```
 
 包里是预构建产物，装的时候不跑任何构建。装完 pnpm 若列出几条 `missing peer` 警告：那几个包由 DSH
