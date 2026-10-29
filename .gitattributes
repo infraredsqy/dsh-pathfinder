@@ -1,0 +1,5 @@
+# The repo's canonical text form is LF, in the working tree and in the blob alike. These files
+# carry Chinese prose and UTF-8 BOMs -- the two `*.ps1` need the BOM for Windows PowerShell 5.1 to
+# read them as UTF-8 at all -- so a host that writes CRLF or drops the BOM changes bytes a reader
+# depends on. Nothing here needs CRLF: the scripts are run as `pwsh -File`, never as `.cmd`.
+* text=auto eol=lf
