@@ -44,9 +44,12 @@ npm run bundle:client  # lib/client.js（浏览器半身）
 `locale` 那条管的是语言：不声明它，面板照样画得出来（语言端口会退回包里那份中文对照表），但跟随 DSH
 设置切换语言这一条就接不上了。
 
-`engines.dsh` 那段范围收得很窄，出处是 `package.json`：宿主半身有一处**运行时的**外部依赖
-`@deepseek-ai/dsh-typert-protocol`（与 DSH 本体锁步同版本发布），DSH 换一个 rc 它就可能动；要放宽得先
-在那个 DSH 上重量一遍。
+`engines.dsh` 那段范围的出处是 `package.json`：宿主半身有一处**运行时的**外部依赖
+`@deepseek-ai/dsh-typert-protocol`（与 DSH 本体锁步同版本发布），只有换线才可能动它。所以线画在 DSH 的
+破坏边界上，不画在某个 rc 上——`>=0.2.1-rc.2 <0.3.0-0`：0.2.x 之内出到第几个 rc、第几个补丁号都放行，
+0.3 那条线连同它的 alpha 一起挡在外面。末尾那个 `-0` 不是笔误：DSH 判范围用的是
+`semver.satisfies(runtime, range, { includePrerelease: true })`，写成 `<0.3.0` 时 `0.3.0-alpha.1` 排在
+`0.3.0` 前面，照样会放进来。
 
 包面那几条前提由 `tests/package-surface.test.mjs` 看着（`npm test` 跑）。改包面之后跑一遍。
 
@@ -153,8 +156,8 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
   发布——登录与发布两处都得带 `--registry=https://registry.npmjs.org`。
 - **GitHub Release 那条腿多一步手工**：把 `npm pack` 出的那一个 `.tgz` 传成 Release 的附件；远端与那个
   release 都得先有。
-- **`engines.dsh` 只覆盖实测过的那一个 DSH**：换一个 DSH 版本要重量一遍再改这一行。被范围挡下是预期
-  行为——DSH 报 `incompatible-version` 并印出 `allow-version` 那条命令，豁免记在 profile 的
-  `compatibility.json` 里，插件升版与 DSH 升版都不继承。
+- **`engines.dsh` 按 DSH 的破坏边界划，不按某一个 rc 划**：0.2.x 之内 DSH 换 rc 不需要本包跟一版；0.3
+  换线时重量一遍再改这一行。被范围挡下是预期行为——DSH 报 `incompatible-version` 并印出 `allow-version`
+  那条命令，豁免记在 profile 的 `compatibility.json` 里，插件升版与 DSH 升版都不继承。
 - **git 那条路要用户在 profile 里授权跑构建脚本**（就是让这个包在装的时候执行代码）；预构建产物
   （npm 与 `.tgz` 两条）绕开这件事，所以那两条是主路径。

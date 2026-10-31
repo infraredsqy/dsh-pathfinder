@@ -15,7 +15,8 @@ writes from the panel go back to the same place.
 
 Early, and tied to the DSH developer preview. The manifest declares an `engines.dsh` range, and DSH
 refuses to install or boot the plugin outside that range (`incompatible-version`, with an opt-in
-exemption command). The range moves as DSH does.
+exemption command). The range follows DSH's breaking line: any rc within 0.2.x is admitted, and it
+moves when DSH moves to 0.3.
 
 The record it draws comes from [agent-pathfinder](https://github.com/infraredsqy/agent-pathfinder),
 which is early and moving fast too: expect breaking changes on that side.

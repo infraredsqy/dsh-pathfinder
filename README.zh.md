@@ -11,7 +11,8 @@
 ## 状态
 
 早期，跟着 DSH 的开发者预览走。包面用 `engines.dsh` 声明了一段兼容范围，落在范围外时 DSH 会拒装、拒起
-（报 `incompatible-version`，并给出豁免的命令）。DSH 动，这段范围跟着动。
+（报 `incompatible-version`，并给出豁免的命令）。范围按 DSH 的破坏边界画：0.2.x 之内出多少个 rc 都放行，
+0.3 换线时才动。
 
 它画的记录出自 [agent-pathfinder](https://github.com/infraredsqy/agent-pathfinder)，那边同样早、动得同样
 快：那边也会有破坏性变更。
