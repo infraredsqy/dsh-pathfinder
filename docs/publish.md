@@ -79,7 +79,11 @@ npm pack --pack-destination .tmp/pack
 ### 一次性前置（只有包从没有到有的时候需要）
 
 1. **包得先在 registry 上存在**：可信发布是配在「包的设置页」上的，没有包就没有地方配。所以**首次必须由人
-   手动交互式发一次**（`npm login` 与 `npm publish` 都显式带官方 registry；2FA 按你当下配的那一种过）。
+   手动发一次**，两条走法（都得显式带官方 registry，见「已知限制」里镜像站那条）：
+   - `npm stage publish`：**这一步不要 2FA**，发完到 npmjs.com 的 Staged Packages 标签里批准（批准那一下要 2FA）。
+   - `npm publish`：当场要一次交互式 2FA，而**它必须在有终端的窗口里跑**——没有终端时 npm 只印 `***`、也不拉
+     浏览器，由自动化进程代跑只会拿到一条用不了的错误；有终端时它印出
+     `https://www.npmjs.com/auth/cli/<uuid>`，把那串拿到**配了 2FA 的那台设备**上完成即可。
 2. 在包设置页加 **Trusted Publisher**，并**同时允许 `npm publish`**（默认只给 `npm stage publish`，两个权限
    相互独立）。**那几个字段的值不抄在这页**：owner/repo 照 `package.json` 的 `repository.url`，workflow 文件名
    照 `.github/workflows/` 下现存的那些文件，逐字一致（大小写与 `.yml` 后缀都算）。
@@ -100,12 +104,16 @@ gh run list --workflow publish.yml
 gh run watch
 # 6. 核验 registry 上那个号，不是 exit code
 npm view dsh-pathfinder version --registry=https://registry.npmjs.org
+#    再看两处：dist-tags 里的 latest 指着真版本；dist.shasum 等于本地 `npm pack` 那份的 shasum
+#    —— 两处都对，才算发出去的是同一份产物
 ```
 
 CI 会自己跑 `npm test` 与 `node tools/css-check.mjs`；`prepack` 也在 CI 上现跑一遍 types + bundle +
 bundle:client，所以装出去的就是这份预构建产物。`tools/testbed/` 那条要一个真实 DSH 实例，留在本机手动跑。
 
-新包第一次可能先落成暂存（`0.0.0-stage`）：那还不算发出去，得在包的 staged 页面批准之后才算数。
+新包名第一次发布会先落一个**公开的占位版本** `0.0.0-stage`：它一直留在 `versions` 列表里，真版本随后就公开；
+它只是这个新名字落地时的一枚印记，`npm stage list` 列不到它属正常。`publishConfig.tag` 在的话 `latest` 会自己
+指到真版本；发完照第 6 步核一遍。
 
 ## 三条安装路子
 
