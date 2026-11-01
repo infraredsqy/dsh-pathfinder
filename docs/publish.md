@@ -67,6 +67,46 @@ npm pack --pack-destination .tmp/pack
 可复现）；要核对手上那份出自哪份源码，跑 `Get-FileHash -Algorithm SHA256 <那份 .tgz>`，拿它与源码
 那一侧打出来的那份比。
 
+## 发一个版本
+
+作者侧走 **OIDC 可信发布**（npm 的 trusted publishing）：令牌只在发布那一刻由 CI 现换，**本仓与本机都不
+留任何长期秘密**。没有 token 可丢、可轮换，也不需要有人守着一次 2FA 提示。
+
+发布者是 `.github/workflows/publish.yml`，触发面只有两处：推 `v*` 标签，或手动 `gh workflow run publish.yml`。
+它的权限只有 `id-token: write` 与 `contents: read`——**不要往这个 workflow 里加任何 secret**，加了就把这套
+设计的意义抹掉了。
+
+### 一次性前置（只有包从没有到有的时候需要）
+
+1. **包得先在 registry 上存在**：可信发布是配在「包的设置页」上的，没有包就没有地方配。所以**首次必须由人
+   手动交互式发一次**（`npm login` 与 `npm publish` 都显式带官方 registry；2FA 按你当下配的那一种过）。
+2. 在包设置页加 **Trusted Publisher**，并**同时允许 `npm publish`**（默认只给 `npm stage publish`，两个权限
+   相互独立）。**那几个字段的值不抄在这页**：owner/repo 照 `package.json` 的 `repository.url`，workflow 文件名
+   照 `.github/workflows/` 下现存的那些文件，逐字一致（大小写与 `.yml` 后缀都算）。
+3. **这个配置有寿命**：建好后 **2 天内**得有一次成功的 OIDC 发布，否则配置过期、不可编辑，只能删掉重建。
+
+### 日常发版（照这个顺序做）
+
+```sh
+# 1. 改 package.json 里的 version
+# 2. 提交
+git add -A && git commit -m "<type>: <description>"
+# 3. 打标签（本仓的标签习惯是 v<version>）
+git tag v<version>
+# 4. 推分支与标签——推标签就是触发发布
+git push origin <分支> && git push origin v<version>
+# 5. 盯这次 run，别只看 push 成功
+gh run list --workflow publish.yml
+gh run watch
+# 6. 核验 registry 上那个号，不是 exit code
+npm view dsh-pathfinder version --registry=https://registry.npmjs.org
+```
+
+CI 会自己跑 `npm test` 与 `node tools/css-check.mjs`；`prepack` 也在 CI 上现跑一遍 types + bundle +
+bundle:client，所以装出去的就是这份预构建产物。`tools/testbed/` 那条要一个真实 DSH 实例，留在本机手动跑。
+
+新包第一次可能先落成暂存（`0.0.0-stage`）：那还不算发出去，得在包的 staged 页面批准之后才算数。
+
 ## 三条安装路子
 
 三条都走 DSH 自己那一条入口 `dsh plugin --profile <名字> add <目标>`（它自己跑 pnpm）。
@@ -74,9 +114,9 @@ npm pack --pack-destination .tmp/pack
 ### 1. 从 npm 装（给所有人装的那一条）
 
 ```sh
-npm publish                                         # 作者侧：要已登录、且 registry 可写
 dsh plugin --profile <名字> add dsh-pathfinder      # 用户侧
 ```
+作者侧怎么把这一版推上去，见「发一个版本」——那一条走 CI，这页不写登录与凭据。
 
 `package.json` 的 `publishConfig.tag` 写着 `latest`：这个号是预发布（`-rc.`），npm 对预发布号不带 `--tag`
 会直接拒发，声明了这一条才算显式指定。用户侧那条裸名解析的就是 `latest`，所以这一条在，上面那行命令才
@@ -154,6 +194,9 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
 
 - **发布要显式打到官方 registry**：本机 `~/.npmrc` 的 `registry` 指向一个镜像站，镜像站只收下载、不收
   发布——登录与发布两处都得带 `--registry=https://registry.npmjs.org`。
+- **别把自动化建在 bypass-2FA token 上**：这类令牌的**直接发布**在 2027-01 取消（身份与治理类动作 2026-08
+  已经取消），之后它只剩"读私有包 + stage 一次发布、由 maintainer 用 2FA 批准"这一面。自动化一律走 OIDC。
+- **CI 里不许用缓存**：发布构建不用依赖缓存（官方口径），`publish.yml` 里写死 `package-manager-cache: false`。
 - **GitHub Release 那条腿多一步手工**：把 `npm pack` 出的那一个 `.tgz` 传成 Release 的附件；远端与那个
   release 都得先有。
 - **`engines.dsh` 按 DSH 的破坏边界划，不按某一个 rc 划**：0.2.x 之内 DSH 换 rc 不需要本包跟一版；0.3
