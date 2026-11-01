@@ -1,0 +1,48 @@
+name: Publish Package
+
+# 只有两种情况跑：推 v* 标签（正常发版），或人工/agent 手动触发（首次验证、补发）。
+# 普通推送不动它——这个 workflow 有发布会，越少跑越好。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# Trusted publishing (OIDC) 只要这两条：签发 OIDC 令牌的权力，和读仓的权力。
+# 这里不给任何 token —— 这条路的全部意义就是没有长期秘密。
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26' # 与本机一致，装出去的产物才是本机验过的那一份
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false # 发布构建不用缓存：官方口径
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: npm test
+
+      - name: Style check
+        run: node tools/css-check.mjs
+
+      # prepack 自己会跑 types + bundle + bundle:client，装出去的就是预构建产物
+      - name: Publish
+        run: npm publish
