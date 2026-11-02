@@ -44,6 +44,9 @@ const FALLBACK: Size = { w: 1280, h: 720 }
 /** How long the page takes to come back from the rubber: quick enough to read as a snap. */
 const SETTLE_MS = 240
 
+/** How far a press may wander before it reads as a drag: under this it is still a press. */
+const PAN_SLOP = 4
+
 /**
  * The curve the page comes back on: an ease-out that runs a few percent past its rest and settles.
  * A cut straight back to the edge reads as the pointer having been let go of; a little overshoot
@@ -75,6 +78,9 @@ export function MapPane(props: {
   const view = React.useRef<View>({ s: 1, tx: 0, ty: 0 })
   const dragged = React.useRef(false)
   const panning = React.useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean; captured: boolean } | null>(null)
+  /* Which finger the touch pan belongs to: a second finger landing mid-pan must not steal it, and
+   * the id has to live through the listener effect re-subscribing under a moving hand. */
+  const touchId = React.useRef<number | null>(null)
   /* The frame of the bounce-back: cancelled by any new gesture, so a wheel or a second drag never
      fights the one in flight. */
   const settling = React.useRef<number | null>(null)
@@ -206,20 +212,105 @@ export function MapPane(props: {
     return () => held.removeEventListener('wheel', onWheel)
   }, [commit, size, placement, props.active, stopSettle])
 
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if ((event.target as Element).closest('.pf-tools') !== null) return
+  /* One press, one pan — the same arithmetic whichever hand holds it. The press records where the
+   * camera stood; a move that clears the slop carries the page; the release runs it back to its
+   * rest. A touch arrives by its own road (see the touch listeners below) and lands here too. */
+  const beginPan = React.useCallback((x: number, y: number): void => {
     stopSettle()
-    panning.current = { x: event.clientX, y: event.clientY, tx: view.current.tx, ty: view.current.ty, moved: false, captured: false }
+    panning.current = { x, y, tx: view.current.tx, ty: view.current.ty, moved: false, captured: false }
     dragged.current = false
+  }, [stopSettle])
+
+  const dragPan = React.useCallback((x: number, y: number): void => {
+    const held = panning.current
+    if (held === null) return
+    const dx = x - held.x
+    const dy = y - held.y
+    if (!held.moved && Math.abs(dx) + Math.abs(dy) < PAN_SLOP) return
+    held.moved = true
+    dragged.current = true
+    setGrabbing(true)
+    /* Past the edge the pointer still moves the page a little — the rubber takes the rest of the pull
+       — so the drawing does not stop dead under the hand. */
+    commit(rubberView({ s: view.current.s, tx: held.tx + dx, ty: held.ty + dy }, size, placement))
+    setMode('free')
+  }, [commit, size, placement])
+
+  const endPan = React.useCallback((): void => {
+    if (panning.current === null) return
+    panning.current = null
+    setGrabbing(false)
+    const rest = panView(view.current, size, placement)
+    if (rest !== view.current) springBack(rest)
+  }, [size, placement, springBack])
+
+  /* The touch half of the pan, on listeners of its own. A finger also drives pointer events, but on
+   * iPad Safari that road ends a few moves in: the browser hands the moving finger to its own
+   * gesture and cancels the pointer — `touch-action: none` asks it not to, and the asking goes
+   * unheard — while the capture a drag past the edge needs is not there to take. So the finger is
+   * met where WebKit holds the contract: a non-passive `touchmove` whose default is prevented never
+   * becomes a page scroll, and touch events keep arriving at the element the press began on for the
+   * whole gesture, no capture involved. A tap still reaches the cards: a tap sends no `touchmove`,
+   * and `touchend` is never prevented, so the click is synthesized as usual. */
+  React.useEffect(() => {
+    const held = field.current
+    if (held === null) return undefined
+    const owned = (event: TouchEvent): Touch | null => {
+      if (touchId.current === null) return null
+      for (const touch of event.changedTouches) {
+        if (touch.identifier === touchId.current) return touch
+      }
+      return null
+    }
+    const onTouchStart = (event: TouchEvent): void => {
+      if (panning.current !== null) return
+      if ((event.target as Element).closest('.pf-tools') !== null) return
+      const first = event.changedTouches[0]
+      if (first === undefined) return
+      touchId.current = first.identifier
+      beginPan(first.clientX, first.clientY)
+    }
+    const onTouchMove = (event: TouchEvent): void => {
+      const touch = owned(event)
+      if (touch === null) return
+      /* Every move of the owned finger is held from the first one: a move left to the browser is a
+       * page scroll begun, and the pan loses the finger to it mid-drag. */
+      event.preventDefault()
+      dragPan(touch.clientX, touch.clientY)
+    }
+    const onTouchEnd = (event: TouchEvent): void => {
+      if (owned(event) === null) return
+      touchId.current = null
+      endPan()
+    }
+    held.addEventListener('touchstart', onTouchStart, { passive: false })
+    held.addEventListener('touchmove', onTouchMove, { passive: false })
+    held.addEventListener('touchend', onTouchEnd)
+    held.addEventListener('touchcancel', onTouchEnd)
+    return () => {
+      held.removeEventListener('touchstart', onTouchStart)
+      held.removeEventListener('touchmove', onTouchMove)
+      held.removeEventListener('touchend', onTouchEnd)
+      held.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [beginPan, dragPan, endPan])
+
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+    /* A touch presses by the touch listeners' road as well: its pointer twin must not re-anchor the
+     * pan (a second finger landing would move the anchor out from under the first). */
+    if (event.pointerType === 'touch') return
+    if ((event.target as Element).closest('.pf-tools') !== null) return
+    beginPan(event.clientX, event.clientY)
   }
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (event.pointerType === 'touch') return
     const held = panning.current
     if (held === null) return
     const dx = event.clientX - held.x
     const dy = event.clientY - held.y
-    if (!held.moved && Math.abs(dx) + Math.abs(dy) < 4) return
-    if (!held.moved && typeof event.currentTarget.setPointerCapture === 'function') {
+    if (!held.moved && Math.abs(dx) + Math.abs(dy) < PAN_SLOP) return
+    if (!held.moved && !held.captured && typeof event.currentTarget.setPointerCapture === 'function') {
       /* The pointer is taken only once this is a drag: a plain press on a card stays a press, and a
        * drag that runs past the field's edge — a quick throw, or a slide over the rail — keeps moving
        * the page instead of stopping halfway. */
@@ -231,29 +322,22 @@ export function MapPane(props: {
         held.captured = false
       }
     }
-    held.moved = true
-    dragged.current = true
-    setGrabbing(true)
-    /* Past the edge the pointer still moves the page a little — the rubber takes the rest of the pull
-       — so the drawing does not stop dead under the hand. */
-    commit(rubberView({ s: view.current.s, tx: held.tx + dx, ty: held.ty + dy }, size, placement))
-    setMode('free')
+    dragPan(event.clientX, event.clientY)
   }
 
-  const onPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const held = panning.current
-    panning.current = null
-    setGrabbing(false)
-    if (held !== null && held.captured) {
+  const onPointerEnd = (event: React.PointerEvent<HTMLDivElement>): void => {
+    /* A touch ends by its own road too: its trailing pointer events — the leave as the finger slides
+     * out of the field, the up after the touch already ended — must not cut a pan the touch
+     * listeners are still carrying, or that the browser has already cancelled. */
+    if (event.pointerType === 'touch') return
+    if (panning.current !== null && panning.current.captured) {
       try {
         event.currentTarget.releasePointerCapture(event.pointerId)
       } catch {
         /* The pointer was already gone: nothing was captured, nothing to give back. */
       }
     }
-    if (held === null) return
-    const rest = panView(view.current, size, placement)
-    if (rest !== view.current) springBack(rest)
+    endPan()
   }
 
   /** One press on a card: the first comes close to it, and the press after that goes to its session. */
@@ -336,8 +420,9 @@ export function MapPane(props: {
           aria-label={t('map.region.aria')}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
+          onPointerUp={onPointerEnd}
+          onPointerCancel={onPointerEnd}
+          onPointerLeave={onPointerEnd}
         >
           <div className="pf-canvas" style={canvasStyle}>
             <svg className="pf-wires" width={placement.width} height={placement.height} aria-hidden="true">

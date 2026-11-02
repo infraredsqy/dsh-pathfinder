@@ -235,6 +235,35 @@ test('这一份产物：外壳装得上、画得出来、每一格都走得通�
     assert.equal(tab.getAttribute('aria-selected'), 'true', `「${tab.textContent}」按下去没选中`)
   }
 
+  /* The map answers a finger as it answers the pointer: a touch drag carries the drawing and holds
+   * the gesture — the touchmove is prevented, which is what keeps iPad Safari from handing the same
+   * finger to its own scroll and cancelling the pan a few moves in. A tap sends no touchmove, so
+   * pressing a card stays a press; that road is walked by hand on a real touch screen. */
+  const mapTab = tabs.find((tab) => tab.getAttribute('aria-controls') === 'pane-map')
+  assert.notEqual(mapTab, undefined, '地图那一格不在标签栏上')
+  await act(async () => { mapTab.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+  await settle()
+  const field = container.querySelector('.pf-field')
+  const canvas = container.querySelector('.pf-canvas')
+  assert.notEqual(field, null, '地图的画布区不在')
+  assert.notEqual(canvas, null, '地图的画布不在')
+  const cameraBefore = canvas.style.transform
+  const touchAt = (type, x, y) => {
+    const event = new window.Event(type, { bubbles: true, cancelable: true })
+    const at = { identifier: 7, clientX: x, clientY: y }
+    Object.defineProperty(event, 'touches', { value: [at] })
+    Object.defineProperty(event, 'changedTouches', { value: [at] })
+    return event
+  }
+  let gestureHeld
+  await act(async () => {
+    field.dispatchEvent(touchAt('touchstart', 40, 40))
+    gestureHeld = field.dispatchEvent(touchAt('touchmove', 160, 40))
+    field.dispatchEvent(touchAt('touchend', 160, 40))
+  })
+  assert.equal(gestureHeld, false, 'touchmove 没被拦下（preventDefault 没调）：浏览器的手势会半路夺走这根手指')
+  assert.notEqual(canvas.style.transform, cameraBefore, '触摸拖了一下，画布没动')
+
   await act(async () => { reactRoot.unmount() })
 
   assert.deepEqual(consoleErrors, [], '控制台里有 error')
