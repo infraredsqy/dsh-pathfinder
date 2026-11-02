@@ -264,6 +264,25 @@ test('这一份产物：外壳装得上、画得出来、每一格都走得通�
   assert.equal(gestureHeld, false, 'touchmove 没被拦下（preventDefault 没调）：浏览器的手势会半路夺走这根手指')
   assert.notEqual(canvas.style.transform, cameraBefore, '触摸拖了一下，画布没动')
 
+  /* Two fingers spread: the camera scales around the fingers' midpoint and rides the midpoint's own
+   * travel — the wheel's arithmetic carried by the touch road. */
+  const pinchAt = (type, a, b) => {
+    const event = new window.Event(type, { bubbles: true, cancelable: true })
+    const at = (identifier, [x, y]) => ({ identifier, clientX: x, clientY: y })
+    Object.defineProperty(event, 'touches', { value: [at(3, a), at(4, b)] })
+    Object.defineProperty(event, 'changedTouches', { value: type === 'touchmove' ? [] : [at(3, a), at(4, b)] })
+    return event
+  }
+  const cameraPinched = canvas.style.transform
+  let spreadHeld
+  await act(async () => {
+    field.dispatchEvent(pinchAt('touchstart', [200, 200], [280, 200]))
+    spreadHeld = field.dispatchEvent(pinchAt('touchmove', [160, 200], [320, 200]))
+    field.dispatchEvent(pinchAt('touchend', [160, 200], [320, 200]))
+  })
+  assert.equal(spreadHeld, false, '捏合的 touchmove 没被拦下：浏览器的页面缩放会把它抢走')
+  assert.notEqual(canvas.style.transform, cameraPinched, '双指张开，镜头没有缩放')
+
   await act(async () => { reactRoot.unmount() })
 
   assert.deepEqual(consoleErrors, [], '控制台里有 error')

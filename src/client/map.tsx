@@ -3,9 +3,9 @@
  *
  * The reading comes in from the shell; this file holds only what a reader does with it — which line
  * to search under (the rail), which card is in focus, and where the camera stands. The placement and
- * the camera arithmetic live in `map-layout.ts`, so what stands here is the interaction: a wheel
- * zooms, a drag pans, a press on a card moves the focus, and a press on the card already in focus
- * goes to that card's session.
+ * the camera arithmetic live in `map-layout.ts`, so what stands here is the interaction: a wheel —
+ * or two fingers pinched — zooms, a drag pans, a press on a card moves the focus, and a press on the
+ * card already in focus goes to that card's session.
  *
  * Nothing here computes a reading: a rank, a lit set and a gate word are all read from the model and
  * from `map-layout.ts`.
@@ -81,6 +81,18 @@ export function MapPane(props: {
   /* Which finger the touch pan belongs to: a second finger landing mid-pan must not steal it, and
    * the id has to live through the listener effect re-subscribing under a moving hand. */
   const touchId = React.useRef<number | null>(null)
+  /* A pinch in flight: the two fingers it belongs to, and where the camera and the fingers stood
+   * when it began — every move scales that origin by the spread and carries it by the midpoint. */
+  const pinch = React.useRef<{
+    a: number
+    b: number
+    dist: number
+    mid: { x: number; y: number }
+    s: number
+    tx: number
+    ty: number
+    moved: boolean
+  } | null>(null)
   /* The frame of the bounce-back: cancelled by any new gesture, so a wheel or a second drag never
      fights the one in flight. */
   const settling = React.useRef<number | null>(null)
@@ -191,7 +203,7 @@ export function MapPane(props: {
     } else if (mode === 'focus') {
       stopSettle()
       commit(focusView(size, placement, focusId))
-    } else if (panning.current === null && settling.current === null) commit(panView(view.current, size, placement))
+    } else if (panning.current === null && pinch.current === null && settling.current === null) commit(panView(view.current, size, placement))
   }, [props.project, placement, mode, focusId, size, commit, stopSettle])
 
   /* The wheel zooms around the pointer: a listener of its own, because the page must not scroll
@@ -244,56 +256,140 @@ export function MapPane(props: {
     if (rest !== view.current) springBack(rest)
   }, [size, placement, springBack])
 
-  /* The touch half of the pan, on listeners of its own. A finger also drives pointer events, but on
-   * iPad Safari that road ends a few moves in: the browser hands the moving finger to its own
-   * gesture and cancels the pointer — `touch-action: none` asks it not to, and the asking goes
-   * unheard — while the capture a drag past the edge needs is not there to take. So the finger is
-   * met where WebKit holds the contract: a non-passive `touchmove` whose default is prevented never
-   * becomes a page scroll, and touch events keep arriving at the element the press began on for the
-   * whole gesture, no capture involved. A tap still reaches the cards: a tap sends no `touchmove`,
-   * and `touchend` is never prevented, so the click is synthesized as usual. */
+  /* The touch half of the pan and the whole pinch, on listeners of their own. A finger also drives
+   * pointer events, but on iPad Safari that road ends a few moves in: the browser hands the moving
+   * finger to its own gesture and cancels the pointer — `touch-action: none` asks it not to, and
+   * the asking goes unheard — while the capture a drag past the edge needs is not there to take. So
+   * the finger is met where WebKit holds the contract: a non-passive `touchmove` whose default is
+   * prevented never becomes a page scroll or a page pinch, and touch events keep arriving at the
+   * element the press began on for the whole gesture, no capture involved. A tap still reaches the
+   * cards: a tap sends no `touchmove`, and `touchend` is never prevented, so the click is
+   * synthesized as usual. */
   React.useEffect(() => {
     const held = field.current
     if (held === null) return undefined
-    const owned = (event: TouchEvent): Touch | null => {
+    const fingerOf = (event: TouchEvent, id: number): Touch | null => {
+      for (const touch of event.touches) {
+        if (touch.identifier === id) return touch
+      }
+      return null
+    }
+    const owned = (event: TouchEvent): Touch | null => (touchId.current === null ? null : fingerOf(event, touchId.current))
+    const lifted = (event: TouchEvent): Touch | null => {
       if (touchId.current === null) return null
       for (const touch of event.changedTouches) {
         if (touch.identifier === touchId.current) return touch
       }
       return null
     }
+    /* The beat a pinch starts from: the two fingers and the camera, read at the same moment. */
+    const pinchFrom = (a: Touch, b: Touch): void => {
+      stopSettle()
+      pinch.current = {
+        a: a.identifier,
+        b: b.identifier,
+        dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+        mid: { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 },
+        s: view.current.s,
+        tx: view.current.tx,
+        ty: view.current.ty,
+        moved: false,
+      }
+      panning.current = null
+    }
+    const pinchEnd = (): void => {
+      pinch.current = null
+      touchId.current = null
+      setGrabbing(false)
+    }
     const onTouchStart = (event: TouchEvent): void => {
-      if (panning.current !== null) return
+      if (pinch.current !== null) return
+      if (panning.current !== null) {
+        /* A second finger joins a pan in flight: the pan hands the camera over to a pinch, wherever
+         * the joining finger landed — the field already owns this gesture. */
+        const a = owned(event)
+        let joined: Touch | null = null
+        for (const touch of event.changedTouches) {
+          if (touch.identifier !== touchId.current) { joined = touch; break }
+        }
+        if (a !== null && joined !== null) pinchFrom(a, joined)
+        return
+      }
       if ((event.target as Element).closest('.pf-tools') !== null) return
       const first = event.changedTouches[0]
       if (first === undefined) return
       touchId.current = first.identifier
       beginPan(first.clientX, first.clientY)
+      /* Two fingers landing on one beat start a pinch straight away rather than a pan. */
+      let second: Touch | null = null
+      for (const touch of event.changedTouches) {
+        if (touch.identifier !== first.identifier) { second = touch; break }
+      }
+      if (second !== null) pinchFrom(first, second)
     }
     const onTouchMove = (event: TouchEvent): void => {
+      const origin = pinch.current
+      if (origin !== null) {
+        const a = fingerOf(event, origin.a)
+        const b = fingerOf(event, origin.b)
+        if (a === null || b === null) {
+          /* A finger of the pinch is gone: the gesture is over, not paused. The finger left down
+           * waits for a fresh press rather than turning into a drag mid-air. */
+          pinchEnd()
+          return
+        }
+        /* Every move is held from the first one, the same as a pan's: an unprevented move is the
+         * browser's own scroll or page pinch begun, and the gesture loses the fingers to it. */
+        event.preventDefault()
+        const mid = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }
+        const dist = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY)
+        /* The spread scales the camera around the fingers' midpoint, and the midpoint's own travel
+         * carries the page: the one gesture a wheel and a drag split in two on the desk. */
+        commit(panView(zoomAt({ s: origin.s, tx: origin.tx + mid.x - origin.mid.x, ty: origin.ty + mid.y - origin.mid.y }, mid, origin.s * (dist / origin.dist)), size, placement))
+        if (!origin.moved) {
+          origin.moved = true
+          dragged.current = true
+          setMode('free')
+        }
+        return
+      }
       const touch = owned(event)
       if (touch === null) return
-      /* Every move of the owned finger is held from the first one: a move left to the browser is a
-       * page scroll begun, and the pan loses the finger to it mid-drag. */
       event.preventDefault()
       dragPan(touch.clientX, touch.clientY)
     }
     const onTouchEnd = (event: TouchEvent): void => {
-      if (owned(event) === null) return
+      const origin = pinch.current
+      if (origin !== null) {
+        for (const touch of event.changedTouches) {
+          if (touch.identifier === origin.a || touch.identifier === origin.b) {
+            pinchEnd()
+            return
+          }
+        }
+        return
+      }
+      if (lifted(event) === null) return
       touchId.current = null
       endPan()
     }
+    /* Safari announces a page pinch as its own gesture before the touches say a word: refusing it
+     * here is what keeps two fingers on the drawing from zooming the whole document. The event is
+     * Safari's own, so it is taken as the plain kind. */
+    const onPagePinch = (event: Event): void => { event.preventDefault() }
     held.addEventListener('touchstart', onTouchStart, { passive: false })
     held.addEventListener('touchmove', onTouchMove, { passive: false })
     held.addEventListener('touchend', onTouchEnd)
     held.addEventListener('touchcancel', onTouchEnd)
+    held.addEventListener('gesturestart', onPagePinch)
     return () => {
       held.removeEventListener('touchstart', onTouchStart)
       held.removeEventListener('touchmove', onTouchMove)
       held.removeEventListener('touchend', onTouchEnd)
       held.removeEventListener('touchcancel', onTouchEnd)
+      held.removeEventListener('gesturestart', onPagePinch)
     }
-  }, [beginPan, dragPan, endPan])
+  }, [beginPan, dragPan, endPan, commit, size, placement, stopSettle])
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
     /* A touch presses by the touch listeners' road as well: its pointer twin must not re-anchor the
