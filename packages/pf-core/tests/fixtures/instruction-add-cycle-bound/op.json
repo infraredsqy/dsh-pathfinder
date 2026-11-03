@@ -1,0 +1,9 @@
+{
+  "path": "ledger.instructions.add",
+  "args": [
+    {
+      "text": "这条线只走 coding 的节点",
+      "scope": "cycle"
+    }
+  ]
+}

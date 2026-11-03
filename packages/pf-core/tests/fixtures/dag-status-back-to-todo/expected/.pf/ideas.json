@@ -1,0 +1,50 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "created_at": "@t1@",
+      "dependencies": [],
+      "description": "写作线的第一件",
+      "mode": "auto",
+      "status": "todo",
+      "tags": [
+        "coding"
+      ],
+      "title": "写作底稿",
+      "updated_at": "@t6@"
+    },
+    "@node-b@": {
+      "created_at": "@t2@",
+      "dependencies": [],
+      "description": "",
+      "mode": "checkpoint",
+      "status": "todo",
+      "title": "复核校样",
+      "updated_at": "@t2@"
+    },
+    "@node-c@": {
+      "created_at": "@t3@",
+      "dependencies": [],
+      "description": "",
+      "mode": "auto",
+      "status": "shelved",
+      "tags": [
+        "art",
+        "writing"
+      ],
+      "title": "轻量小件",
+      "updated_at": "@t4@",
+      "weight": "light"
+    },
+    "@node-d@": {
+      "created_at": "@t5@",
+      "dependencies": [
+        "@node-b@"
+      ],
+      "description": "",
+      "mode": "manual",
+      "status": "todo",
+      "title": "汇总交付",
+      "updated_at": "@t5@"
+    }
+  }
+}

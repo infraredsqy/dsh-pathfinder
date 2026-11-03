@@ -1,0 +1,10 @@
+{
+  "path": "ledger.cycles.close",
+  "args": [
+    "main",
+    {
+      "node": "@node-a@",
+      "result": "completed"
+    }
+  ]
+}

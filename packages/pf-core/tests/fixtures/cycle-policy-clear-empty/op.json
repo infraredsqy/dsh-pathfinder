@@ -1,0 +1,8 @@
+{
+  "path": "ledger.cycles.setPolicy",
+  "args": [
+    "main",
+    "when_shelved",
+    null
+  ]
+}

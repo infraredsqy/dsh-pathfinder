@@ -1,0 +1,10 @@
+{
+  "path": "conductor.next",
+  "args": [
+    {
+      "cycle": "c1",
+      "after": "@node-a@"
+    }
+  ],
+  "expect": "return"
+}

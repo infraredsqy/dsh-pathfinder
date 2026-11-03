@@ -1,0 +1,6 @@
+{
+  "path": "ledger.instructions.resolve",
+  "args": [
+    "i-0001"
+  ]
+}

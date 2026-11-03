@@ -1,0 +1,13 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "title": "parked work",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    }
+  }
+}

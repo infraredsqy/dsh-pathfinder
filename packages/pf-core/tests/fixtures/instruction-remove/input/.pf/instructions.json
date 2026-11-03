@@ -1,0 +1,31 @@
+{
+  "instructions": [
+    {
+      "id": "i-0001",
+      "text": "要摘走的第一条",
+      "scope": "global",
+      "target": "stage",
+      "state": "live",
+      "cycle": null,
+      "node": null,
+      "said_by": "user",
+      "at": "@t1@",
+      "resolved_at": null,
+      "note": null
+    },
+    {
+      "id": "i-0002",
+      "text": "留下的第二条",
+      "scope": "global",
+      "target": "stage",
+      "state": "live",
+      "cycle": null,
+      "node": null,
+      "said_by": "user",
+      "at": "@t2@",
+      "resolved_at": null,
+      "note": null,
+      "stop_after_nodes": 1
+    }
+  ]
+}

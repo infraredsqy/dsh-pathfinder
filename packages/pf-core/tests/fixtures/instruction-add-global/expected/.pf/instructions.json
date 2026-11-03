@@ -1,0 +1,17 @@
+{
+  "instructions": [
+    {
+      "id": "i-0001",
+      "text": "先把该节点的 spec 读一遍再动手",
+      "scope": "global",
+      "target": "stage",
+      "state": "live",
+      "cycle": null,
+      "node": null,
+      "said_by": "user",
+      "at": "@t1@",
+      "resolved_at": null,
+      "note": null
+    }
+  ]
+}

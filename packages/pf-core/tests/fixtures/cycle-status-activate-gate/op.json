@@ -1,0 +1,7 @@
+{
+  "path": "ledger.cycles.setStatus",
+  "args": [
+    "main",
+    "active"
+  ]
+}

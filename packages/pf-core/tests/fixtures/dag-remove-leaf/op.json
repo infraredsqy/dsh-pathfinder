@@ -1,0 +1,6 @@
+{
+  "path": "ledger.dag.remove",
+  "args": [
+    "@node-c@"
+  ]
+}

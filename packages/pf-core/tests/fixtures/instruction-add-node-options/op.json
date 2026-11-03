@@ -1,0 +1,14 @@
+{
+  "path": "ledger.instructions.add",
+  "args": [
+    {
+      "text": "收线前把未决问题清一遍",
+      "scope": "node",
+      "node": "@node-b@",
+      "target": "boundary",
+      "said_by": "owner",
+      "note": "每一轮收线都要念一遍",
+      "stop_after_nodes": 2
+    }
+  ]
+}

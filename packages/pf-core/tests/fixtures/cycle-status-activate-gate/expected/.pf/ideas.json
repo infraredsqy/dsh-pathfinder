@@ -1,0 +1,15 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "approved_at": "@t8@",
+      "completed_at": "@t2@",
+      "created_at": "@t1@",
+      "dependencies": [],
+      "description": "过门的那件",
+      "mode": "checkpoint",
+      "status": "completed",
+      "title": "复核校样",
+      "updated_at": "@t8@"
+    }
+  }
+}

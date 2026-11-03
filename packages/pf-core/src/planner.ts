@@ -1,0 +1,1259 @@
+import { existsSync } from 'node:fs';
+import type {
+  AskPlan,
+  DispatchPlan,
+  NextPlan,
+  NextQuery,
+  NoCyclePlan,
+  OpenNodePlan,
+  PlanAttention,
+  PlanNodeEntry,
+  StopPlan,
+  WaitPlan,
+} from './conductor';
+import { cyclePolicy } from './cycles';
+import { createDagNamespace } from './dag';
+import { instructionInScope, isLive } from './instruct';
+import { readJsonFile } from './jsonio';
+import {
+  launchDir,
+  launchPromptPath,
+  pfPaths,
+  signalPath,
+  startedMarkerPath,
+  type PfPaths,
+} from './paths';
+import type { CycleRecord, InstructionRecord, NodeMode, NodeRecord } from './types';
+
+/**
+ * The planner layer: read the graph, the lines, the instructions and the dispatch pieces, and hand back "what
+ * the next step is" — a plan, not one byte written.
+ *
+ * This module is the whole of planning, and its reading is:
+ *
+ * - **read-only**: it holds no lock, passes no init gate and writes not one byte. The write-side verbs
+ *   (closing, claiming, landing the prompt) are not in this module; the plan only answers "who to dispatch /
+ *   why it stopped / whether to ask a person".
+ * - **derived values do not land**: `ready` = todo, every dependency delivered (a dangling dependency counts
+ *   as delivered), and no other line holding it; `running` = a todo some line is holding right now. Both are
+ *   labels computed when read; on disk there are only the three states (todo / shelved / completed) and the
+ *   line's `holding`; the two things each keep a field of their own and neither explains the other.
+ * - **ordering has one place**: the full ordering comes from the graph side (`dag.list`'s urgency ×
+ *   importance and its tie order), and this module only deletes rows by readiness, by the line's picking range
+ *   and by another line's holdings — it never rewrites the scoring.
+ * - **stopping has one place**: the node's own `mode` speaks (`checkpoint` stops at the close, `manual`'s gate
+ *   is inside the session, `auto` opens the next one at the close), and a boundary instruction's
+ *   `stop_after_nodes` can only tighten that rule. The line's own `when_shelved` decides whether the line goes
+ *   on after "this node did not deliver".
+ * - **the bytes of a plan are fixed byte for byte**: the action bag's key order is construction order (the
+ *   corpus compares directly against the output of `--plan`), and the preview keeps the "mechanical steps not
+ *   run yet" outside the action, leaving only one `settling` note — that is the preview rule: **when the
+ *   preview is in hand, the mechanical steps are still behind it**.
+ */
+
+// ── reading the records ──────────────────────────────────────────────────────
+
+/** A record read as a table at the top level: empty, an array or absent all read as an empty table — the read side tolerates. */
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+async function readRecord(path: string, label: string): Promise<Record<string, unknown> | null> {
+  const read = await readJsonFile(path, label);
+  return read.kind === 'present' ? asObject(read.value) : null;
+}
+
+/** The node table: the `nodes` table of ideas.json, where a missing `mode` means `auto` (the same default as the graph side). */
+type NodeMap = Record<string, NodeRecord>;
+
+async function loadNodes(paths: PfPaths): Promise<NodeMap> {
+  const data = await readRecord(paths.ideasJson, 'ideas.json');
+  const table = asObject(data?.nodes);
+  const nodes: NodeMap = table === null ? {} : (table as NodeMap);
+  for (const node of Object.values(nodes)) {
+    if (node !== null && typeof node === 'object') node.mode = normalizeMode(node.mode);
+  }
+  return nodes;
+}
+
+/** The line account and its rosters: the `cycles` table of state.json. */
+async function loadCycles(paths: PfPaths): Promise<CycleRecord[]> {
+  const data = await readRecord(paths.stateJson, 'state.json');
+  const cycles = data?.cycles;
+  return Array.isArray(cycles) ? (cycles as CycleRecord[]) : [];
+}
+
+/** The instruction account: the `instructions` table of instructions.json, as it is on disk; visibility is computed when read. */
+async function loadInstructions(paths: PfPaths): Promise<InstructionRecord[]> {
+  const data = await readRecord(paths.instructionsJson, 'instructions.json');
+  const rows = data?.instructions;
+  return Array.isArray(rows) ? (rows as InstructionRecord[]) : [];
+}
+
+/** One handoff ticket; absent or still `pending` both read as "no answer". */
+async function loadSignal(
+  paths: PfPaths,
+  cycleId: string,
+  nodeId: string,
+): Promise<Record<string, unknown> | null> {
+  return readRecord(signalPath(paths, cycleId, nodeId), `signals/${cycleId}/${nodeId}.json`);
+}
+
+/** The node's own `mode`, a missing key meaning `auto`; an unrecognised word is read as it is (only the write side refuses it). */
+function normalizeMode(mode: unknown): NodeMode {
+  const word = typeof mode === 'string' ? mode : '';
+  return (word || 'auto') as NodeMode;
+}
+
+/** The nodes one line holds right now (both on-disk shapes are accepted — the canonical one and a bare id string). */
+function holdingIds(cycle: CycleRecord): string[] {
+  const holding: unknown = cycle.holding;
+  if (!Array.isArray(holding)) return [];
+  const out: string[] = [];
+  for (const item of holding) {
+    const entry = asObject(item);
+    if (entry !== null && typeof entry.id === 'string' && entry.id !== '') out.push(entry.id);
+    else if (typeof item === 'string' && item !== '') out.push(item);
+  }
+  return out;
+}
+
+/** The single active line by default; a named line that is not on the account hands back null. */
+function findCycle(cycles: CycleRecord[], cycleId: string | null): CycleRecord | null {
+  if (cycleId !== null) return cycles.find((cycle) => cycle.id === cycleId) ?? null;
+  const active = cycles.filter((cycle) => cycle.status === 'active');
+  return active.length === 1 ? active[0]! : null;
+}
+
+/** {node: line}: one node appears on only one line's roster at a time (the first to register keeps it). */
+function nodeHolders(cycles: CycleRecord[]): Map<string, string> {
+  const holders = new Map<string, string>();
+  for (const cycle of cycles) {
+    for (const node of holdingIds(cycle)) {
+      if (!holders.has(node)) holders.set(node, String(cycle.id));
+    }
+  }
+  return holders;
+}
+
+/** The tag reading of a node: string words only, empties dropped. */
+function tagsOf(node: { tags?: unknown }): string[] {
+  const tags = node.tags;
+  if (!Array.isArray(tags)) return [];
+  return tags.filter((tag): tag is string => typeof tag === 'string');
+}
+
+// ── quoting and list spellings in the body ───────────────────────────────────
+// A few places in the plan's body put ids, tag lists and state words inside a sentence, and the
+// spelling is part of the product: the byte-for-byte comparison requires the quotes and commas to
+// match, so they are gathered in one place here.
+
+/** The quoted spelling of one string: single quotes by default; when the string already has a single quote and no double one, double quotes are used instead. */
+function pyQuote(text: string): string {
+  const quote = text.includes("'") && !text.includes('"') ? '"' : "'";
+  const escaped = text
+    .split('\\')
+    .join('\\\\')
+    .split(quote)
+    .join(`\\${quote}`)
+    .split('\n')
+    .join('\\n')
+    .split('\r')
+    .join('\\r')
+    .split('\t')
+    .join('\\t');
+  return `${quote}${escaped}${quote}`;
+}
+
+/** The spelling of a list of words (or an empty table): `['a', 'b']` / `[]`. The run doc quotes tags the same way. */
+export function pyList(items: readonly string[]): string {
+  return `[${items.map(pyQuote).join(', ')}]`;
+}
+
+/** One cell in a sentence: a string as it is, an absent one spelled `None`. */
+function pyBare(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined || value === null) return 'None';
+  return String(value);
+}
+
+/** The short spelling of a node id: the eight characters the plan and the run doc use to cite it. */
+export function short(id: string): string {
+  return id.slice(0, 8);
+}
+
+// ── readiness, ordering and picking ──────────────────────────────────────────
+
+/** One readiness candidate: id, title, mode, tags (the cells of a graph row). */
+interface ReadyRow {
+  id: string;
+  title: string;
+  mode: NodeMode;
+  tags: string[];
+}
+
+/**
+ * The three criteria of ready (THE one): **the node itself is todo** (`completed` and `shelved` are both out
+ * of the game), **every dependency is delivered** (a dangling dependency counts as delivered — that is what
+ * `validate` should name, and it should not stall the whole line), and **no other line holds it** (`running`
+ * and `ready` are mutually exclusive, and that criterion deletes rows inside `rankedReady`). `assumeCompleted`
+ * is the reading of the closing moment: the node being closed has not been written back to its status yet, and
+ * reading it as delivered is what keeps the downstream it just unlocked from being hidden.
+ */
+function readyNodes(nodes: NodeMap, assumed: ReadonlySet<string>): ReadyRow[] {
+  const out: ReadyRow[] = [];
+  for (const [uid, node] of Object.entries(nodes)) {
+    if (node.status === 'completed' || node.status === 'shelved' || assumed.has(uid)) continue;
+    const deps = Array.isArray(node.dependencies) ? node.dependencies : [];
+    const ready = deps.every((dep) => {
+      if (!(dep in nodes)) return true;
+      if (assumed.has(dep)) return true;
+      return nodes[dep]!.status === 'completed';
+    });
+    if (!ready) continue;
+    out.push({
+      id: uid,
+      title: node.title ?? '',
+      mode: normalizeMode(node.mode),
+      tags: tagsOf(node),
+    });
+  }
+  return out;
+}
+
+/** Whether this line's picking range sees this node: no filter set means the whole graph is in range; a node without tags is visible everywhere. */
+function nodeInTagScope(row: { tags?: readonly string[] }, cycleTags: readonly string[]): boolean {
+  if (cycleTags.length === 0) return true;
+  const tags = row.tags ?? [];
+  if (tags.length === 0) return true;
+  return tags.some((tag) => cycleTags.includes(tag));
+}
+
+/**
+ * The graph's ordering as {node: position}. The full ordering has one source — `dag.list()` (urgency ×
+ * importance, ties keeping the on-disk order, and completed and shelved nodes sinking with no score); it is
+ * only used here to order the ready set, never to rewrite the scoring.
+ */
+async function rankingOrder(root: string): Promise<Map<string, number>> {
+  const order = new Map<string, number>();
+  const rows = await createDagNamespace(root).list();
+  rows.forEach((row, index) => {
+    if (typeof row?.id === 'string' && row.id !== '') order.set(row.id, index);
+  });
+  return order;
+}
+
+/** The group of conditions used when picking. */
+interface RankOptions {
+  limit?: number;
+  exclude?: string | null;
+  excludeMany?: readonly string[];
+  assumeCompleted?: readonly string[];
+  tags?: readonly string[];
+}
+
+/**
+ * The ready set ordered by the graph's order, with exactly two deletions: the readiness criteria (see
+ * `readyNodes`) and the named exclusions.
+ *
+ * The holding and the picking-range deletions are left to the three readers below, each deleting its own rows:
+ * one ordering serves three uses (what can be picked, what the range keeps out, what another line holds), and
+ * the ordering is computed once, in one place.
+ */
+async function rankedRows(
+  root: string,
+  nodes: NodeMap,
+  options: RankOptions = {},
+): Promise<ReadyRow[]> {
+  const assumed = new Set((options.assumeCompleted ?? []).filter((id) => id !== ''));
+  let ready = readyNodes(nodes, assumed);
+  const drop = new Set(options.excludeMany ?? []);
+  if (options.exclude !== undefined && options.exclude !== null) drop.add(options.exclude);
+  if (drop.size > 0) ready = ready.filter((row) => !drop.has(row.id));
+  if (ready.length === 0) return [];
+  const order = await rankingOrder(root);
+  const fallback = order.size + 1;
+  ready = [...ready].sort(
+    (left, right) => (order.get(left.id) ?? fallback) - (order.get(right.id) ?? fallback),
+  );
+  return ready;
+}
+
+/**
+ * The ready set this line can pick right now, ordered by the graph's order.
+ *
+ * Four deletions, none of them touching the ordering: the readiness criteria (see `readyNodes`), the named
+ * exclusions, **nodes another line holds right now** (that line has it, so this one cannot pick it), and this
+ * line's own picking range (which only deletes rows, never reorders). `limit` counts slots: it cuts a stretch
+ * as wide as the slots this line can occupy at once (the line's own `parallel`), and the graph's order still
+ * runs from the top.
+ */
+async function rankedReady(
+  root: string,
+  nodes: NodeMap,
+  cycles: CycleRecord[],
+  options: RankOptions = {},
+): Promise<ReadyRow[]> {
+  const ready = await rankedRows(root, nodes, options);
+  if (ready.length === 0) return [];
+  const drop = new Set(options.excludeMany ?? []);
+  if (options.exclude !== undefined && options.exclude !== null) drop.add(options.exclude);
+  const holders = nodeHolders(cycles);
+  // A named exclusion is "the caller's own", and must not be counted as "somebody else holds it" a second time.
+  const free = ready.filter((row) => drop.has(row.id) || !holders.has(row.id));
+  const tags = options.tags ?? [];
+  const visible = free.filter((row) => nodeInTagScope(row, tags));
+  return options.limit === undefined ? visible : visible.slice(0, options.limit);
+}
+
+/** The nodes that are ready but kept outside by this line's picking range (always empty when there is no filter set). */
+async function tagBlockedReady(
+  root: string,
+  nodes: NodeMap,
+  tags: readonly string[],
+  options: RankOptions = {},
+): Promise<ReadyRow[]> {
+  if (tags.length === 0) return [];
+  const ranked = await rankedRows(root, nodes, options);
+  return ranked.filter((row) => !nodeInTagScope(row, tags));
+}
+
+/** The nodes that are ready but another line holds right now: this one cannot pick them, and they should not be told as "hidden by a tag". */
+async function holdingReady(
+  root: string,
+  nodes: NodeMap,
+  cycles: CycleRecord[],
+  options: RankOptions = {},
+): Promise<ReadyRow[]> {
+  const holders = nodeHolders(cycles);
+  const ranked = await rankedRows(root, nodes, options);
+  return ranked.filter((row) => holders.has(row.id));
+}
+
+/** The ready nodes the filter set keeps out, one line each: title, id, tags (as a person reads them). */
+function tagBlockedLines(blocked: readonly ReadyRow[]): string[] {
+  return blocked.map(
+    (row) => `  - ${row.title || '(untitled)'} (${row.id}) tags=${pyList(row.tags)}`,
+  );
+}
+
+/**
+ * The passage for "this line has nothing left in its picking range, but the graph still has ready nodes".
+ *
+ * It tells the reader three things: which nodes are ready, what tags keep them out, and a command that can be
+ * copied as it is to open a line for them. Stopping here **hands the choice back to a person**: one line has
+ * finished its work, and whether and when another line starts is theirs to decide.
+ */
+function crossLineReason(tags: readonly string[], blocked: readonly ReadyRow[]): string {
+  const need: string[] = [];
+  for (const row of blocked) {
+    for (const tag of row.tags) if (!need.includes(tag)) need.push(tag);
+  }
+  const head =
+    `This cycle has no ready node left in its filter set ${pyList(tags)}, but the graph still ` +
+    `has ${blocked.length} ready node(s), only hidden outside by their tags:`;
+  const tail =
+    'One line has finished its work; whether and when another line starts is yours to ' +
+    'decide.\n' +
+    `Open another cycle to take it: pf cycle start <slug> --tags ${need.join(',')}`;
+  return [head, ...tagBlockedLines(blocked), tail].join('\n');
+}
+
+/**
+ * The two ways of saying "this line has no node to pick".
+ *
+ * To the inside of the pipeline the two reasons are one thing (nothing in hand), but to a reader they are two:
+ * the filter set hid the nodes, or another line is running them. Calling the second the first sends the reader
+ * to look at a tag that is not in the way.
+ */
+function blockedReason(
+  holders: Map<string, string>,
+  tags: readonly string[],
+  tagged: readonly ReadyRow[],
+  holding: readonly ReadyRow[],
+): string {
+  const lines: string[] = [];
+  if (tagged.length > 0) lines.push(crossLineReason(tags, tagged));
+  if (holding.length > 0) {
+    const holdingLines = holding.map(
+      (row) =>
+        `  - ${row.title || '(untitled)'} (${row.id}): cycle ` +
+        `${holders.get(row.id) ?? '?'} is holding it`,
+    );
+    lines.push(
+      'These nodes in the graph are ready, but another cycle already occupies ' +
+        'them, so this line cannot pick them:\n' +
+        holdingLines.join('\n') +
+        '\nTo get them, wait for that line to run them out (another line being ' +
+        'busy is not a fault of this line).',
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
+ * The next node: the one a person names decides, otherwise the head of the ordering is taken.
+ *
+ * A named node **counts whether or not it is inside the picking range** — something a person typed as a full
+ * id and a filter set silently swallows would hide the decision they just made; the caller says "it comes from
+ * outside the range" at the same time. The only real refusal is "named but not ready at all".
+ */
+async function pickNode(
+  root: string,
+  nodes: NodeMap,
+  cycles: CycleRecord[],
+  override: string | null,
+  options: RankOptions = {},
+): Promise<ReadyRow | null> {
+  const ranked = await rankedReady(root, nodes, cycles, options);
+  if (override !== null) {
+    const hit = ranked.find((row) => row.id === override);
+    if (hit !== undefined) return hit;
+    if ((options.tags ?? []).length > 0) {
+      const unfiltered = await rankedReady(root, nodes, cycles, { ...options, tags: [] });
+      const outside = unfiltered.find((row) => row.id === override);
+      return outside ?? null;
+    }
+    return null;
+  }
+  return ranked[0] ?? null;
+}
+
+/** The reading of one node's graph row (the row carries the id); when it is not on the graph, an empty row with only the id. */
+function nodeRow(nodes: NodeMap, nodeId: string): NodeRecord & { id: string } {
+  const row = nodes[nodeId];
+  return row === undefined ? ({ id: nodeId } as NodeRecord & { id: string }) : { ...row, id: nodeId };
+}
+
+// ── the stopping criteria ────────────────────────────────────────────────────
+
+/**
+ * (whether to stop, and why). **An instruction can only tighten the stopping rule, never loosen it.**
+ *
+ * Whether a line goes on is decided only by this node's own `mode`, and the three gates each take one
+ * position: `auto` has no human confirmation point (the close opens the next one itself), `manual`'s gate is
+ * inside that node's session (the whole cell is the back-and-forth with the user, and `completed` is the user's
+ * "done, go on", so the closing step adds no second gate), and `checkpoint`'s gate is at the closing step
+ * itself (one round runs, then it stops once, and the next one opens only when a person says continue).
+ *
+ * Closing this node's own run follows the same reading: `--continue` cannot pry it open, and `--stop` can only
+ * tighten it further.
+ */
+function stopCriterion(
+  instructions: readonly InstructionRecord[],
+  cycle: CycleRecord,
+  node: { id: string; mode?: unknown } | null,
+  dagNodes: NodeMap,
+  activeCycleIds: ReadonlySet<string>,
+): [boolean, string] {
+  const mode = normalizeMode(node?.mode);
+  if (mode === 'checkpoint') {
+    return [
+      true,
+      'node mode=checkpoint: this round is done, and the next node opens only once ' +
+        'you say continue',
+    ];
+  }
+  for (const entry of instructions) {
+    if (!isLive(entry)) continue;
+    if ((entry.target ?? 'stage') !== 'boundary') continue;
+    if (
+      !instructionInScope(
+        entry,
+        dagNodes,
+        activeCycleIds,
+        String(cycle.id),
+        node === null ? null : node.id,
+      )
+    ) {
+      continue;
+    }
+    const cap = entry.stop_after_nodes;
+    if (typeof cap === 'number' && Number.isInteger(cap) && cap >= 0) {
+      // "stop after N nodes": this close is the N-th — by now all N are delivered.
+      const done = (Array.isArray(cycle.path) ? cycle.path.length : 0) + 1;
+      if (done >= cap) {
+        return [true, `instruction "${textOf(entry).slice(0, 40)}": stop after ${cap} nodes`];
+      }
+    }
+  }
+  return [false, ''];
+}
+
+/** The instruction text; absent reads as an empty string (a missing key and an empty string mean the same). */
+function textOf(entry: InstructionRecord): string {
+  const text = (entry as { text?: unknown }).text;
+  return typeof text === 'string' ? text : '';
+}
+
+// ── the action bags ──────────────────────────────────────────────────────────
+// The key order is the product: the caller serializes the JSON, and the byte-for-byte comparison requires the
+// key order and the body's spelling to be identical. The preview strips the mechanical steps and keeps only
+// `settling` — `settling` is always appended last, so it always ends up at the end.
+
+/** The "stop" action bag: the reason it stopped is for a reader, and `attention` is what a person should look at on this sheet. */
+function stopAction(
+  nodes: NodeMap,
+  cycle: CycleRecord,
+  reason: string,
+  options: {
+    nodeId?: string | null;
+    shelvedNodes?: readonly string[];
+    stopLine?: boolean;
+  } = {},
+): StopPlan {
+  const stopLine = options.stopLine ?? true;
+  return {
+    action: 'stop_pipeline',
+    cycle: String(cycle.id),
+    node_id: options.nodeId ?? null,
+    reason,
+    note: stopLine
+      ? 'cycle parked; nothing more to do without a human'
+      : 'the line stays in service: the nodes still in hand carry it on when their own closes run',
+    attention: attentionItems(nodes, cycle, options.shelvedNodes ?? []),
+    // There are always mechanical steps left on this path (closing the node, marking the graph, pinning the next
+    // one / turning the line inactive): the preview therefore always carries settling. This tree has no plugins,
+    // so the "not one command" gate (a plugin blocking the dispatch) is never reached and this cell is always
+    // true.
+    settling: true,
+  };
+}
+
+/**
+ * The loose ends a person should look at: the nodes this action is about to shelve, plus the ones already
+ * shelved on the graph.
+ *
+ * The node just closed is still todo on disk (the command that marks the graph has not run), so it is named in
+ * by the caller — otherwise the one sheet that should explain this stop the most would be the only place not
+ * mentioning it. Delivered nodes **deliberately stay off this sheet**: the sheet reads as "go look at these",
+ * and naming a success would send the reader off to revive work that is already done.
+ */
+function attentionItems(
+  nodes: NodeMap,
+  cycle: CycleRecord,
+  shelvedNodes: readonly string[],
+): PlanAttention[] {
+  const shelved: string[] = [];
+  for (const id of [...shelvedNodes, ...Object.keys(nodes).filter((uid) => nodes[uid]!.status === 'shelved')]) {
+    if (id === '' || shelved.includes(id)) continue;
+    shelved.push(id);
+  }
+  return shelved.map((uid) => ({
+    kind: 'node_shelved' as const,
+    cycle: String(cycle.id),
+    node_id: uid,
+    node_title: nodes[uid]?.title ?? '',
+    hint:
+      `dag-manage revive ${uid} puts it back to todo (shelved → todo), or handle it by hand ` +
+      'and restart the cycle',
+  }));
+}
+
+/** Ask a person: the state cannot explain itself, or there is no line to push at all. */
+function askAction(question: string, extra: Partial<AskPlan> = {}): AskPlan {
+  return { action: 'ask_user', cycle: null, question, ...extra };
+}
+
+/** The two lines of "no line to push": none at all, and lines that exist but are none of them in service — the two cases have to read differently. */
+function noLineAction(cycles: readonly CycleRecord[]): NextPlan {
+  const inService = cycles.filter((cycle) => cycle.status === 'active').map((cycle) => String(cycle.id));
+  if (inService.length > 1) {
+    return askAction('several active cycles: continue which one?', { candidates: inService });
+  }
+  if (cycles.length === 0) {
+    return {
+      action: 'no_cycle',
+      cycle: null,
+      note:
+        'no active cycle. Creating one needs human intent (which nodes, unattended or not); ' +
+        'this planner will not invent it.',
+      known_cycles: [],
+    } satisfies NoCyclePlan;
+  }
+  const idle = cycles.map((cycle) => String(cycle.id));
+  if (idle.length === 1) {
+    const only = idle[0]!;
+    return askAction(`no cycle is active; ${pyQuote(only)} is out of service (inactive)`, {
+      requested: only,
+      candidates: idle,
+      known_cycles: idle,
+      hint: `pf cycle status ${only} active`,
+    });
+  }
+  return askAction(`no cycle is active right now; these lines are all out of service: ${pyList(idle)}`, {
+    candidates: idle,
+    known_cycles: idle,
+    hint: 'pf cycle status <cycle> active',
+  });
+}
+
+/** The one line handed to the session at dispatch: `/pf-conduct <node id> [pipeline]`, with nothing after it. */
+export function promptTextOf(nodeId: string): string {
+  return `/pf-conduct ${nodeId} [pipeline]\n`;
+}
+
+/** One node's cell in one dispatch: id, title, mode, the prompt's location and its body. */
+function nodeEntry(paths: PfPaths, cycle: CycleRecord, row: ReadyRow): PlanNodeEntry {
+  return {
+    node_id: row.id,
+    node_title: row.title,
+    mode: normalizeMode(row.mode),
+    prompt: launchPromptPath(paths, String(cycle.id), row.id),
+    prompt_text: promptTextOf(row.id),
+  };
+}
+
+/**
+ * The answer when nodes are in hand and their sessions are not open yet: as many cells as the line is wide, one
+ * node per cell.
+ *
+ * On a multi-node line every cell has its own prompt file, its own session and its own close; a single-node line
+ * gets the same shape, with only one cell in `nodes`.
+ */
+function dispatchAction(
+  paths: PfPaths,
+  cycle: CycleRecord,
+  nodeIds: readonly string[],
+  nodes: NodeMap,
+): DispatchPlan {
+  const entries = nodeIds.map((nodeId) =>
+    nodeEntry(paths, cycle, {
+      id: nodeId,
+      title: nodes[nodeId]?.title ?? '',
+      mode: normalizeMode(nodes[nodeId]?.mode),
+      tags: tagsOf(nodes[nodeId] ?? {}),
+    }),
+  );
+  const head = entries[0]!;
+  return {
+    action: 'dispatch',
+    cycle: String(cycle.id),
+    node_id: head.node_id,
+    node_title: head.node_title,
+    nodes: entries,
+    // A multi-node dispatch cannot say "which one is that prompt": the singular pair is left empty and the reader
+    // goes by `nodes`.
+    mode: head.mode,
+    prompt: entries.length === 1 ? head.prompt : '',
+    prompt_text: entries.length === 1 ? head.prompt_text : '',
+    steps: [
+      `write each node's prompt text to its own prompt.txt under ` +
+        `${launchDir(paths, String(cycle.id))}`,
+      'DSH: spawn one session per node (`dispatch <cycle>` does all of them; ' +
+        '`next --spawn` is the one-shot spelling of the same call)',
+    ],
+  };
+}
+
+/**
+ * Pinning: when the line holds no node, the first few nodes the ordering picked (as many as the line is wide)
+ * are handed to `apply` to pin down.
+ *
+ * Several ready rows are arbitrated by the ordering directly: the ordering decides unattended at every close (it
+ * takes the first row), and the first pick when a line opens uses the same ordering. The line fills the slots
+ * `parallel` allows — one pin per slot, in ordering order.
+ */
+function openAction(cycle: CycleRecord, chosen: readonly ReadyRow[]): OpenNodePlan {
+  const head = chosen[0]!;
+  const titles = chosen.map((row) => row.title || row.id).join(', ');
+  const plan: OpenNodePlan = {
+    action: 'open_node',
+    cycle: String(cycle.id),
+    node_id: head.id,
+    node_title: head.title ?? '',
+    nodes: chosen.map((row) => row.id),
+    note: `cycle ${cycle.id} holds ${titles}`,
+    // The claiming command has not run yet: the preview therefore says "not settled yet", and `settling` is always true.
+    settling: true,
+  };
+  return plan;
+}
+
+/**
+ * The node's work is handed back and the close has not run — that stable state.
+ *
+ * It always has to be a path with an exit: whoever lands here takes the closing command from `note` (and
+ * `close_with`), and asking any number of times answers the same line. The step that opens the next session is
+ * deliberately left outside `close_with`: closing the node and opening the next session are two steps, and the
+ * session doing the work still has to commit and push first — only after the push does the next session start
+ * on the same tree.
+ */
+function ticketWait(cycle: CycleRecord, nodeId: string, holding: readonly string[]): WaitPlan {
+  const closeWith = `pf next --after ${nodeId} --json`;
+  const others = holding.filter((id) => id !== nodeId);
+  const tail =
+    others.length > 0
+      ? ` (still holding ${others.map(short).join(', ')}, their notes are collected as they ` +
+        'arrive)'
+      : '';
+  return {
+    action: 'wait',
+    cycle: String(cycle.id),
+    node_id: nodeId,
+    close_with: closeWith,
+    note:
+      `The note for ${short(nodeId)} is already on disk, but this node has not been closed ` +
+      'out yet -- do not poll, and do not move the state yourself. ' +
+      `Closing it out is one command: ${closeWith} (the tool reads this node's note, ` +
+      'closes it, and then tells you whether the next slot is `dispatch` or ' +
+      '`stop_pipeline`).' +
+      `${tail} Dispatch comes after this run's commit and push: ` +
+      `\`pf dispatch ${cycle.id}\`.`,
+  };
+}
+
+/** Every cell in hand already has its session open: there is nothing to dispatch, so wait for their tickets — never poll. */
+function sessionsWait(cycle: CycleRecord, nodeIds: readonly string[], holding: readonly string[]): WaitPlan {
+  const others = holding.filter((id) => !nodeIds.includes(id));
+  const tail =
+    others.length > 0
+      ? ` (still holding ${others.map(short).join(', ')}, they keep running)`
+      : '';
+  const names = nodeIds.map(short).join(', ');
+  return {
+    action: 'wait',
+    cycle: String(cycle.id),
+    node_id: nodeIds[0]!,
+    note:
+      `${names}: their sessions are already open (the \`started\` stamp is on disk) -- ` +
+      'there is nothing to dispatch, so wait for their notes and never poll. ' +
+      `Their own closes: pf next --after <node id> --json.${tail}`,
+  };
+}
+
+/** A ticket still `pending` is a blocker: wait, and name the commands that unwind it. */
+function retryWait(cycle: CycleRecord, nodeId: string, holding: readonly string[]): WaitPlan {
+  const others = holding.filter((id) => id !== nodeId);
+  const tail =
+    others.length > 0
+      ? ` (still holding ${others.map(short).join(', ')}, they keep running)`
+      : '';
+  return {
+    action: 'wait',
+    cycle: String(cycle.id),
+    node_id: nodeId,
+    note:
+      `The note for ${short(nodeId)} is still pending (no verdict yet, or somebody ` +
+      'cleared the note to retry); do not poll. Three commands unwind it: ' +
+      `pf cycle retry ${cycle.id} ${nodeId} --drop --summary "retry", then ` +
+      `pf cycle hold ${cycle.id} ${nodeId}, then pf next --spawn --json.` +
+      `${tail}`,
+  };
+}
+
+// ── planning ─────────────────────────────────────────────────────────────────
+
+/** One whole reading that planning uses: what was read from disk, handed once to the judgements below to share. */
+interface LedgerView {
+  nodes: NodeMap;
+  cycles: CycleRecord[];
+  instructions: InstructionRecord[];
+}
+
+/** Read the three records on disk in one go (graph, lines, instructions; tickets are read per node when needed). */
+async function readLedger(paths: PfPaths): Promise<LedgerView> {
+  return {
+    nodes: await loadNodes(paths),
+    cycles: await loadCycles(paths),
+    instructions: await loadInstructions(paths),
+  };
+}
+
+/**
+ * When the line holds no node: name the next one (or several), or stop at a place whose reason can be read.
+ *
+ * The ordering decides unattended at every close, so a line's first pick and its slot-filling use the same rows;
+ * nodes kept out by the range and nodes another line holds each state their own reason (see `blockedReason`).
+ */
+async function pickNext(root: string, cycle: CycleRecord, view: LedgerView): Promise<NextPlan> {
+  const tags = Array.isArray(cycle.tags) ? cycle.tags : [];
+  const parallel = cyclePolicy(cycle).parallel;
+  const slots = typeof parallel === 'number' ? parallel : 1;
+  const ready = await rankedReady(root, view.nodes, view.cycles, { limit: slots, tags });
+  if (ready.length > 0) return openAction(cycle, ready);
+  const holders = nodeHolders(view.cycles);
+  const tagged = await tagBlockedReady(root, view.nodes, tags);
+  const holding = await holdingReady(root, view.nodes, view.cycles);
+  if (tagged.length > 0 || holding.length > 0) {
+    return stopAction(view.nodes, cycle, blockedReason(holders, tags, tagged, holding));
+  }
+  return stopAction(view.nodes, cycle, 'the DAG has no ready node left');
+}
+
+/** The verdict of a close: one node's work is handed back, and next it is either carry on or stop. */
+interface CloseAnswers {
+  decision: 'continue' | 'stop' | null;
+  named: string | null;
+  note: string;
+  decisionGiven: boolean;
+}
+
+/**
+ * The settlement answer of one close: the verdict word, the walk-or-stop decision, the slot-filling list, and
+ * whether the line should be turned out of service.
+ *
+ * This is the one shape of the closing criteria: the planner (`closeOwnNode` → the closing rehearsal of `next`)
+ * folds it into an action bag, and the write side (`conductor.close`) folds it into mechanical steps on the
+ * records — both criteria come from the same place, and neither copies the other. The fields are fixed as
+ * follows:
+ *
+ * - `outcome` is the ticket's own verdict word (the word landing in path; a non-delivered node lands `shelved` on
+ *   the graph, which is a different thing);
+ * - `filled` are the nodes the slots opened by this close were filled with (the precondition for filling: it was
+ *   delivered, or the line's `when_shelved=continue` lets the line carry on);
+ * - `parkLine` is "whether this close should turn the line inactive": only a decided stop, with no other node in
+ *   flight in hand, parks it — other nodes are still held, and the relay is on their own closes;
+ * - when the line is not in service only the recording happens: `decision` tightens to stop, no slot is filled
+ *   and `parkLine` is always false — not one character of the line's status is written, that is a person's
+ *   business.
+ */
+export interface CloseSettlement {
+  readonly cycleId: string;
+  readonly nodeId: string;
+  /** The ticket's verdict word: completed / failed / stopped (the word landing in path). */
+  readonly outcome: 'completed' | 'failed' | 'stopped';
+  /** Whether it was delivered (every verdict other than `completed` is not a delivery). */
+  readonly delivered: boolean;
+  /** The decision of this close: carry on (fill the slot) or stop. */
+  readonly decision: 'continue' | 'stop';
+  /** The slot-filling list: the nodes the ordering picked after this close opened its slots. */
+  readonly filled: ReadonlyArray<{ id: string; title: string }>;
+  /** Whether the line should be turned out of service (inactive). */
+  readonly parkLine: boolean;
+  /** The note when a slot-filling node is named from outside the range (goes into the plan's note as it is). */
+  readonly spoke: string;
+  /** The reason sentence for stopping (filled only in the stopping case). */
+  readonly reason: string;
+}
+
+/**
+ * The settlement criteria of one close: read the graph and the instructions, and hand back "what the verdict
+ * becomes, carry on or stop, who gets the slot, whether the line parks". The one set of criteria the read side
+ * and the write side share (see `CloseSettlement`); not one byte is written here.
+ *
+ * `signal` is the ticket already read (a missing or still `pending` ticket never reaches here — that is the
+ * caller's blocker: the plan answers wait and `conductor.close` refuses). The write side has no query to carry,
+ * so the answers are decided by the criteria themselves (the same reading as a close without
+ * `--continue/--stop/--node/--note`).
+ */
+export async function settleClose(
+  root: string,
+  cycle: CycleRecord,
+  nodeId: string,
+  signal: Record<string, unknown>,
+): Promise<CloseSettlement> {
+  const view = await readLedger(pfPaths(root));
+  return settleAnswers(
+    root,
+    cycle,
+    nodeId,
+    signal,
+    { decision: null, named: null, note: '', decisionGiven: false },
+    cycle.status === 'active',
+    view,
+  );
+}
+
+/**
+ * The body of the settlement criteria: the deciding block exists only here — `closeOwnNode` folds it into an
+ * action bag (the closing rehearsal of `next`), `conductor.close` folds it into mechanical steps on the records,
+ * and neither side copies a second one.
+ */
+async function settleAnswers(
+  root: string,
+  cycle: CycleRecord,
+  nodeId: string,
+  signal: Record<string, unknown>,
+  answers: CloseAnswers,
+  lineActive: boolean,
+  view: LedgerView,
+): Promise<CloseSettlement> {
+  const nodes = view.nodes;
+  const spokenName = answers.named;
+  let named = answers.named;
+  const delivered = signal.status === 'completed';
+  const policy = cyclePolicy(cycle);
+  // A non-delivered node is always shelved; whether the line goes on is decided separately by the line's own
+  // `when_shelved` (stop by default).
+  const policyCarries = policy.when_shelved === 'continue';
+  let carryOn = delivered || policyCarries;
+  const others = holdingIds(cycle).filter((id) => id !== nodeId);
+  let decision = answers.decision;
+  if (!lineActive) {
+    decision = 'stop';
+    named = null;
+    carryOn = false;
+  }
+  decision = decision ?? (carryOn ? 'continue' : 'stop');
+  const tags = Array.isArray(cycle.tags) ? cycle.tags : [];
+  // How many slots this close can open, and whether the line takes one at a time or several: the line's own
+  // `parallel` minus what is still in hand.
+  const parallelRaw = policy.parallel;
+  const parallel = typeof parallelRaw === 'number' ? parallelRaw : 1;
+  const slots = Math.max(parallel - others.length, 0);
+  const several = parallel > 1;
+  // The closing command has not run yet and this node is still todo on the graph. Only by reading "delivered" in
+  // can the downstream it just unlocked be asked about — excluding it would only hide those nodes, and the slots
+  // would not fill with the ones just released.
+  const assumed = delivered ? [nodeId] : [];
+
+  // ── filling the slots: one node per empty slot ────────────────────────────
+  let filled: ReadyRow[] = [];
+  let spoke = '';
+  if (carryOn && decision === 'continue' && slots > 0) {
+    if (named !== null) {
+      // A named node is taken whether or not it is in range, and that is said out loud: a filter set silently
+      // swallowing something a person typed as a full id would hide the decision just made.
+      const chosen = await pickNode(root, nodes, view.cycles, named, {
+        exclude: nodeId,
+        excludeMany: others,
+        assumeCompleted: assumed,
+        tags,
+      });
+      if (chosen !== null) filled = [chosen];
+      if (chosen !== null && !nodeInTagScope(chosen, tags)) {
+        spoke =
+          `Note: the named ${chosen.title || chosen.id} (${chosen.id}) is not in this cycle's ` +
+          `filter set ${pyList(tags)}; you named it by hand, so it is taken as named.`;
+      }
+    } else {
+      filled = await rankedReady(root, nodes, view.cycles, {
+        limit: slots,
+        exclude: nodeId,
+        excludeMany: others,
+        assumeCompleted: assumed,
+        tags,
+      });
+    }
+  }
+
+  // ── the stopping criteria: the gates are exactly the two numbers above ────
+  const activeCycleIds = new Set(
+    view.cycles.filter((row) => row.status === 'active').map((row) => String(row.id)),
+  );
+  let stopWhy = '';
+  if (carryOn && (!several || filled.length === 0)) {
+    // On a single-node line its close is its whole round: whatever follows on the graph goes through this gate
+    // too. A multi-node line only asks when no slot could be filled: a slot that can be filled carries the line
+    // on by itself.
+    const [mustStop, why] = stopCriterion(
+      view.instructions,
+      cycle,
+      nodeRow(nodes, nodeId),
+      nodes,
+      activeCycleIds,
+    );
+    if (mustStop) {
+      decision = 'stop';
+      stopWhy = why;
+    }
+  }
+
+  const outcome = delivered
+    ? 'completed'
+    : (String(signal.status ?? 'failed') as CloseSettlement['outcome']);
+
+  if (!lineActive) {
+    let reason =
+      `cycle ${pyQuote(String(cycle.id))} is not active (${pyBare(cycle.status)}): a close on this ` +
+      `line only records -- it closes ${short(nodeId)} and marks the DAG, picks no next ` +
+      'node and dispatches nothing; the line keeps the status it was given.';
+    if (spokenName !== null) reason += ` The named node ${spokenName} was not opened.`;
+    reason += ` To carry on: pf cycle status ${cycle.id} active`;
+    // The line is not in service: only the recording happens. Not one character of the line's status is written
+    // (parkLine=false) and no slot is filled either.
+    return {
+      cycleId: String(cycle.id),
+      nodeId,
+      outcome,
+      delivered,
+      decision: 'stop',
+      filled: [],
+      parkLine: false,
+      spoke: '',
+      reason,
+    };
+  }
+
+  if (decision === 'stop' || filled.length === 0) {
+    // A line with other nodes still in flight does not count as stopped: those nodes are still held and the relay
+    // is on their own closes — turning the line inactive would make their closes recording-only, and the work they
+    // release would have nobody to take it.
+    const parkLine = decision === 'stop' || others.length === 0;
+    const openNotes =
+      decision === 'stop' && others.length > 0
+        ? ` (still holding ${others.map(short).join(', ')}, their notes are ` +
+          'collected as they arrive)'
+        : '';
+    let reason: string;
+    if (!delivered && !policyCarries) {
+      const slipped = answers.note || textOf2(signal.summary) || '(no reason written)';
+      reason = `this node did not deliver (${outcome}): ${slipped}`;
+    } else if (stopWhy !== '') {
+      reason = answers.note ? `${stopWhy} (${answers.note})` : stopWhy;
+      // The middle mode stops in order to wait for a person to say "continue": stopping turns the line out of
+      // service, so both commands are handed out together (put it back in service, then go on) — otherwise that
+      // "continue" would still have to be guessed at.
+      if (normalizeMode(nodes[nodeId]?.mode) === 'checkpoint') {
+        reason +=
+          `; to carry on: pf cycle status ${cycle.id} active, ` +
+          `then pf next --cycle ${cycle.id} --spawn --json`;
+      }
+    } else if (named !== null) {
+      reason = `the node ${named} named by the instruction is not a ready node; stopping here`;
+      const outside = namedNodeOutsideScope(nodes, named, tags);
+      if (outside !== null) {
+        reason +=
+          `; it is also not in this cycle's filter set ${pyList(tags)} ` +
+          `(its tags=${pyList(outside)})`;
+      }
+    } else if (answers.decisionGiven) {
+      // A person's `--stop`: this sentence has to say a person stopped it, and must not read as "nothing left on the graph".
+      reason =
+        'the human chose to stop at the close (--stop): the line goes back to you' +
+        (answers.note ? ` (${answers.note})` : '');
+    } else if (filled.length === 0 && carryOn) {
+      // Not one slot filled: this line still has work (the relay is on those closes), or the graph really has
+      // nothing to pick — the two have to be told apart.
+      if (others.length > 0) {
+        reason =
+          `${short(nodeId)} is closed; still holding ${others.map(short).join(', ')}, their ` +
+          'notes are collected as they arrive (pf next --after <node id> --json) -- ' +
+          'this line stays in service, and on its own close that slot fills and ' +
+          'dispatches.';
+      } else {
+        // On a single-node line the node delivered by this close is this node: the downstream it just unlocked is
+        // the work the reader is looking for. A multi-node close reads the graph as it is on disk at this moment.
+        const assumedForBlocked = several ? [] : assumed;
+        const tagged = await tagBlockedReady(root, nodes, tags, {
+          exclude: nodeId,
+          excludeMany: others,
+          assumeCompleted: assumedForBlocked,
+        });
+        const holding = await holdingReady(root, nodes, view.cycles, {
+          exclude: nodeId,
+          excludeMany: others,
+          assumeCompleted: assumedForBlocked,
+        });
+        if (tagged.length > 0 || holding.length > 0) {
+          reason = blockedReason(nodeHolders(view.cycles), tags, tagged, holding);
+        } else {
+          reason = 'the graph has no ready node left';
+        }
+      }
+    } else {
+      reason = `stopping at the close: ${answers.note || '(no reason written)'}`;
+    }
+    if (openNotes !== '') reason += openNotes;
+    return {
+      cycleId: String(cycle.id),
+      nodeId,
+      outcome,
+      delivered,
+      decision: 'stop',
+      filled: [],
+      parkLine,
+      spoke,
+      reason,
+    };
+  }
+
+  // ── the slots are filled: the whole list is handed out together, one pin per cell ──
+  return {
+    cycleId: String(cycle.id),
+    nodeId,
+    outcome,
+    delivered,
+    decision: 'continue',
+    filled: filled.map((row) => ({ id: row.id, title: row.title })),
+    parkLine: false,
+    spoke,
+    reason: '',
+  };
+}
+
+/**
+ * The plan of a session closing its own node: record this step and fill the released slots, or stop.
+ *
+ * The questions every close asks — was it delivered, can the line carry on, who gets the released slots, why it
+ * stopped — all have their criteria in one place, `settleAnswers`; this only folds them into an action bag, and
+ * the closing rehearsal (`next` with `after`) and the write side share the same answer, neither copying the other.
+ */
+async function closeOwnNode(
+  root: string,
+  cycle: CycleRecord,
+  nodeId: string,
+  signal: Record<string, unknown>,
+  answers: CloseAnswers,
+  lineActive: boolean,
+  view: LedgerView,
+): Promise<NextPlan> {
+  const settle = await settleAnswers(root, cycle, nodeId, signal, answers, lineActive, view);
+  const nodes = view.nodes;
+  const parallelRaw = cyclePolicy(cycle).parallel;
+  const several = (typeof parallelRaw === 'number' ? parallelRaw : 1) > 1;
+  if (settle.decision === 'stop' || settle.filled.length === 0) {
+    return stopAction(nodes, cycle, settle.reason, {
+      nodeId,
+      shelvedNodes: settle.delivered ? [] : [nodeId],
+      stopLine: lineActive ? settle.parkLine : undefined,
+    });
+  }
+  const head = settle.filled[0]!;
+  const opening = several
+    ? settle.filled.map((row) => row.title || row.id).join(', ')
+    : head.title ?? '';
+  return {
+    action: 'open_node',
+    cycle: String(cycle.id),
+    node_id: head.id,
+    node_title: head.title ?? '',
+    ...(several ? { nodes: settle.filled.map((row) => row.id) } : {}),
+    note: `${short(nodeId)} closed; opening ${opening}` +
+      (settle.spoke !== '' ? `; ${settle.spoke}` : ''),
+    follow: {
+      action: 'dispatch' as const,
+      cycle: String(cycle.id),
+      node_id: head.id,
+      node_title: head.title ?? '',
+    },
+    settling: true as const,
+  };
+}
+
+/** The readable string of one cell (an absent one is the empty string), used when the body is concatenated. */
+function textOf2(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/** Whether the named node carries a tag the filter set does not recognise; when it does, those tags are handed back. */
+function namedNodeOutsideScope(
+  nodes: NodeMap,
+  nodeId: string,
+  tags: readonly string[],
+): string[] | null {
+  if (tags.length === 0) return null;
+  const node = nodes[nodeId];
+  if (node === undefined) return null;
+  const nodeTags = tagsOf(node);
+  if (nodeTags.length === 0) return null;
+  if (nodeInTagScope({ tags: nodeTags }, tags)) return null;
+  return nodeTags;
+}
+
+/**
+ * The one entry of planning: read the records and hand back "what the next step is", writing not one byte.
+ *
+ * Two entries, two things:
+ * - without `after`: the reading that drives the next step — with a node in hand, dispatch it / wait for its
+ *   ticket; with an empty hand, pick the next one off the graph, and if nothing can be picked, say clearly why it
+ *   stopped.
+ * - with `after`: **the closing rehearsal** — that node's work is already handed back (its ticket is on disk), and
+ *   settling on it, where would this line go. This is only computation; settling and dispatching still belong to
+ *   the write side (`conductor.close` / `conductor.dispatch`).
+ *
+ * Both paths answer with the same action bag (the closing rehearsal goes through another read-only pure function,
+ * and the caller is the one hooking it onto the closing action).
+ */
+export async function planNext(root: string, query: NextQuery = {}): Promise<NextPlan> {
+  const paths = pfPaths(root);
+  const view = await readLedger(paths);
+  const requested = query.cycle ?? null;
+  const cycle = findCycle(view.cycles, requested);
+  if (cycle === null) {
+    if (requested !== null) {
+      return askAction(
+        `no cycle named ${pyQuote(requested)}; known cycles: ` +
+          `${pyList(view.cycles.map((row) => String(row.id)))}`,
+        { requested },
+      );
+    }
+    return noLineAction(view.cycles);
+  }
+
+  const selfVerified = query.after !== undefined && query.after !== null;
+  if (cycle.status !== 'active' && !selfVerified) {
+    return askAction(
+      `cycle ${pyQuote(String(cycle.id))} exists but is not active (${pyBare(cycle.status)})`,
+      {
+        requested: String(cycle.id),
+        candidates: [String(cycle.id)],
+        hint: `pf cycle status ${cycle.id} active`,
+      },
+    );
+  }
+
+  const holding = holdingIds(cycle);
+
+  // Nothing in hand: the line just opened, or everything it held is settled. Both cases ask the same question, and
+  // the answer follows the same rule.
+  if (holding.length === 0) return pickNext(root, cycle, view);
+
+  if (selfVerified) {
+    // A session's own close: settle the node that has already written its ticket. The other nodes the same line
+    // holds stay in hand — each is settled by its own close.
+    const closing = query.after ?? (holding.length === 1 ? holding[0]! : null);
+    if (closing === null || !holding.includes(closing)) {
+      return {
+        action: 'wait',
+        cycle: String(cycle.id),
+        note:
+          `${closing === null ? '(unnamed)' : short(closing)} is not in the hand of ` +
+          `${cycle.id} (it is holding ${holding.map(short).join(', ')}) -- ` +
+          'there is nothing to settle.',
+      };
+    }
+    const signal = await loadSignal(paths, String(cycle.id), closing);
+    // A session's own close **is** the "close me" request, so a ticket that already states a result is enough:
+    // `completed` and `failed` / `stopped` all have said their piece, and whichever it is does not stand in the way
+    // of settling. Only a missing or still `pending` ticket is left to wait.
+    const status = signal?.status;
+    if (signal === null || status === 'pending') {
+      return {
+        action: 'wait',
+        cycle: String(cycle.id),
+        node_id: closing,
+        note:
+          `${short(closing)} has not handed in a note yet ` +
+          `(signals/${cycle.id}/${short(closing)}….json is absent, or still ` +
+          'pending) -- there is nothing to settle.',
+      };
+    }
+    return closeOwnNode(
+      root,
+      cycle,
+      closing,
+      signal,
+      {
+        decision: query.decision ?? null,
+        named: query.node ?? null,
+        note: query.note ?? '',
+        decisionGiven: query.decision !== undefined && query.decision !== null,
+      },
+      cycle.status === 'active',
+      view,
+    );
+  }
+
+  // Every node in hand already has a ticket in a terminal state: this batch is over, and the close is what consumes
+  // them (one at a time, always that stable state). A node whose ticket is not written yet is a dispatch target (the
+  // session that writes the ticket is already running); a `pending` ticket is the re-run case, with nothing to open.
+  const signals = new Map<string, Record<string, unknown> | null>();
+  for (const nodeId of holding) signals.set(nodeId, await loadSignal(paths, String(cycle.id), nodeId));
+  const terminal = holding.filter((nodeId) => {
+    const status = signals.get(nodeId)?.status;
+    return status !== undefined && status !== null && status !== 'pending';
+  });
+  if (terminal.length > 0) return ticketWait(cycle, terminal[0]!, holding);
+  const fresh = holding.filter((nodeId) => signals.get(nodeId) === null);
+  const waiting = fresh.filter(
+    (nodeId) => !existsSync(startedMarkerPath(paths, String(cycle.id), nodeId)),
+  );
+  if (waiting.length > 0) {
+    return dispatchAction(paths, cycle, waiting, view.nodes);
+  }
+  if (fresh.length > 0) return sessionsWait(cycle, fresh, holding);
+  return retryWait(cycle, holding[0]!, holding);
+}

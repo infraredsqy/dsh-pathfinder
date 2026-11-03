@@ -1,0 +1,26 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "title": "first",
+      "description": "",
+      "status": "completed",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@",
+      "completed_at": "@t2@"
+    },
+    "@node-b@": {
+      "title": "second",
+      "description": "",
+      "status": "completed",
+      "mode": "auto",
+      "dependencies": [
+        "@node-a@"
+      ],
+      "created_at": "@t1@",
+      "updated_at": "@t1@",
+      "completed_at": "@t2@"
+    }
+  }
+}

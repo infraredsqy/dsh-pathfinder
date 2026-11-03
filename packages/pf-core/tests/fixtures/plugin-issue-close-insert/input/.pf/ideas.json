@@ -1,0 +1,16 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "created_at": "@t1@",
+      "dependencies": [],
+      "description": "问题池收尾插入的对拍起点",
+      "mode": "auto",
+      "status": "todo",
+      "tags": [
+        "coding"
+      ],
+      "title": "收尾被关的节点",
+      "updated_at": "@t1@"
+    }
+  }
+}

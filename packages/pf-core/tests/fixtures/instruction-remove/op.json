@@ -1,0 +1,6 @@
+{
+  "path": "ledger.instructions.remove",
+  "args": [
+    "i-0001"
+  ]
+}

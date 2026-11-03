@@ -1,0 +1,9 @@
+{
+  "path": "ledger.instructions.add",
+  "args": [
+    {
+      "text": "先把该节点的 spec 读一遍再动手",
+      "scope": "global"
+    }
+  ]
+}

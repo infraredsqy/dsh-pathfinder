@@ -1,0 +1,10 @@
+{
+  "path": "ledger.dag.update",
+  "args": [
+    "@node-c@",
+    {
+      "weight": "standard",
+      "tags": null
+    }
+  ]
+}

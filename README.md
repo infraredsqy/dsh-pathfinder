@@ -53,15 +53,16 @@ ignored. The version policy and the third route (installing from git) live in
 
 ```sh
 pnpm install --frozen-lockfile
-npm test                  # unit tests; builds lib/client.js first, then mounts it in jsdom
+npm test                  # unit tests: builds lib/client.js and the engine package, then runs both suites
 node tools/css-check.mjs  # the style-layer rules
 npm pack                  # the distributable
 ```
 
-`npm test` covers the model layer, the host half and the built browser half — the last one mounts
-`lib/client.js` over an in-memory record, walks every pane, and fails on any `console.error`. What it
-cannot reach (the readings over a real `.pf`, the copy, the layout) is on the hand pass in
-[docs/publish.md](docs/publish.md); `tools/testbed/` boots an isolated DSH instance to walk it.
+`npm test` covers the model layer, the host half, the built browser half and the engine package's own
+suite (`packages/pf-core/`) — the browser half mounts `lib/client.js` over an in-memory record, walks
+every pane, and fails on any `console.error`. What it cannot reach (the readings over a real `.pf`, the
+copy, the layout) is on the hand pass in [docs/publish.md](docs/publish.md); `tools/testbed/` boots an
+isolated DSH instance to walk it.
 
 The repository map and ground rules live in [AGENTS.md](AGENTS.md). Read
 [docs/design-principles.md](docs/design-principles.md) before touching the UI, and

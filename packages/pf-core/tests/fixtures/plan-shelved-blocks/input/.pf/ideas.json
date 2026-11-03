@@ -1,0 +1,35 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "title": "parked",
+      "description": "",
+      "status": "shelved",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    },
+    "@node-b@": {
+      "title": "after it",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [
+        "@node-a@"
+      ],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    },
+    "@node-c@": {
+      "title": "after that",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [
+        "@node-b@"
+      ],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "cycles": [
+    {
+      "id": "c1",
+      "title": "问题池对拍线",
+      "status": "inactive",
+      "tags": [
+        "coding"
+      ],
+      "holding": [],
+      "path": [
+        {
+          "node": "@node-a@",
+          "started_at": "@t2@",
+          "ended_at": "@t8@",
+          "result": "completed"
+        }
+      ],
+      "created_at": "@t2@",
+      "updated_at": "@t8@"
+    }
+  ]
+}

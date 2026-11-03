@@ -1,0 +1,17 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "title": "assemble the round",
+      "description": "",
+      "status": "todo",
+      "mode": "checkpoint",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@",
+      "tags": [
+        "writing"
+      ],
+      "weight": "light"
+    }
+  }
+}

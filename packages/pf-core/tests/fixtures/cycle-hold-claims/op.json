@@ -1,0 +1,7 @@
+{
+  "path": "ledger.cycles.hold",
+  "args": [
+    "main",
+    "@node-b@"
+  ]
+}

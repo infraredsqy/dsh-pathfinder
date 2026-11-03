@@ -1,0 +1,8 @@
+{
+  "path": "conductor.close",
+  "args": [
+    {
+      "cycle": "c1"
+    }
+  ]
+}

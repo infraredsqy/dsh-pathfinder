@@ -1,0 +1,22 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "title": "talk",
+      "description": "",
+      "status": "todo",
+      "mode": "manual",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    },
+    "@node-b@": {
+      "title": "next",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    }
+  }
+}

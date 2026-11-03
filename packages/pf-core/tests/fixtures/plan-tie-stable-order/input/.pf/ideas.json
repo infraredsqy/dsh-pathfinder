@@ -1,0 +1,31 @@
+{
+  "nodes": {
+    "@node-b@": {
+      "title": "beta",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    },
+    "@node-a@": {
+      "title": "alpha",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    },
+    "@node-c@": {
+      "title": "gamma",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    }
+  }
+}

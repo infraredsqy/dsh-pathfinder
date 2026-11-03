@@ -1,0 +1,9 @@
+{
+  "path": "ledger.dag.add",
+  "args": [
+    {
+      "title": "新到一卷",
+      "description": "追加进线的说明"
+    }
+  ]
+}

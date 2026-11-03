@@ -44,14 +44,15 @@ dsh plugin --profile <名字> add dsh-pathfinder               # 同一份产物
 
 ```sh
 pnpm install --frozen-lockfile
-npm test                  # 单测；先把 lib/client.js 构建出来，再把它挂进 jsdom
+npm test                  # 单测：先把 lib/client.js 与引擎包构建出来，再跑两套测试
 node tools/css-check.mjs  # 样式层的规矩
 npm pack                  # 打出分发件
 ```
 
-`npm test` 管到三块：模型层、宿主半身、构建出来的浏览器半身——最后那块把 `lib/client.js` 挂到一份内存里
-的记录上、逐格走一遍，控制台里出现一条 error 就算失败。它管不到的那些（真记录下的读数、文案、布局）在
-[docs/publish.md](docs/publish.md) 有一张手动单子；`tools/testbed/` 能起一个隔离的 DSH 实例来走它。
+`npm test` 管到四块：模型层、宿主半身、构建出来的浏览器半身，还有引擎包（`packages/pf-core/`）自己那一套——
+浏览器半身那块把 `lib/client.js` 挂到一份内存里的记录上、逐格走一遍，控制台里出现一条 error 就算失败。
+它管不到的那些（真记录下的读数、文案、布局）在 [docs/publish.md](docs/publish.md) 有一张手动单子；
+`tools/testbed/` 能起一个隔离的 DSH 实例来走它。
 
 仓库的路牌与规矩在 [AGENTS.md](AGENTS.md)。改界面前先读
 [docs/design-principles.md](docs/design-principles.md)，发一版前看

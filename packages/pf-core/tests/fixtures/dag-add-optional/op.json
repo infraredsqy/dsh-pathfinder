@@ -1,0 +1,18 @@
+{
+  "path": "ledger.dag.add",
+  "args": [
+    {
+      "title": "全链彩排",
+      "description": "依赖与标签齐全的登记",
+      "mode": "manual",
+      "tags": [
+        "coding",
+        "review"
+      ],
+      "weight": "light",
+      "depends_on": [
+        "@node-a@"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "path": "config.set",
+  "args": [
+    "test_tier",
+    "minimal",
+    {
+      "project": true
+    }
+  ]
+}

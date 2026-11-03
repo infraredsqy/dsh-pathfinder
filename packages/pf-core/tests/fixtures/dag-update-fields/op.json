@@ -1,0 +1,10 @@
+{
+  "path": "ledger.dag.update",
+  "args": [
+    "@node-b@",
+    {
+      "title": "复核校样·二校",
+      "mode": "manual"
+    }
+  ]
+}

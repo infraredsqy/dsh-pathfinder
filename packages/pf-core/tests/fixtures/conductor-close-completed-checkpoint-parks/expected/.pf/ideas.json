@@ -1,0 +1,14 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "completed_at": "@t3@",
+      "created_at": "@t1@",
+      "dependencies": [],
+      "description": "收线对拍的起点",
+      "mode": "checkpoint",
+      "status": "completed",
+      "title": "checkpoint 上的一格",
+      "updated_at": "@t3@"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "instructions": [
+    {
+      "id": "i-0001",
+      "text": "先跑 typecheck 再交",
+      "scope": "cycle",
+      "target": "stage",
+      "state": "live",
+      "cycle": "cyc",
+      "node": "@node-a@",
+      "said_by": "user",
+      "at": "@t1@",
+      "resolved_at": null,
+      "note": null
+    }
+  ]
+}

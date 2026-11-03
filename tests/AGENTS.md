@@ -10,3 +10,4 @@
 - `model-*.test.mjs` — The model layer: readings computed from the four records, one instant at a time, pure functions
 - `helpers/` — The stand-ins the files share: the workspace-files port, the settings document, the locale service, the slot roster. One copy each; a file needing a narrower face builds it on top
 - `package-surface.test.mjs` — The package face (`files`, exports, `engines`, the patch line) that publishing depends on
+- `engine-inline.test.mjs` — The engine package's way in: it is a workspace package of this repo, no build external names it, and an entry importing it lands in the bundle as code rather than as a package reference. Skips the two legs that need `packages/pf-core/dist` with the reason when it is not built; `npm test` builds it first

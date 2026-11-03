@@ -1,0 +1,18 @@
+{
+  "cycles": [
+    {
+      "id": "c1",
+      "title": "收线对拍线",
+      "status": "active",
+      "holding": [
+        {
+          "id": "@node-a@",
+          "since": "@t1@"
+        }
+      ],
+      "path": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    }
+  ]
+}

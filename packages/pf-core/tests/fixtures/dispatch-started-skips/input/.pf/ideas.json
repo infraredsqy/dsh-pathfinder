@@ -1,0 +1,22 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "title": "first slot",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    },
+    "@node-b@": {
+      "title": "second slot",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    }
+  }
+}

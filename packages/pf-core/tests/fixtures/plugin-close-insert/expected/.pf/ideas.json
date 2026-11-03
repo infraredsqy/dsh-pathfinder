@@ -1,0 +1,28 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "completed_at": "@t4@",
+      "created_at": "@t1@",
+      "dependencies": [],
+      "description": "收尾缝的对拍起点",
+      "mode": "auto",
+      "status": "completed",
+      "title": "被关掉的节点",
+      "updated_at": "@t4@"
+    },
+    "@node-b@": {
+      "created_at": "@t5@",
+      "dependencies": [
+        "@node-a@"
+      ],
+      "description": "\"# Greeter spec\\n\\nInserted by the greeter plugin at the close.\\n\"",
+      "mode": "auto",
+      "status": "todo",
+      "tags": [
+        "demo"
+      ],
+      "title": "Greeter: say hello",
+      "updated_at": "@t6@"
+    }
+  }
+}

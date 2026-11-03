@@ -1,0 +1,17 @@
+{
+  "action": "stop_pipeline",
+  "cycle": "c1",
+  "node_id": "@node-a@",
+  "reason": "this node did not deliver (failed): it broke",
+  "note": "cycle parked; nothing more to do without a human",
+  "attention": [
+    {
+      "kind": "node_shelved",
+      "cycle": "c1",
+      "node_id": "@node-a@",
+      "node_title": "slips",
+      "hint": "dag-manage revive @node-a@ puts it back to todo (shelved → todo), or handle it by hand and restart the cycle"
+    }
+  ],
+  "settling": true
+}

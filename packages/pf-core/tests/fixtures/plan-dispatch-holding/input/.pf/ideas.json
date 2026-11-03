@@ -1,0 +1,13 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "title": "write it",
+      "description": "",
+      "status": "todo",
+      "mode": "checkpoint",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "action": "no_cycle",
+  "cycle": null,
+  "note": "no active cycle. Creating one needs human intent (which nodes, unattended or not); this planner will not invent it.",
+  "known_cycles": []
+}

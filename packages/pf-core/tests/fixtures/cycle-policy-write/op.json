@@ -1,0 +1,8 @@
+{
+  "path": "ledger.cycles.setPolicy",
+  "args": [
+    "main",
+    "parallel",
+    2
+  ]
+}

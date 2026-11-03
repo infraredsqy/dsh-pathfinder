@@ -1,0 +1,10 @@
+{
+  "path": "config.set",
+  "args": [
+    "max_agents",
+    "4",
+    {
+      "project": true
+    }
+  ]
+}

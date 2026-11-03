@@ -1,0 +1,7 @@
+{
+  "path": "conductor.next",
+  "args": [
+    {}
+  ],
+  "expect": "return"
+}

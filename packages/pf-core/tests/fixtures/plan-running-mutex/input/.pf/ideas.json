@@ -1,0 +1,24 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "title": "busy elsewhere",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    },
+    "@node-b@": {
+      "title": "mine",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [
+        "@node-a@"
+      ],
+      "created_at": "@t1@",
+      "updated_at": "@t1@"
+    }
+  }
+}

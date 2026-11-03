@@ -1,0 +1,8 @@
+{
+  "cycle": "main",
+  "node": "@node-a@",
+  "status": "pending",
+  "summary": "Node restarted (previous signal cleared)",
+  "outputs": {},
+  "timestamp": "@t8@"
+}

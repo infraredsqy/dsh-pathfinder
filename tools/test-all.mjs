@@ -1,0 +1,157 @@
+// The one command that runs both suites in this repo.
+//
+//   node tools/test-all.mjs
+//
+// Two suites live here, and this entry runs both — each in its own process on its own runner:
+//
+// - the plugin's own suite: node's test runner over `tests/`, the host half, the model layer and
+//   the built browser half;
+// - the engine's suite: vitest over `packages/pf-core/tests/`, the in-repo engine package's own
+//   suite, with its own test runner and its own dev dependencies.
+//
+// It prints one line per suite plus a total — test files, cases and the wall seconds each took —
+// so a single command answers "both green, how much of each, how long". A failing suite's raw
+// output is kept in `.tmp/test-all/<suite>.log` (gitignored; the path is printed) and its tail is
+// echoed here.
+//
+// `npm test` builds both products first (`tools/build-client.mjs` for the browser half,
+// `pnpm --filter pf-core build` for the engine's own product) because the packaging case in
+// `tests/` drives them; run this file alone and that case skips itself with the reason.
+import { spawn } from 'node:child_process'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = dirname(dirname(fileURLToPath(import.meta.url)))
+const engineDir = join(root, 'packages', 'pf-core')
+const logDir = join(root, '.tmp', 'test-all')
+
+mkdirSync(logDir, { recursive: true })
+
+/** Every `*.test.mjs` under a directory — the set node's runner picks up for the plugin suite. */
+function testFilesUnder(dir) {
+  if (!existsSync(dir)) return []
+  const out = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...testFilesUnder(full))
+    else if (entry.name.endsWith('.test.mjs')) out.push(full)
+  }
+  return out
+}
+
+/**
+ * One child suite: stdout and stderr both land in `logPath` (no pipes are held), and the promise
+ * settles with the exit code and the wall seconds. A child that cannot even start is a failure of
+ * its own kind — the message goes into the log so the tail printed below carries it.
+ */
+function runChild(command, args, cwd, logPath) {
+  return new Promise((resolve) => {
+    const fd = openSync(logPath, 'w')
+    const started = process.hrtime.bigint()
+    const child = spawn(command, args, { cwd, stdio: ['ignore', fd, fd], windowsHide: true })
+    let spawnError
+    child.on('error', (error) => {
+      spawnError = error
+      writeFileSync(fd, `\n${command} could not start: ${error.message}\n`)
+    })
+    child.on('close', (code) => {
+      closeSync(fd)
+      const seconds = Number(process.hrtime.bigint() - started) / 1e9
+      resolve({ code: spawnError === undefined ? code : 1, seconds })
+    })
+  })
+}
+
+/** The vitest the engine package installed, as an entry node can run directly (bin of its manifest). */
+function engineVitestEntry() {
+  const manifestPath = join(engineDir, 'node_modules', 'vitest', 'package.json')
+  if (!existsSync(manifestPath)) return undefined
+  const bin = JSON.parse(readFileSync(manifestPath, 'utf8')).bin?.vitest
+  if (typeof bin !== 'string') return undefined
+  return join(dirname(manifestPath), bin)
+}
+
+/** One number out of the runner's summary, whichever of the two spellings it printed. */
+function summaryNumber(log, name) {
+  const match =
+    new RegExp(`^# ${name}\\s+(\\d+)`, 'mu').exec(log) ??
+    new RegExp(`^\u2139 ${name}\\s+(\\d+)`, 'mu').exec(log)
+  return match === null ? undefined : Number(match[1])
+}
+
+function tailOf(path, lines = 60) {
+  const text = readFileSync(path, 'utf8').split(/\r?\n/u)
+  return text.slice(Math.max(0, text.length - lines)).join('\n')
+}
+
+const total = { files: 0, cases: 0, seconds: 0 }
+const failures = []
+
+/** Report one suite's readings, in the shape all three lines share. */
+function report(label, detail, readings) {
+  const cells = [`${String(readings.files).padStart(4)} files`, `${String(readings.cases).padStart(4)} cases`, `${readings.seconds.toFixed(2).padStart(6)}s`]
+  console.log(`${label.padEnd(13)} ${detail.padEnd(42)} ${cells.join('  ')}`)
+  total.files += readings.files
+  total.cases += readings.cases
+  total.seconds += readings.seconds
+}
+
+// The plugin suite: node's own runner over tests/, TAP on stdout so the summary lines are readable
+// whether or not the console is a terminal.
+const pluginLog = join(logDir, 'plugin.log')
+const pluginFiles = testFilesUnder(join(root, 'tests'))
+const pluginRun = await runChild(
+  process.execPath,
+  ['--test', '--test-reporter=tap', 'tests/'],
+  root,
+  pluginLog,
+)
+const pluginText = readFileSync(pluginLog, 'utf8')
+report('plugin suite', 'node --test tests/', {
+  files: pluginFiles.length,
+  cases: summaryNumber(pluginText, 'tests') ?? 0,
+  seconds: pluginRun.seconds,
+})
+if (pluginRun.code !== 0) failures.push(['plugin suite', pluginLog])
+
+// The engine suite: the package's own vitest, run from the package so its config and its
+// node_modules answer; the JSON reporter writes the case counts beside the run, and the default
+// reporter writes the human-readable one — the failing case and its reason — into the log echoed
+// below, so a red engine suite names what broke here rather than only in the JSON file.
+const engineLog = join(logDir, 'engine.log')
+const engineJson = join(logDir, 'engine.json')
+const vitest = engineVitestEntry()
+let engineReadings = { files: 0, cases: 0 }
+let engineCode = 1
+if (vitest === undefined) {
+  writeFileSync(engineLog, `packages/pf-core/node_modules/vitest is missing: run pnpm install first.\n`)
+} else {
+  const engineRun = await runChild(
+    process.execPath,
+    // Two reporters: `default` for the failure detail, `json` for the counts; `.json=` scopes the
+    // output file to the JSON one alone, so the default reporter keeps printing to stdout.
+    [vitest, 'run', '--reporter=default', '--reporter=json', `--outputFile.json=${engineJson}`],
+    engineDir,
+    engineLog,
+  )
+  engineCode = engineRun.code
+  const json = existsSync(engineJson) ? JSON.parse(readFileSync(engineJson, 'utf8')) : undefined
+  engineReadings = {
+    files: Array.isArray(json?.testResults) ? json.testResults.length : 0,
+    cases: typeof json?.numTotalTests === 'number' ? json.numTotalTests : 0,
+  }
+  report('engine suite', 'vitest run (packages/pf-core/', { ...engineReadings, seconds: engineRun.seconds })
+  if (engineRun.code !== 0) failures.push(['engine suite', engineLog])
+}
+if (vitest === undefined) {
+  report('engine suite', 'vitest run (packages/pf-core/', { ...engineReadings, seconds: 0 })
+  failures.push(['engine suite', engineLog])
+}
+
+report('both suites', '', { ...total })
+
+for (const [label, logPath] of failures) {
+  console.error(`\n----- ${label} failed; raw output kept in ${logPath} -----\n${tailOf(logPath)}`)
+}
+process.exitCode = pluginRun.code === 0 && engineCode === 0 ? 0 : 1

@@ -1,0 +1,9 @@
+{
+  "action": "stop_pipeline",
+  "cycle": "c1",
+  "node_id": null,
+  "reason": "the DAG has no ready node left",
+  "note": "cycle parked; nothing more to do without a human",
+  "attention": [],
+  "settling": true
+}

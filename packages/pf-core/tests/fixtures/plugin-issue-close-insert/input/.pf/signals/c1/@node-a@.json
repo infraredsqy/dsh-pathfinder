@@ -1,0 +1,14 @@
+{
+  "cycle": "c1",
+  "node": "@node-a@",
+  "status": "completed",
+  "summary": "delivered",
+  "outputs": {
+    "deliverable": ".pf/nodes/@node-a@/pf-conduct.md",
+    "acceptance": [
+      "the round is delivered"
+    ],
+    "touched": []
+  },
+  "timestamp": "@t3@"
+}

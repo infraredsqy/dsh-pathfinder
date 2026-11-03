@@ -1,0 +1,7 @@
+{
+  "path": "ledger.dag.setStatus",
+  "args": [
+    "@node-a@",
+    "todo"
+  ]
+}
