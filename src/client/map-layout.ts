@@ -580,7 +580,7 @@ export function wirePath(from: Point, to: Point): string {
  * picked up yet in the middle (it is still the future this line may lead to), everything else dim.
  */
 export interface Emphasis {
-  /** Full ink: the focus's ring, or every card the picked line has touched. */
+  /** Full ink: the focus's ring, or every card the picked line has touched — the one in its hand included. */
   readonly lit: ReadonlySet<string>
   /** One step down: cards no line has picked up yet. Empty unless a line is picked. */
   readonly ahead: ReadonlySet<string>
@@ -612,8 +612,12 @@ export function emphasisOf(placement: Placement, focus: string | null, scope: st
   const lit = new Set<string>()
   const ahead = new Set<string>()
   for (const node of placement.drawn) {
-    if (node.cycleIds.includes(scope)) lit.add(node.id)
-    else if (node.cycleIds.length === 0 && node.id !== focus) ahead.add(node.id)
+    /* The line's own cards include the one it holds: a hold has not landed in `cycleIds` yet (that
+     * one records the steps already walked), so reading `cycleIds` alone would send the running
+     * card to the frameless rank until someone presses it. `ahead` stays "no line has picked up
+     * yet": a card in another line's hand is spoken for, not this line's future. */
+    if (node.cycleIds.includes(scope) || node.heldBy.includes(scope)) lit.add(node.id)
+    else if (node.cycleIds.length === 0 && node.heldBy.length === 0 && node.id !== focus) ahead.add(node.id)
   }
   if (focus !== null && placement.pos[focus] !== undefined) lit.add(focus)
   return { lit, ahead }

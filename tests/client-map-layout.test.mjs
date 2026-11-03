@@ -323,6 +323,26 @@ test('上墨：选中一条线，线上的全亮，没有线的低一档，别�
   assert.ok(emphasisOf(placement, 'mine', null).lit.has('gate'), '退回全局，人闸又回到墨里')
 })
 
+test('上墨：线正握着的格子随这条线亮，握在别的线手里的不算未来', () => {
+  const reading = readingOf({
+    nodes: {
+      inhand: node(),
+      elsewhere: node(),
+      future: node(),
+    },
+    cycles: [
+      { id: 'w', holding: ['inhand'] },
+      { id: 'v', holding: ['elsewhere'] },
+    ],
+  })
+  const placement = place({ nodes: reading.nodes, edges: reading.graph.edges })
+  const emphasis = emphasisOf(placement, 'future', 'w')
+
+  assert.ok(emphasis.lit.has('inhand'), '线手里那一格是这条线自己的活：在墨里，戴着它的框')
+  assert.ok(!emphasis.ahead.has('inhand'), '手里那一格不是这条线的未来')
+  assert.ok(!emphasis.lit.has('elsewhere') && !emphasis.ahead.has('elsewhere'), '别的线握着的格子，两档都不占')
+})
+
 test('全览：整张图放进视口，小的那一边留出余量，图上屏是居中的', () => {
   const placement = grid(6, 3)
   const size = { w: 1200, h: 760 }
