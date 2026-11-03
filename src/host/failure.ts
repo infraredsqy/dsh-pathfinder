@@ -31,6 +31,12 @@ export type PfRefusalCode =
   | 'scope-unknown'
   /** An empty verbatim sentence: nothing to record. */
   | 'empty-text'
+  /** The host exposes no session side for a native open; `detail` names the missing piece (`sessions` / `agents`). */
+  | 'no-session-service'
+  /** The plan's launch prompt for this cell is not in the record store (or holds no line). */
+  | 'prompt-missing'
+  /** The open did not complete; `detail` carries what went wrong, verbatim. */
+  | 'open-failed'
 
 /** A refusal: which one, plus the untranslatable detail that goes with it. */
 export interface PfRefusal {

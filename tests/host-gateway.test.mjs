@@ -19,7 +19,7 @@ import { join } from 'node:path'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
 import { absentError, readPage } from './helpers/workspace-files-port.mjs'
 
-/** The eight endpoints, matching the table in `gateway.ts`. */
+/** The nine endpoints, matching the table in `gateway.ts`. */
 const ENDPOINTS = [
   'read',
   'addInstruction',
@@ -29,6 +29,7 @@ const ENDPOINTS = [
   'readConfig',
   'setConfig',
   'readSessions',
+  'openNodeSession',
 ]
 
 const wired = await Promise.all([

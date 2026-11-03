@@ -105,6 +105,9 @@ export const zh = {
   'cycle.blocked': '阻塞',
   'cycle.running': '运行中',
   'cycle.stopped': '停止',
+  /* The one action a ready cell carries: the host opens the session itself, the plan's first
+   * instruction goes in verbatim. */
+  'node.open': '开会话',
 
   /* ── The instruction ledger ───────────────────────────────────────────────────────────────── */
   'notes.scroll.aria': '用户指令',
@@ -220,6 +223,9 @@ export const zh = {
   'failure.spawn-failed': '{detail}',
   'failure.scope-unknown': '无法识别的范围：{detail}',
   'failure.empty-text': '空话不落笔：先写一句原话。',
+  'failure.no-session-service': '这个宿主没有 {detail} 服务，开不了会话。',
+  'failure.prompt-missing': '这一格的派发提示不在记录里（{detail}）：先派发，再开会话。',
+  'failure.open-failed': '会话没有开成：{detail}',
   'failure.no-operation': '这条通道上没有 {detail} 这个操作。',
   'failure.not-connected': '该部署未连接寻路记录服务，无法读取记录。',
   'failure.no-write-channel': '该部署没有可用的写入通道。',

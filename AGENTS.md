@@ -6,7 +6,7 @@
 
 - `src/client/styles/` — The panel's own sheets, in the shape they ship in: every selector already carries its layer class. The single source of the panel's look; read before changing the layout
 - `design/` — Gitignored local snapshot of the design blueprint: page-shaped sheets, the four pages, their data, and the two generators that refresh it (`design/tools/`). Its pages link `tools/theme.css`. Read when redrawing the look by hand
-- `src/` — Host half, model layer, and browser half: how records are read in, how readings are computed, how the panel is drawn (see `src/AGENTS.md`). Read when changing data fetching or the UI
+- `src/` — Host half, model layer, and browser half: how records are read in, how readings are computed, how the panel is drawn, how a node's session is opened (see `src/AGENTS.md`). Read when changing data fetching, the session opener, or the UI
 - `tests/` — Unit tests; `npm test` runs them and the engine package's own suite in one command (see `tests/AGENTS.md`)
 - `tools/` — Where records come from, how artifacts are built, how the testbed starts (see `tools/AGENTS.md`)
 - `docs/` — This repo's law (read before touching the UI) and publishing practice (see `docs/AGENTS.md`)

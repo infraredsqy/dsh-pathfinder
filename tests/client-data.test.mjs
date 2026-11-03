@@ -18,7 +18,7 @@ import { createPanelPort } from '../src/client/data.ts'
 function fakeNamespace(answer = { ok: true, value: { workspaceRoot: 'C:\\ws' } }) {
   const calls = []
   const namespace = {}
-  for (const method of ['read', 'readSessions', 'addInstruction', 'archiveInstruction', 'reviveInstruction', 'removeInstruction', 'readConfig', 'setConfig']) {
+  for (const method of ['read', 'readSessions', 'addInstruction', 'archiveInstruction', 'reviveInstruction', 'removeInstruction', 'readConfig', 'setConfig', 'openNodeSession']) {
     namespace[method] = async (...values) => {
       calls.push({ method, values })
       return answer
@@ -154,6 +154,28 @@ test('会话笔记那一条：端点叫 readSessions(sessionId, 工作区根)，
   const reading = await port.readSessions('s1', 'C:\\picked')
   assert.deepEqual(reading.notes, { 'n-1.json': '{"run":[]}' })
   assert.deepEqual(calls, [{ method: 'readSessions', values: ['s1', 'C:\\picked'] }])
+})
+
+test('开会话那一条口子：端点叫 openNodeSession，线与格子按位置递出去；回执不往字面上摆', async () => {
+  const { calls, namespace } = fakeNamespace({ ok: true, value: { ok: true, session: 'session-minted' } })
+  const port = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? namespace : undefined) })
+
+  const outcome = await port.openNodeSession('s1', 'C:\\picked', 'panel-to-plugin', 'n1')
+
+  assert.equal(outcome.ok, true)
+  assert.equal(outcome.text, '', '回执里的会话身份是导航用的地址，不进阅读流')
+  assert.deepEqual(calls, [{
+    method: 'openNodeSession',
+    values: ['s1', 'C:\\picked', 'panel-to-plugin', 'n1'],
+  }])
+
+  const refused = fakeNamespace({ ok: false, error: { code: 'prompt-missing', message: '' } })
+  const other = createPanelPort({ get: (name) => (name === 'remote.pathfinderRecords' ? refused.namespace : undefined) })
+  assert.deepEqual(
+    await other.openNodeSession('s1', '', 'c1', 'n1'),
+    { ok: false, code: 'prompt-missing' },
+    '宿主那半的拒绝码原样穿过来，由 panel 拼成话',
+  )
 })
 
 test('命名空间没装上：退到载体那一层，端点与参数都指名道姓', async () => {

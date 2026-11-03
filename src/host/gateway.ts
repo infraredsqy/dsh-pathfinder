@@ -17,6 +17,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { bindTypertRemote, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import type { TypertGatewayBinding } from '@deepseek-ai/dsh-typert-protocol'
 import type { PathfinderReading, PathfinderReadOptions, PathfinderRecords } from './contract.ts'
+import { openNodeSession, type SessionOpenOutcome } from './executor.ts'
 import type { PfOutcome } from './failure.ts'
 import { parseConfigList, type PathfinderConfigReading } from './project-config.ts'
 import { readReading } from './records.ts'
@@ -39,6 +40,7 @@ const REMOTE_METHODS: readonly string[] = [
   'readConfig',
   'setConfig',
   'readSessions',
+  'openNodeSession',
 ]
 
 /**
@@ -246,6 +248,28 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   async readSessions(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderSessionsReading> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
     return readSessionNotes(this.ctx.workspaceFiles, { sessionId, workspaceRoot: root }, options?.signal ?? NEVER_ABORT)
+  }
+
+  /**
+   * Open, natively, the session that works one node: the host's own session
+   * service creates it in the named workspace, the plan's launch prompt goes
+   * in as the first instruction, and the opening round is waited out before
+   * this answers. The receipt is an address, not a reading: nothing here is
+   * shown to a reader as-is.
+   *
+   * The workspace-touching steps (create, note) run one at a time per
+   * workspace — two opens on one workspace never race their sessions or
+   * their notes. A host without its session side is refused up front, with
+   * the missing piece named. The parameter list stays on one line with no
+   * trailing comma, same reason as `read`; `options` (the cancel signal) is
+   * in-process only, the same way `readSessions` takes it.
+   * @param workspaceRoot - The workspace to open the session in, absolute; an empty string means this session's own root.
+   * @param cycle - Which line this cell sits on, by line id.
+   * @param node - Which node to open the session for, by node id.
+   */
+  async openNodeSession(sessionId: SessionId, workspaceRoot: string, cycle: string, node: string, options?: PathfinderReadOptions): Promise<SessionOpenOutcome> {
+    const root = await rootFor(this.ctx, sessionId, workspaceRoot)
+    return openNodeSession(this.ctx, sessionId, root, cycle, node, options)
   }
 
   /**

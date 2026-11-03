@@ -4,7 +4,9 @@
  * between sidebar and body.
  *
  * Picking a line and moving the split are both handed back to the shell (`onPickLine` /
- * `onSideWidth` / `onSideCommit`); writing back to the settings document is the shell's job.
+ * `onSideWidth` / `onSideCommit`); writing back to the settings document is the shell's job. The
+ * shell also says which cell's open-session write is in flight (`openingNode`): that cell's own
+ * action stands disabled until the write settles.
  */
 import * as React from 'react'
 import type { CycleReading, DetailGroupKey, NodeReading, ProjectReading } from '../model/index.ts'
@@ -43,8 +45,8 @@ const SPLIT_STEP = 16
 /**
  * The full layout of the detail pane: the line sidebar, the split, and the body.
  * @param props - Visibility, whether to collapse to one sentence, the record's lines with the
- *   picked one, the reading at this moment, the split width with its two write-backs, and where
- *   the pick-line action goes.
+ *   picked one, the reading at this moment, the split width with its two write-backs, where
+ *   the pick-line action goes, and where the open-a-session action on a ready cell goes.
  */
 export function DetailPane(props: {
   readonly active: boolean
@@ -56,6 +58,9 @@ export function DetailPane(props: {
   readonly onSideWidth: (px: number) => void
   readonly onSideCommit: (px: number) => void
   readonly onPickLine: (id: string) => void
+  readonly onOpenNode: (nodeId: string) => void
+  /** The cell whose open-session write is in flight; its own action stands disabled meanwhile. */
+  readonly openingNode: string | null
 }): React.ReactElement {
   const t = useT()
   return (
@@ -100,7 +105,7 @@ export function DetailPane(props: {
         />
         <div className="pf-linemain">
           <div className="pf-scroll" role="region" aria-label={t('view.detail')} tabIndex={0}>
-            {props.picked === null ? null : <DetailList cycle={props.picked} project={props.project as ProjectReading} />}
+            {props.picked === null ? null : <DetailList cycle={props.picked} project={props.project as ProjectReading} onOpenNode={props.onOpenNode} openingNode={props.openingNode} />}
           </div>
         </div>
       </div>
@@ -110,7 +115,7 @@ export function DetailPane(props: {
 }
 
 /** Detail: the picked line's node list, grouped into five sections. */
-function DetailList(props: { readonly cycle: CycleReading; readonly project: ProjectReading }): React.ReactElement {
+function DetailList(props: { readonly cycle: CycleReading; readonly project: ProjectReading; readonly onOpenNode: (nodeId: string) => void; readonly openingNode: string | null }): React.ReactElement {
   const { cycle, project } = props
   const at = project.at
   return (
@@ -118,14 +123,14 @@ function DetailList(props: { readonly cycle: CycleReading; readonly project: Pro
       {GROUPS.map((group) => {
         const list = nodesOf(group.key, cycle, project)
         if (list.length === 0) return null
-        return <DetailGroup key={group.key} group={group} nodes={list} at={at} />
+        return <DetailGroup key={group.key} group={group} nodes={list} at={at} onOpenNode={props.onOpenNode} openingNode={props.openingNode} />
       })}
     </React.Fragment>
   )
 }
 
 /** A section's header and the rows under it. */
-function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[]; readonly at: Date }): React.ReactElement {
+function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[]; readonly at: Date; readonly onOpenNode: (nodeId: string) => void; readonly openingNode: string | null }): React.ReactElement {
   const { group } = props
   const t = useT()
   const [folded, setFolded] = React.useState(false)
@@ -146,7 +151,18 @@ function DetailGroup(props: { readonly group: Group; readonly nodes: readonly No
         <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(t, node, props.at)}>
           <StateMark node={node} at={props.at} />
           <span className="pf-rowtitle" title={nodeHover(node)}>{nodeName(node)}</span>
-          <span className="pf-rowfigs">{group.deps ? <DepsChip node={node} /> : null}</span>
+          <span className="pf-rowfigs">
+            {group.deps ? <DepsChip node={node} /> : null}
+            {/* The one cell a session can be opened for is a ready one: the other sections say their
+                own states and carry no action. The figs column is the row's own room for it — ready
+                rows owe nothing, so the cell stands empty until this action fills it. While this
+                cell's own open is in flight the action stands disabled until the write settles
+                (settling takes the model minutes, and a second click would open a second session
+                on the same cell). */}
+            {group.key === 'ready' ? (
+              <button type="button" className="pf-mini" disabled={props.openingNode === node.id} onClick={() => props.onOpenNode(node.id)}>{t('node.open')}</button>
+            ) : null}
+          </span>
           {/* The section already says its own gate kind: a node gated that same way adds no second
               badge here. Both sides are the structured kind — a gate's kind against the section's. */}
           {node.gate !== null && node.gate.kind !== group.key

@@ -142,6 +142,11 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const [note, setNote] = React.useState<Note | null>(null)
   const [lineId, setLineId] = React.useState<string | null>(null)
   const [deleting, setDeleting] = React.useState<InstructionReading | null>(null)
+  /* The cell whose open-session write is in flight: that cell's own action stands disabled until
+   * the write settles, success or refusal alike — settling a round takes the model minutes, and a
+   * second click inside that window would open a second session on the same cell. The
+   * per-workspace queue serializes opens; this gate is the cell's own completeness. */
+  const [openingNode, setOpeningNode] = React.useState<string | null>(null)
 
   /* Fetching: read once on the pass this view becomes visible; again when the workspace changes or
    * after a write lands (`tick` is that pass's marker). */
@@ -362,6 +367,12 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             onSideWidth={setSideWidth}
             onSideCommit={(px) => keep(PANEL_PREF_FIELDS.sideWidth, clampSide(px))}
             onPickLine={setLineId}
+            openingNode={openingNode}
+            onOpenNode={(nodeId) => {
+              if (picked === null || openingNode === nodeId) return
+              setOpeningNode(nodeId)
+              void onWrite(() => port.openNodeSession(sessionId ?? '', workspaceRoot, picked.id, nodeId)).finally(() => setOpeningNode(null))
+            }}
           />
 
           <NotesPane

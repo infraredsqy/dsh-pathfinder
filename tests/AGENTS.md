@@ -6,7 +6,7 @@
 
 - `client-render.test.mjs` — The built `lib/client.js` over the in-memory port: the shell gets its spec, the panel mounts, every pane its tabs point at opens, the console stays clean. Skips itself with the reason when the bundle is not built; `npm test` builds it first
 - `client-mount.test.mjs` — The two seats and the settings section: registration, the label function, unmount discipline, the language port
-- `host-*.test.mjs` — The host half: the four sources, paging refusals, the writes' command lines, the package's plugin line
+- `host-*.test.mjs` — The host half: the four sources, paging refusals, the writes' command lines, the session opener's flow, the package's plugin line
 - `model-*.test.mjs` — The model layer: readings computed from the four records, one instant at a time, pure functions
 - `helpers/` — The stand-ins the files share: the workspace-files port, the settings document, the locale service, the slot roster. One copy each; a file needing a narrower face builds it on top
 - `package-surface.test.mjs` — The package face (`files`, exports, `engines`, the patch line) that publishing depends on

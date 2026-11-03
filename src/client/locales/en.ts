@@ -88,6 +88,7 @@ export const en: Readonly<Record<WordKey, string>> = {
   'cycle.blocked': 'Blocked',
   'cycle.running': 'In service',
   'cycle.stopped': 'Stopped',
+  'node.open': 'Open session',
 
   /* ── The instruction ledger ───────────────────────────────────────────────────────────────── */
   'notes.scroll.aria': 'User instructions',
@@ -194,6 +195,9 @@ export const en: Readonly<Record<WordKey, string>> = {
   'failure.spawn-failed': '{detail}',
   'failure.scope-unknown': 'Unrecognized scope: {detail}',
   'failure.empty-text': 'Nothing to record: write the sentence first.',
+  'failure.no-session-service': 'This host exposes no {detail} service, so no session can be opened.',
+  'failure.prompt-missing': 'The dispatch prompt for this cell is not in the record ({detail}): dispatch first, then open a session.',
+  'failure.open-failed': 'The session did not open: {detail}',
   'failure.no-operation': 'This channel has no {detail} operation.',
   'failure.not-connected': 'This deployment is not connected to the Pathfinder record service, so records cannot be read.',
   'failure.no-write-channel': 'This deployment has no usable write channel.',

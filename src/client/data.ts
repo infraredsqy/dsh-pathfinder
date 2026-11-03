@@ -14,6 +14,7 @@ import type { PathfinderReading } from '../host/contract.ts'
 import type { PathfinderConfigReading } from '../host/project-config.ts'
 import type { PathfinderSessionsReading } from '../host/sessions.ts'
 import type { InstructionScope } from '../host/gateway.ts'
+import type { SessionOpenOutcome } from '../host/executor.ts'
 import { RefusedError, type Failure, type FailureCode, type Outcome } from './failure.ts'
 
 /** The namespace, named after the host-half service key. */
@@ -54,6 +55,8 @@ export interface PanelPort {
   readConfig(sessionId: string, workspaceRoot: string): Promise<PathfinderConfigReading>
   /** Write one project setting; it always lands on this project's layer. */
   setConfig(sessionId: string, workspaceRoot: string, key: string, value: string): Promise<Outcome>
+  /** Open, on the host, the session that works one node of one line: the plan's prompt goes in as the first instruction. */
+  openNodeSession(sessionId: string, workspaceRoot: string, cycle: string, node: string): Promise<Outcome>
 }
 
 /** What one endpoint call yields before the two branches are unfolded: the value, or why not. */
@@ -142,6 +145,7 @@ const REMOTE_PARAM_ORDER: Readonly<Record<string, readonly string[]>> = {
   removeInstruction: ['sessionId', 'workspaceRoot', 'id'],
   readConfig: ['sessionId', 'workspaceRoot'],
   setConfig: ['sessionId', 'workspaceRoot', 'key', 'value'],
+  openNodeSession: ['sessionId', 'workspaceRoot', 'cycle', 'node'],
 }
 
 /** The arguments this endpoint call receives: laid out per the parameter table; keys absent from it are dropped. */
@@ -204,6 +208,11 @@ function portFromCall(source: PanelPort['source'], call: PortCall): PanelPort {
       const answer = await call<Outcome>('setConfig', { sessionId, workspaceRoot, key, value })
       return answer.ok ? answer.value : refused(answer.failure)
     },
+    async openNodeSession(sessionId, workspaceRoot, cycle, node) {
+      const answer = await call<SessionOpenOutcome>('openNodeSession', { sessionId, workspaceRoot, cycle, node })
+      /* The receipt's session id is an address for navigation, not a word the panel shows: a landed open says nothing on the note line, and the re-read that follows shows the session where it belongs. */
+      return answer.ok ? { ok: true, text: '' } : refused(answer.failure)
+    },
   }
 }
 
@@ -250,7 +259,7 @@ function absentPort(): PanelPort {
     throw new RefusedError({ code: 'not-connected' })
   }
   const refusedWrite = async (): Promise<Outcome> => ({ ok: false, code: 'no-write-channel' })
-  return { source: 'none', read: missing, readSessions: missing, say: refusedWrite, write: refusedWrite, readConfig: missing, setConfig: refusedWrite }
+  return { source: 'none', read: missing, readSessions: missing, say: refusedWrite, write: refusedWrite, readConfig: missing, setConfig: refusedWrite, openNodeSession: refusedWrite }
 }
 
 /**
@@ -293,6 +302,9 @@ const KNOWN_CODES = {
   'spawn-failed': true,
   'scope-unknown': true,
   'empty-text': true,
+  'no-session-service': true,
+  'prompt-missing': true,
+  'open-failed': true,
   'no-operation': true,
   'not-connected': true,
   'no-write-channel': true,
