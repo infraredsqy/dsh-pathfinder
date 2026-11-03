@@ -441,20 +441,46 @@ function rootOf(dir: string | undefined, fallback: string): string {
 
 // ── reading: layer by layer from the bottom ─────────────────────────────────
 
+/**
+ * Where the knobs a plugin declares come in from: a table the caller already read (the package entry for one
+ * call reads the plugin folder once and hands the same copy to every reader in that call), or a reader that
+ * goes and gets them for the directory being asked. The handle uses the reader: `open` keeps no plugin table
+ * of its own, so the folder on disk is the answer on the call that asks, exactly as it is for every other
+ * reader of a declaration.
+ */
+export interface DeclaredKnobSource {
+  /** The knobs a plugin declares, merged into the built-in list (a built-in name keeps its own cell). */
+  readonly declaredKnobs?: Readonly<Record<string, KnobSpec>>;
+  /** The same table, read for the project being asked when the caller holds none. */
+  readonly declaredKnobsOf?: (root: string) => Promise<Readonly<Record<string, KnobSpec>>>;
+}
+
 /** The context of `resolveConfig`: the line and node layers enter the reading only when named; home and plugin declarations go the same way as in the namespace. */
-export interface ConfigResolutionOptions {
+export interface ConfigResolutionOptions extends DeclaredKnobSource {
   readonly cycle?: string;
   readonly node?: string;
   readonly homeDir?: string;
-  readonly declaredKnobs?: Readonly<Record<string, KnobSpec>>;
 }
 
-/** The own options taken when assembling the namespace: where home is shut in, which plugin declarations are merged (not on the frozen surface). */
-export interface ConfigNamespaceOptions {
+/** The own options taken when assembling the namespace: where home is shut in, where the plugin declarations come from (not on the frozen surface). */
+export interface ConfigNamespaceOptions extends DeclaredKnobSource {
   /** The home of the machine layer (`<home>/.pf/config.json`); this machine's user home directory by default, which tests shut into a temporary directory. */
   readonly homeDir?: string;
-  /** The knobs a plugin declares, merged into the built-in list (a built-in name keeps its own cell); the plugin node is wired up from here. */
-  readonly declaredKnobs?: Readonly<Record<string, KnobSpec>>;
+}
+
+/**
+ * The merged settings list of one project: the built-ins plus the knobs the plugins of that project declare.
+ * An explicit table wins; otherwise the reader is asked with the directory this call was pointed at, so a verb
+ * pointed at another project reads that project's declarations (and a handle opened where no plugin directory
+ * is reads an empty list, the same way it would read no folders).
+ */
+async function specsFor(
+  root: string,
+  options: DeclaredKnobSource,
+): Promise<Record<string, KnobSpec>> {
+  if (options.declaredKnobs !== undefined) return knobSpecs(options.declaredKnobs);
+  if (options.declaredKnobsOf !== undefined) return knobSpecs(await options.declaredKnobsOf(root));
+  return knobSpecs();
 }
 
 /**
@@ -588,9 +614,10 @@ async function chainValues(
   options: ConfigResolutionOptions,
   narrow: { readonly cycle?: string; readonly node?: string },
   wide: readonly ConfigLayerName[] = ['global', 'project'],
+  resolved?: Record<string, KnobSpec>,
 ): Promise<Record<string, ConfigReading>> {
   const paths = pfPaths(root);
-  const specs = knobSpecs(options.declaredKnobs);
+  const specs = resolved ?? (await specsFor(root, options));
   const out: Record<string, ConfigReading> = {};
   for (const [key, spec] of Object.entries(specs)) {
     out[key] = { value: defaultOf(spec, root), source: 'builtin' };
@@ -713,17 +740,17 @@ function layerPathOf(paths: PfPaths, point: LayerPoint, options: ConfigNamespace
 
 /**
  * The one gate of writing: the name is on the list, this layer takes it, the line or node it points at
- * exists, the value matches the kind — only all four open the way to a location.
+ * exists, the value matches the kind — only all four open the way to a location. The merged list is worked
+ * out once per call and handed in, so the name's kind and the layers it takes are read off one table.
  */
 async function validated(
   root: string,
   key: string,
   value: ConfigValue | null,
   point: LayerPoint,
-  options: ConfigNamespaceOptions,
+  specs: Readonly<Record<string, KnobSpec>>,
 ): Promise<{ spec: KnobSpec; stored: ConfigValue | null }> {
   const paths = pfPaths(root);
-  const specs = knobSpecs(options.declaredKnobs);
   const spec = knobOf(specs, key);
   if (spec === undefined) {
     throw new PfError(
@@ -797,16 +824,17 @@ async function landWrite(
 
 // ── the namespace ───────────────────────────────────────────────────────────
 
-/** Assemble the config namespace (the real implementation; home and plugin declarations are taken from its own options, and the frozen surface does not change). */
+/** Assemble the config namespace (the real implementation; home and the source of the plugin declarations are taken from its own options, and the frozen surface does not change). */
 export function createConfigNamespace(
   root: string,
   options: ConfigNamespaceOptions = {},
 ): ConfigNamespace {
-  const specsOf = (): Record<string, KnobSpec> => knobSpecs(options.declaredKnobs);
+  // The merged list is worked out once per call and handed down: a caller that has a table or a reader is
+  // asked one time, and every reader of the name's kind, layers and default looks at the same copy.
+  const specsHere = (rootHere: string): Promise<Record<string, KnobSpec>> => specsFor(rootHere, options);
 
   /** The refusal of a name that is not on the list; its location is the project layer of the directory the verb was pointed at. */
-  const unknownKey = (key: string, rootHere: string): PfError => {
-    const specs = specsOf();
+  const unknownKey = (key: string, rootHere: string, specs: Readonly<Record<string, KnobSpec>>): PfError => {
     return new PfError(
       'unknown_key',
       pfPaths(rootHere).configJson,
@@ -829,10 +857,11 @@ export function createConfigNamespace(
   return {
     get: async (key: string, at?: ConfigLayer, dir?: string) => {
       const rootHere = rootOf(dir, root);
+      const specs = await specsHere(rootHere);
       // The key side is an own-property question too: a name every object inherits is not a setting,
       // and answering it would hand back a function where `{ value, source }` belongs.
-      const spec = knobOf(specsOf(), key);
-      if (spec === undefined) throw unknownKey(key, rootHere);
+      const spec = knobOf(specs, key);
+      if (spec === undefined) throw unknownKey(key, rootHere, specs);
       const point = at === undefined || at === null ? undefined : layerPointOf(at, 'get');
       if (point !== undefined && !acceptedLayers(spec).includes(point.layer)) {
         throw new PfError(
@@ -843,21 +872,23 @@ export function createConfigNamespace(
       }
       await resolveReadNode(point, rootHere);
       const chain = chainUpTo(point);
-      const readings = await chainValues(rootHere, options, chain.narrow, chain.wide);
+      const readings = await chainValues(rootHere, options, chain.narrow, chain.wide, specs);
       return readings[key]!;
     },
 
     set: async (key: string, value: ConfigValue, at: ConfigLayer, dir?: string) => {
       const rootHere = rootOf(dir, root);
       const point = layerPointOf(at, 'set');
-      const { stored } = await validated(rootHere, key, value, point, options);
+      const specs = await specsHere(rootHere);
+      const { stored } = await validated(rootHere, key, value, point, specs);
       await landWrite(pfPaths(rootHere), point, key, stored, options);
     },
 
     unset: async (key: string, at: ConfigLayer, dir?: string) => {
       const rootHere = rootOf(dir, root);
       const point = layerPointOf(at, 'unset');
-      await validated(rootHere, key, null, point, options);
+      const specs = await specsHere(rootHere);
+      await validated(rootHere, key, null, point, specs);
       await landWrite(pfPaths(rootHere), point, key, null, options);
     },
 
@@ -866,7 +897,7 @@ export function createConfigNamespace(
       const point = at === undefined || at === null ? undefined : layerPointOf(at, 'list');
       await resolveReadNode(point, rootHere);
       const chain = chainUpTo(point);
-      return chainValues(rootHere, options, chain.narrow, chain.wide);
+      return chainValues(rootHere, options, chain.narrow, chain.wide, await specsHere(rootHere));
     },
   };
 }

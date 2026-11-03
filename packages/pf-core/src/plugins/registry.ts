@@ -694,6 +694,34 @@ function defaultFits(kind: ConfigKind, stated: unknown, values: readonly string[
 }
 
 /**
+ * One declared knob cell folded into a settings cell, or null when it cannot be honoured: the kind is
+ * outside the four, or the stated default is not of its own kind. The one gate both the merged table and
+ * the listing go through, so the two never disagree about which cells are really knobs.
+ */
+function knobSpecOf(raw: unknown): KnobSpec | null {
+  const cell = cellOf(raw);
+  if (cell === null) return null;
+  const kind = cell.kind;
+  if (!isKnownKind(kind)) return null;
+  const values = wordsCell(cell.values);
+  // A default that is not of its own kind cannot be honoured: the cell stays out of the list, so no
+  // settings verb and no dispatch ever runs into it (doctor reports it in `declarationProblems`).
+  if (!defaultFits(kind, cell.default, values)) return null;
+  const spec: KnobSpec & { values?: readonly string[]; layers?: readonly ConfigLayerName[] } = {
+    kind,
+    // Every cell states its default (an absent one is a declaration problem, so such a cell never
+    // gets here); `null` is the plugin door's "no factory value at all": the setting is only in
+    // force once some layer states it (see the defaults rule of `src/config.ts`).
+    default: cell.default as ConfigValue | null,
+    summary: typeof cell.summary === 'string' ? cell.summary : '',
+  };
+  if (values !== undefined) spec.values = values;
+  const layers = layerCell(cell.layers);
+  if (layers !== null) spec.layers = layers;
+  return spec;
+}
+
+/**
  * The declared knobs, merged into one table in folder order: on a name collision the first one is kept,
  * and a broken cell does not enter. A broken cell is a declaration problem, so the plugin it belongs to
  * is not usable and takes no part at all; doctor says which cell and why.
@@ -705,25 +733,8 @@ export function declaredKnobSpecs(folders: readonly PluginFolder[]): Record<stri
     if (decl === null) continue;
     for (const [key, raw] of Object.entries(group(decl, 'knobs'))) {
       if (Object.hasOwn(out, key)) continue;
-      const cell = cellOf(raw);
-      if (cell === null) continue;
-      const kind = cell.kind;
-      if (!isKnownKind(kind)) continue;
-      const values = wordsCell(cell.values);
-      // A default that is not of its own kind cannot be honoured: the cell stays out of the list, so no
-      // settings verb and no dispatch ever runs into it (doctor reports it in `declarationProblems`).
-      if (!defaultFits(kind, cell.default, values)) continue;
-      const spec: KnobSpec & { values?: readonly string[]; layers?: readonly ConfigLayerName[] } = {
-        kind,
-        // Every cell states its default (an absent one is a declaration problem, so such a cell never
-        // gets here); `null` is the plugin door's "no factory value at all": the setting is only in
-        // force once some layer states it (see the defaults rule of `src/config.ts`).
-        default: cell.default as ConfigValue | null,
-        summary: typeof cell.summary === 'string' ? cell.summary : '',
-      };
-      if (values !== undefined) spec.values = values;
-      const layers = layerCell(cell.layers);
-      if (layers !== null) spec.layers = layers;
+      const spec = knobSpecOf(raw);
+      if (spec === null) continue;
       out[key] = spec;
     }
   }
@@ -749,6 +760,73 @@ export function shadowedKnobs(folders: readonly PluginFolder[]): string[] {
         'a built-in setting: the built-in cell stays in force, so the declared one can never be read -- ' +
         'give it a name of its own');
     }
+  }
+  return out;
+}
+
+// ── the listing: what a declaration says about itself, printed one item per line ──
+
+/**
+ * The reading sources one declaration claims, as the name plus the implementation function that computes
+ * it, in declaration order. The usable claims only (the same table `readingsOf` draws on): the doctor names
+ * the rest, and a claim it names is not a source here either.
+ */
+export function sourcesOf(folder: PluginFolder): Array<{ name: string; by: string }> {
+  const decl = declOf(folder);
+  if (decl === null) return [];
+  return Object.entries(sourceCells(decl)).map(([name, cell]) => ({ name, by: cell.by }));
+}
+
+/** One declared knob as the listing writes it: the name, the kind with its vocabulary and factory default, and the cell's own one-line summary. */
+function knobLine(name: string, spec: KnobSpec): string {
+  const details: string[] = [];
+  if (spec.values !== undefined && spec.values.length > 0) details.push(`one of ${spec.values.join(' / ')}`);
+  const stated = spec.default;
+  if (stated !== null && stated !== undefined && stated !== '' && typeof stated !== 'function') {
+    details.push(`default ${String(stated)}`);
+  }
+  const cell = `${spec.kind}${details.length > 0 ? `: ${details.join(', ')}` : ''}`;
+  return `${name} (${cell})${spec.summary === '' ? '' : ` — ${spec.summary}`}`;
+}
+
+/**
+ * The listing of the installed plugins, one block per folder in folder order: the folder's name and its
+ * own summary, then the knobs it declares, its dedupe tags, its method names, the reading sources it
+ * computes and the command words it claims. Everything here is data the declaration owns, which is why a
+ * listing answers "how does this plugin work" without running any of it.
+ *
+ * The two readers walk one table: a knob whose cell cannot be honoured never enters the merged settings
+ * list, so it is not printed here either, and a name an earlier folder already holds is not printed twice
+ * (the first folder keeps it, exactly as the merged table and the routing table do).
+ */
+export function pluginListing(folders: readonly PluginFolder[]): string[] {
+  const out: string[] = [];
+  const held = new Set<string>();
+  for (const folder of folders) {
+    const decl = declOf(folder);
+    const summary = typeof decl?.summary === 'string' ? decl.summary.trim() : '';
+    out.push(`  · ${folder.name}${summary === '' ? '' : ` — ${summary}`}`);
+    if (decl !== null) {
+      let lead = '      knobs: ';
+      for (const [key, raw] of Object.entries(group(decl, 'knobs'))) {
+        if (held.has(key)) continue;
+        const spec = knobSpecOf(raw);
+        if (spec === null) continue;
+        held.add(key);
+        out.push(lead + knobLine(key, spec));
+        lead = '             ';
+      }
+    }
+    const tags = tagsOf(folder);
+    if (tags.length > 0) out.push(`      tags: ${tags.join(', ')}`);
+    const methods = methodsOf(folder);
+    if (methods.length > 0) out.push(`      methods: ${methods.join(', ')}`);
+    const sources = sourcesOf(folder);
+    if (sources.length > 0) {
+      out.push(`      sources: ${sources.map((cell) => `${cell.name} (computed by ${cell.by}())`).join(', ')}`);
+    }
+    const commands = commandsOf(folder);
+    if (commands.length > 0) out.push(`      commands: ${commands.join(', ')}`);
   }
   return out;
 }

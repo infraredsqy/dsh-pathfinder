@@ -3,12 +3,13 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createDagNamespace } from './dag';
 import { nowSeconds } from './clock';
+import { pluginAssemblyOf } from './plugins/assembly';
 import { createContext, readGraphSnapshot, warnLine } from './plugins/context';
 import { collectGates, collectOffers } from './plugins/host';
 import { applyInsertion } from './plugins/insertion';
 import {
   commandClashes,
-  loadPlugins,
+  pluginListing,
   pluginsDirOf,
   shadowedKnobs,
   verifyPlugins,
@@ -264,7 +265,7 @@ export interface ConductorNamespace {
   handoff(input: ConductorHandoffInput): Promise<HandoffRecord>;
   /** Close out the line and settle. */
   close(input?: ConductorTarget): Promise<CycleRecord>;
-  /** Check-up: the records are complete, no reference dangles, nothing cycles; the merge-driver cell is asked with the git handed in on this call (without one it is not asked). */
+  /** Check-up: the installed plugins are listed one by one, the records are complete, no reference dangles, nothing cycles; the merge-driver cell is asked with the git handed in on this call (without one it is not asked). */
   doctor(options?: ConductorDoctorOptions): Promise<DoctorReport>;
 }
 
@@ -314,9 +315,12 @@ const PLUGIN_LOAD_NOTE =
  *   it refuses having written nothing), and the ticket's six keys land in `signals/<line>/<node>.json` in the
  *   fixed shape and key order (the write is atomic; a second ticket for the same node is legitimate and
  *   overwrites the whole file).
- * - `doctor`'s **strict plugin face**: the bad spots are listed one by one (the declaration, loading the
- *   implementation, the skills, the sources, and a real question put to the implementation against a stand-in
- *   project), plus two tables — a knob shadowing a built-in name, a command claiming a core word; the
+ * - `doctor`'s **strict plugin face**: the installed plugins are listed one by one first (each folder's
+ *   name and its own summary, the knobs it declares with kind, default and summary, its tags, methods,
+ *   sources and commands — all read off the declarations, none of it restated), then the bad spots are
+ *   listed one by one (the declaration, loading the implementation, the skills, the sources, and a real
+ *   question put to the implementation against a stand-in project), plus two tables — a knob shadowing a
+ *   built-in name, a command claiming a core word; the
  *   **record face** has four more cells: whether `init`'s four layout files are there, whether the graph
  *   has cycles and dangling references, whether the nodes a line holds are still on the graph, and whether
  *   the merge driver's two keys are in this project's git config — that last cell is asked with the git
@@ -529,7 +533,10 @@ export function createConductorNamespace(
         };
       }
       const warnings: string[] = [];
-      const folders = (await loadPlugins(pluginsDirOf(root, options.pluginsDir))).folders;
+      // One assembly for this dispatch: the gate reads the folder once, and the preparation below is handed
+      // the same copy instead of reading it a second time.
+      const assembly = pluginAssemblyOf(root, options.pluginsDir);
+      const folders = await assembly.folders();
       const snapshot = await readGraphSnapshot(paths);
       const ctx = createContext({
         root,
@@ -560,7 +567,7 @@ export function createConductorNamespace(
       const prepared = await prepareDispatch(
         root,
         { cycle: cycleId, node: nodeId },
-        { homeDir: options.homeDir, pluginsDir: options.pluginsDir },
+        { homeDir: options.homeDir, pluginsDir: options.pluginsDir, assembly },
       );
       const slot = prepared.nodes[0];
       if (slot === undefined || slot.node_id !== nodeId) {
@@ -634,7 +641,7 @@ export function createConductorNamespace(
       // plugin takes to answer is how long it takes and no writer waits on it: no record of this ledger is written
       // in this stretch. What the answered offers want in the graph is landed under the lock by the mechanism below.
       const warnings: string[] = [];
-      const folders = (await loadPlugins(pluginsDirOf(root, options.pluginsDir))).folders;
+      const folders = await pluginAssemblyOf(root, options.pluginsDir).folders();
       const snapshot = await readGraphSnapshot(paths);
       const ctx = createContext({
         root,
@@ -703,9 +710,9 @@ export function createConductorNamespace(
     },
 
     doctor: async (input) => {
-      const scan = await loadPlugins(pluginsDirOf(root, options.pluginsDir));
-      const folders: PluginFolder[] = scan.folders;
-      const problems = [...scan.problems, ...(await verifyPlugins(folders))];
+      const assembly = pluginAssemblyOf(root, options.pluginsDir);
+      const folders: PluginFolder[] = await assembly.folders();
+      const problems = [...(await assembly.scanProblems()), ...(await verifyPlugins(folders))];
       const shadows = shadowedKnobs(folders);
       const clashes = commandClashes(folders);
       const pluginDetail = folders.length === 0
@@ -717,9 +724,11 @@ export function createConductorNamespace(
         {
           name: 'plugins',
           ok: problems.length === 0,
-          // The count, then every bad spot one by one, then the freshness line: what is loaded stays
-          // loaded, so whoever changed a plugin can read here why the change is not in force yet.
-          detail: [pluginDetail, ...problems, PLUGIN_LOAD_NOTE].join('\n'),
+          // The count, then one block per installed plugin (its own summary, its knobs, tags, methods,
+          // sources and commands — all read off the declaration), then every bad spot one by one, then the
+          // freshness line: what is loaded stays loaded, so whoever changed a plugin can read here why the
+          // change is not in force yet.
+          detail: [pluginDetail, ...pluginListing(folders), ...problems, PLUGIN_LOAD_NOTE].join('\n'),
         },
         {
           name: 'knobs',

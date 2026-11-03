@@ -12,6 +12,7 @@ import { launchPromptPath, nodeRunDocPath, nodeSpecPath, pfPaths } from './paths
 import type { PfPaths } from './paths';
 import { planNext, promptTextOf, pyList, short } from './planner';
 import { declaredKnobSpecs, loadPlugins, pluginsDirOf, readingsOf } from './plugins/registry';
+import type { PluginAssembly } from './plugins/assembly';
 import type { PluginFolder } from './plugins/types';
 import type { CycleRecord, InstructionRecord, NodeRecord } from './types';
 
@@ -59,6 +60,11 @@ export interface PrepareOptions {
   readonly homeDir?: string;
   /** The location of the plugin directory; `<root>/plugins` by default, one folder per plugin (the template's reading cell comes from here). */
   readonly pluginsDir?: string;
+  /**
+   * The plugin directory already assembled by the caller (the dispatch reads it for its gate before it gets
+   * here): handed in, the same copy answers here and the folder is not read a second time in one dispatch.
+   */
+  readonly assembly?: PluginAssembly;
 }
 
 /** The material of one node in one dispatch: the prompt, the run doc and the handoff template, handed back together with their locations. */
@@ -299,7 +305,9 @@ export async function prepareDispatch(
   );
   const cycle = await createCyclesNamespace(root).show(plan.cycle);
   // The template's reading cells come from the plugin declarations (the `source: ticket` ones); with no plugins installed this cell never appears.
-  const { folders } = await loadPlugins(pluginsDirOf(root, options.pluginsDir));
+  const folders = options.assembly === undefined
+    ? (await loadPlugins(pluginsDirOf(root, options.pluginsDir))).folders
+    : await options.assembly.folders();
   const prepared: PreparedNode[] = [];
   for (const entry of slots) {
     const record = await dag.get(entry.node_id);

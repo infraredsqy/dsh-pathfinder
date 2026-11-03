@@ -371,6 +371,68 @@ describe('the strict side of doctor: every fault is listed one by one', () => {
   });
 });
 
+describe('the listing side of doctor: one block per installed plugin, all of it read off the declaration', () => {
+  it('the summary, every knob with its kind, vocabulary, default and summary, the tags, methods, sources and commands are all there', async () => {
+    const lab = makeLab('pf-plugin-listing-');
+    try {
+      await lab.pf.ledger.init();
+      // One plugin carrying every item a declaration can hold, and one carrying nothing but its name: the
+      // listing answers "how does this plugin work" without running any of it, so an empty block stays empty.
+      lab.plugin('lister', {
+        summary: 'one of everything a declaration can carry',
+        timing: 'close',
+        action: 'insert',
+        commands: { poll: { summary: 'the poll', keep_name: false } },
+        sources: { poll_pool: { by: 'pool_weight' } },
+        knobs: {
+          poll_limit: { kind: 'integer', default: 4, summary: 'the poll sum the next close reads below' },
+          poll_mode: { kind: 'word', values: ['fast', 'slow'], default: 'fast', summary: 'which way the poll reads' },
+          poll_line: { kind: 'number', default: null, summary: 'no factory value at all' },
+        },
+        readings: { poll_weight: { source: 'poll_pool' } },
+        metrics: { poll_weight: { line: 'poll_limit', tag: 'poll:poll_weight', method: 'pf-poll-repair' } },
+      }, {
+        'impl.mjs': 'export function offer() { return null; }\nexport function pool_weight() { return 1; }\n',
+        'skills/en/pf-poll-repair/SKILL.md': '# pf-poll-repair\n',
+      });
+      lab.plugin('bare', { summary: 'nothing but a name', timing: 'close', action: 'insert' }, {
+        'impl.mjs': 'export function offer() { return null; }\n',
+      });
+
+      const report = await lab.pf.conductor.doctor();
+      const plugins = report.checks.find((check) => check.name === 'plugins')!;
+      expect(plugins.ok, plugins.detail).toBe(true);
+      expect(plugins.detail).toContain('2 installed');
+
+      const detail = plugins.detail ?? '';
+      // One block per installed plugin, in folder order, each opened by its own name and summary.
+      expect(detail).toContain('  · lister — one of everything a declaration can carry');
+      expect(detail).toContain('  · bare — nothing but a name');
+      // The knobs: name, kind, vocabulary, factory default, the cell's own one-line summary. The first is
+      // led by `knobs:` and the rest are aligned under it; a cell with no factory value says its kind alone.
+      expect(detail).toContain(
+        '      knobs: poll_limit (integer: default 4) — the poll sum the next close reads below');
+      expect(detail).toContain(
+        '             poll_mode (word: one of fast / slow, default fast) — which way the poll reads');
+      expect(detail).toContain('             poll_line (number) — no factory value at all');
+      // The rest of the block, each item on its own line.
+      expect(detail).toContain('      tags: poll:poll_weight');
+      expect(detail).toContain('      methods: pf-poll-repair');
+      expect(detail).toContain('      sources: poll_pool (computed by pool_weight())');
+      expect(detail).toContain('      commands: poll');
+      // The plugin that declares none of those prints nothing under its name: no empty `knobs:` / `tags:`
+      // line, and no item borrowed from the neighbour's block.
+      const block = detail.slice(detail.indexOf('  · bare'), detail.indexOf('  · lister'));
+      expect(block).not.toContain('knobs:');
+      expect(block).not.toContain('tags:');
+      expect(block).not.toContain('commands:');
+      expect(report.ok).toBe(true);
+    } finally {
+      lab.cleanup();
+    }
+  });
+});
+
 describe('fields carry only the plugin\'s own data: action-side words are stripped and warned about', () => {
   it('fields.cycle is stripped while its own keys stay as they were, and the stripping raises one warning', () => {
     const warnings: string[] = [];

@@ -53,10 +53,13 @@ vi.mock('../src/ledgerlock', async (importOriginal) => {
  * Everything happens in a temp dir, with home always walled into a temp project root (`<root>/_home`),
  * so the real machine's `~/.pf` keeps every byte.
  *
- * Plugin knobs have no mounting slot yet: a declared knob comes in through the merging point of
- * `createConfigNamespace` (`declaredKnobs`), which pins the rules "built-ins take the two wide
- * layers, declared knobs take the whole chain, a declaration may narrow its own, the engine's own
- * declarations carry a non-null default (a plugin cell may state none)" all at once.
+ * Plugin knobs come in through the merging point of the settings list: either the table a caller read for
+ * itself (`declaredKnobs`, the seam the whole-file cases below use) or the reader the handle carries, which
+ * goes to the project's own plugin folder when the verb asks (`declaredKnobsOf`). That second seam pins the
+ * rules "the list of a handle opened by `open` carries the declared knobs, and the project layer and the line
+ * layer written under them are read back", alongside "built-ins take the two wide layers, declared knobs take
+ * the whole chain, a declaration may narrow its own, the engine's own declarations carry a non-null default
+ * (a plugin cell may state none)".
  */
 
 /** A stand-in for a plugin declaration: one number on the whole chain, one narrowed to the project layer, one switch, one with no factory value at all. */
@@ -1186,6 +1189,72 @@ describe('the gate and its edges', () => {
       expect(existsSync(join(root, '.pf', 'config.json'))).toBe(false);
       await config.set('max_agents', 6, { global: true });
       expect(homeConfigText(home)).toContain('"max_agents": 6');
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+describe('the declared knobs of the project own plugin folder', () => {
+  it('a handle from open() lists the knobs its plugins declare, and the project and line layers written under them are read back', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pf-config-declared-'));
+    try {
+      // The handle is the one surface with no internal options: no `homeDir` seam and no declaration table,
+      // so both have to come from the project itself. The machine layer is this machine's own file, the one
+      // layer `open` cannot wall in; the knob names below belong to the declaration, so no wider layer can
+      // hold a value under them, and every reading asserted here is the project's or the line's.
+      const pf = open(root);
+      await pf.ledger.init();
+      const folder = join(root, 'plugins', 'pool');
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(join(folder, 'plugin.json'), JSON.stringify({
+        name: 'pool',
+        summary: 'a stand-in declaration',
+        timing: 'close',
+        action: 'insert',
+        knobs: {
+          pool_limit: { kind: 'number', default: 5, summary: 'the pool sum the next close reads below' },
+          pool_on: { kind: 'switch', default: 'on', summary: 'whether the pool acts' },
+        },
+      }, null, 2), 'utf8');
+
+      // The list: the four built-ins plus the two declared knobs, each with its own factory default.
+      const listed = await pf.config.list();
+      expect(Object.keys(listed).sort())
+        .toEqual([...Object.keys(BUILTIN_KNOBS), 'pool_limit', 'pool_on'].sort());
+      expect(listed['pool_limit']).toEqual({ value: 5, source: 'builtin' });
+      expect(listed['pool_on']).toEqual({ value: 'on', source: 'builtin' });
+
+      // The project layer, written into `.pf/config.json` by hand: the reading names that layer.
+      seedProjectConfig(root, '{"pool_limit": 9}');
+      expect(await pf.config.get('pool_limit')).toEqual({ value: 9, source: 'project' });
+
+      // The line layer, in the `policies` slot of the line record: a declared knob takes the whole chain,
+      // which is what lets a line state it (no built-in can sit there).
+      seedCycle(root, 'c1');
+      writeFileSync(join(root, '.pf', 'state.json'), JSON.stringify({
+        cycles: [{
+          id: 'c1',
+          title: 'line c1',
+          status: 'active',
+          holding: [],
+          path: [],
+          policies: { pool_limit: 2 },
+          created_at: '2020-01-01T00:00:00Z',
+          updated_at: '2020-01-01T00:00:00Z',
+        }],
+      }, null, 2), 'utf8');
+      expect(await pf.config.get('pool_limit', { cycle: 'c1' })).toEqual({ value: 2, source: 'cycle' });
+
+      // And the write side takes one there too: the value lands in that same slot under its own name, while
+      // the project layer stays where it was.
+      await pf.config.set('pool_on', 'off', { cycle: 'c1' });
+      expect(await pf.config.get('pool_on', { cycle: 'c1' })).toEqual({ value: 'off', source: 'cycle' });
+      expect(await pf.config.get('pool_on')).toEqual({ value: 'on', source: 'builtin' });
+      const state = JSON.parse(readFileSync(join(root, '.pf', 'state.json'), 'utf8')) as {
+        cycles: Array<{ policies?: Record<string, unknown> }>;
+      };
+      expect(state.cycles[0]!.policies).toEqual({ pool_limit: 2, pool_on: 'off' });
     } finally {
       cleanup(root);
     }
