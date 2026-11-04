@@ -69,6 +69,9 @@ npm pack --pack-destination .tmp/pack
 
 ## 发一个版本
 
+> **发版本要人明确同意**：机制上办得到不等于该发，也不许为验证什么（比如刚配好的可信发布配置）专门发一版；
+> 验证只在下一次真发版时顺带完成。不进包的东西改了（`docs/`、注释、测试、CI 配置）不构成发版理由。
+
 作者侧走 **OIDC 可信发布**（npm 的 trusted publishing）：令牌只在发布那一刻由 CI 现换，**本仓与本机都不
 留任何长期秘密**。没有 token 可丢、可轮换，也不需要有人守着一次 2FA 提示。
 
@@ -114,6 +117,21 @@ bundle:client，所以装出去的就是这份预构建产物。`tools/testbed/`
 新包名第一次发布会先落一个**公开的占位版本** `0.0.0-stage`：它一直留在 `versions` 列表里，真版本随后就公开；
 它只是这个新名字落地时的一枚印记，`npm stage list` 列不到它属正常。`publishConfig.tag` 在的话 `latest` 会自己
 指到真版本；发完照第 6 步核一遍。
+
+### 发完要核（每一次）
+
+这条路上有几件事只有真跑一次才作数，别只看 `npm publish` 与 `git push` 的返回码：
+
+1. **workflow 真被触发了**：`gh run list --workflow publish.yml` 里有一条对得上这个标签的 run，再用
+   `gh run watch` 看它跑完。
+2. **runner 上的两道闸过了**：CI 里的 `npm test` 与 `node tools/css-check.mjs` 都绿。本地绿不等于那边绿——
+   runner 是 linux、node 26、pnpm 11.22.0 这套组合。
+3. **OIDC 认得上**：这是可信发布配置**唯一的验证时机**（它只有跟着一次真发布才算验过）。报 `ENEEDAUTH` 就是
+   那三个字段与实情对不上；配置建好后 2 天不跑一次就过期，所以"建配置"与"发那一次"要挨着做。
+4. **registry 上真换了**：版本号、`dist-tags` 的 `latest`、`dist.shasum` 三项照「日常发版」第 6 步核一遍。
+5. **provenance 在**：OIDC 发出去的那一版会在包页面带上 attestation（public 仓 + public 包才会生成）；看不到
+   它，说明这一趟没走 OIDC。
+6. **本机不留长期秘密**：首次手动发布留下的那条登录 token 与 `_authToken` 行，等 CI 这条路跑通之后按需撤掉。
 
 ## 三条安装路子
 
