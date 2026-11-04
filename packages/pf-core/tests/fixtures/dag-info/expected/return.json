@@ -1,0 +1,39 @@
+{
+  "id": "@node-a@",
+  "title": "甲",
+  "status": "todo",
+  "mode": "checkpoint",
+  "description": "甲的说明",
+  "depends_on": [
+    {
+      "id": "@node-b@",
+      "title": "乙"
+    }
+  ],
+  "depended_by": [
+    {
+      "id": "@node-c@",
+      "title": "丙"
+    }
+  ],
+  "ready": true,
+  "urgency_level": 1,
+  "importance_score": 1,
+  "weight": "light",
+  "sessions": {
+    "discussion": [
+      {
+        "session": "session-d1",
+        "host": "dsh",
+        "at": "@t1@"
+      }
+    ],
+    "run": [
+      {
+        "session": "sess_r1",
+        "host": "zcode",
+        "at": "@t2@"
+      }
+    ]
+  }
+}

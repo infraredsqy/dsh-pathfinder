@@ -259,7 +259,7 @@ describe('the visibility matrix: scope x binding state x target', () => {
     })),
   )('$title', async ({ key, spot, seen }) => {
     const { ids, nodeB } = await plantScenario();
-    let rows: InstructionRecord[];
+    let rows: Array<{ id: string }>;
     if (spot === 'on node B') rows = await pf.ledger.instructions.list({ node: nodeB });
     else if (spot === 'after the cycle leaves service') {
       await pf.ledger.cycles.setStatus('one', 'inactive');
@@ -363,8 +363,8 @@ describe('remove: taking away and tombstones', () => {
   });
 });
 
-describe('list: grouping and position', () => {
-  it('presentation order: global, then by cycle, then by node; within a group the ones in force first, newest first after that', async () => {
+describe('list: position and account order', () => {
+  it('account order: neither view sorts; the rows come back in the order the file holds them', async () => {
     await pf.ledger.cycles.create({ id: 'c1', tags: ['coding'] });
     await pf.ledger.cycles.hold('c1', 'node-a');
     await plantInstructions([
@@ -375,7 +375,32 @@ describe('list: grouping and position', () => {
       { id: 'i-0005', text: '归档的全局', scope: 'global', target: 'stage', state: 'withdrawn', cycle: null, node: null, said_by: 'user', at: '2026-01-05T00:00:00Z', resolved_at: '2026-01-05T01:00:00Z', note: null },
     ]);
     const account = await pf.ledger.instructions.list({ all: true });
-    expect(account.map((row) => row.id)).toEqual(['i-0004', 'i-0001', 'i-0005', 'i-0002', 'i-0003']);
+    expect(account.map((row) => row.id)).toEqual(['i-0001', 'i-0002', 'i-0003', 'i-0004', 'i-0005']);
+  });
+
+  it('the default view is folded to the reader rows: id, text, the scope as read, the target as written and the reach word', async () => {
+    const added = await pf.ledger.instructions.add({ text: '收线才念的', scope: 'global', target: 'boundary' });
+    expect(await pf.ledger.instructions.list()).toEqual([{
+      id: added.id,
+      text: '收线才念的',
+      scope: 'global',
+      target: 'boundary',
+      reach: 'boundary',
+    }]);
+    // A record that states no target folds to null, and its reach reads the stage default; a word
+    // outside the two-word vocabulary reads the same way — reach is never a third word.
+    await plantInstructions([
+      { id: 'i-0009', text: '没写投递通道的', scope: 'global', state: 'live', cycle: null, node: null, said_by: 'user', at: '2026-01-01T00:00:00Z', resolved_at: null, note: null },
+    ]);
+    expect(await pf.ledger.instructions.list()).toEqual([{
+      id: 'i-0009', text: '没写投递通道的', scope: 'global', target: null, reach: 'stage',
+    }]);
+    await plantInstructions([
+      { id: 'i-0010', text: '外来投递词的', scope: 'global', target: 'round', state: 'live', cycle: null, node: null, said_by: 'user', at: '2026-01-01T00:00:00Z', resolved_at: null, note: null },
+    ]);
+    expect(await pf.ledger.instructions.list()).toEqual([{
+      id: 'i-0010', text: '外来投递词的', scope: 'global', target: 'round', reach: 'stage',
+    }]);
   });
 
   it("the default view follows the reader's spot: a named node pins it; with two lines side by side and no name it falls back to the wide read", async () => {
@@ -407,12 +432,16 @@ describe('list: grouping and position', () => {
       { id: 'i-0003', text: '旧词范围的', scope: 'once', target: 'stage', state: 'live', cycle: null, node: null, said_by: 'user', at: '2026-01-03T00:00:00Z', resolved_at: null, note: null },
     ]);
     // node-a is in hand and c1 is in service: all three are readable (an empty binding measures
-    // nothing; once reads as global).
+    // nothing; once reads as global), and they come back in the order the file holds them.
     const rows = await pf.ledger.instructions.list();
-    expect(rows.map((row) => row.id)).toEqual(['i-0003', 'i-0001', 'i-0002']);
+    expect(rows.map((row) => row.id)).toEqual(['i-0001', 'i-0002', 'i-0003']);
     // The scope filter works on the scope as read: once falls into the global group.
     expect((await pf.ledger.instructions.list({ scope: 'global' })).map((row) => row.id)).toEqual(['i-0003']);
     expect((await pf.ledger.instructions.list({ scope: 'cycle' })).map((row) => row.id)).toEqual(['i-0001']);
+    // The live account view drops the archived row and keeps the rest, raw and unsorted.
+    const live = await pf.ledger.instructions.list({ live: true });
+    expect(live.map((row) => row.id)).toEqual(['i-0001', 'i-0002', 'i-0003']);
+    expect('state' in live[0]!).toBe(true);
   });
 
   it('an empty project with no cycle book: both the default view and the full book are empty arrays', async () => {

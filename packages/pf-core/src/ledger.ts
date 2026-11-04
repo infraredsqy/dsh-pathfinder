@@ -15,6 +15,7 @@ import type {
   NodeResult,
   NodeStatus,
   NodeWeight,
+  SessionNoteEntry,
 } from './types';
 
 // ── dag: the graph ───────────────────────────────────────────────────────────
@@ -122,7 +123,57 @@ export interface DagValidationReport {
  *  and without handing it back the caller cannot reach any following verb. */
 export type AddedNode = NodeRecord & { id: string };
 
-/** The graph namespace: reading and writing nodes and edges, these fourteen verbs. */
+/** The choices of the node detail: whether the extended fields are read as well. */
+export interface DagInfoOptions {
+  /** Read the extended fields too: the two timestamps and the status of every edge's other end. */
+  verbose?: boolean;
+}
+
+/**
+ * One end of a dependency edge in the node detail: the node's id and title, and — under `verbose` —
+ * the word its own record carries. A dependency the graph no longer holds reads `(unknown)` for both;
+ * a dependent that names no status reads the empty string (the two defaults the read side has).
+ */
+export interface DagInfoEdge {
+  id: string;
+  title: string;
+  status?: NodeStatus | '(unknown)' | '';
+}
+
+/**
+ * The node detail: everything one node's record says, plus what only the graph can answer — who it
+ * waits on and who waits on it, whether it is ready, where it stands in the ordering, and the two
+ * session lists only this machine holds.
+ *
+ * Key order is the read side's own and is fixed: id, title, status, mode, description, depends_on,
+ * depended_by, ready, urgency_level, importance_score, then the optional cells in this order —
+ * weight (only light), created_at / updated_at (only under `verbose`), sessions (only when a note
+ * has something in it), completed_at, approved_at (each only when its moment was written).
+ */
+export interface DagInfo {
+  id: string;
+  title: string;
+  status: NodeStatus;
+  mode: NodeMode;
+  description: string;
+  depends_on: DagInfoEdge[];
+  depended_by: DagInfoEdge[];
+  ready: boolean;
+  /** The urgency reading, worked out on the unfinished graph; a shelved node does not rank and reads 0. */
+  urgency_level: number;
+  /** The importance reading, worked out the same way; a shelved node reads 0 too. */
+  importance_score: number;
+  /** Lands only for light; standard does not write this key. */
+  weight?: NodeWeight;
+  created_at?: MicroTimestamp;
+  updated_at?: MicroTimestamp;
+  /** Both lists of this node's session file; the key is absent when both are empty. */
+  sessions?: { discussion: SessionNoteEntry[]; run: SessionNoteEntry[] };
+  completed_at?: MicroTimestamp;
+  approved_at?: MicroTimestamp;
+}
+
+/** The graph namespace: reading and writing nodes and edges, these fifteen verbs. */
 export interface DagNamespace {
   add(input: DagAddInput): Promise<AddedNode>;
   remove(id: string, options?: DagRemoveOptions): Promise<void>;
@@ -139,6 +190,8 @@ export interface DagNamespace {
   revive(id: string): Promise<NodeRecord>;
   /** Read one node's record; null when it is not on the graph. */
   get(id: string): Promise<NodeRecord | null>;
+  /** Read one node's detail: the record, both directions of its edges, readiness, the two readings and the session lists. */
+  info(id: string, options?: DagInfoOptions): Promise<DagInfo>;
   /** Read the transitive closure of one node's upstream and downstream. */
   context(id: string): Promise<NodeContext>;
   /** Search titles and descriptions by regex; title hits come first. */
@@ -218,18 +271,44 @@ export interface InstructionAddInput {
   stop_after_nodes?: number;
 }
 
-/** The filter of list: by default only the live ones are given. */
+/** The filter of `list`: the reader-facing view by default, the raw account when one of the three account switches is given. */
 export interface InstructionListFilter {
-  /** Give the archived ones along with them. */
+  /** Account view: the whole account, archived entries included. */
   all?: boolean;
+  /** Account view: only the entries whose state is live. */
+  live?: boolean;
+  /** Account view narrowed to one scope. */
   scope?: InstructionScope;
+  /** The node the reader stands on: with two lines side by side it is what pins the line down too. */
   node?: string;
+}
+
+/**
+ * One row of the reader-facing view: what the instruction says, where it can be seen from, and how it
+ * is delivered — ids and bookkeeping stay on the account.
+ *
+ * `scope` is the scope as read (an unrecognised word reads global); `target` is the word the record
+ * carries, `null` when it carries none; `reach` is the same delivery channel with the read side's
+ * default filled in, always `stage` or `boundary`. The engine gives the words, never a sentence: how
+ * a reach reads to a person is the presentation layer's business.
+ */
+export interface InstructionReaderRow {
+  id: string;
+  text: string;
+  scope: InstructionScope;
+  target: InstructionTarget | null;
+  reach: InstructionTarget;
 }
 
 /** The instructions namespace: the user instruction channel, these five verbs. */
 export interface InstructionsNamespace {
   add(input: InstructionAddInput): Promise<InstructionRecord>;
-  list(filter?: InstructionListFilter): Promise<InstructionRecord[]>;
+  /**
+   * The default view is the reader-facing one: the live entries visible from where the reader stands,
+   * in account order, each folded to `InstructionReaderRow`. The account views (`all` / `live` /
+   * `scope`) hand back the raw rows, also in account order.
+   */
+  list(filter?: InstructionListFilter): Promise<InstructionReaderRow[] | InstructionRecord[]>;
   /** Resolve one instruction (lands resolved_at). */
   resolve(id: string): Promise<InstructionRecord>;
   /** Put an archived instruction back in force. */
@@ -269,14 +348,27 @@ export interface LedgerNamespace {
 // ── assembly ─────────────────────────────────────────────────────────────────
 
 /**
+ * The own options of the ledger namespace when it is assembled: where the machine layer's home is.
+ * It is handed down to the sub-namespace that reads that layer (the node detail's session lists),
+ * the same way `sessions` / `conductor` take their own `homeDir`.
+ */
+export interface LedgerNamespaceOptions {
+  /** The home of the machine layer (`<home>/.pf/config.json`); this machine's user home directory by default, which tests shut into a temporary directory. */
+  readonly homeDir?: string;
+}
+
+/**
  * Assemble the ledger namespace: init, register and the three blocks of graph, lines and instructions
  * (the locations come from the caller's project root).
  */
-export function createLedgerNamespace(root: string): LedgerNamespace {
+export function createLedgerNamespace(
+  root: string,
+  options: LedgerNamespaceOptions = {},
+): LedgerNamespace {
   return {
-    init: (options) => initLedger(root, options),
-    register: (options) => registerLedger(root, options),
-    dag: createDagNamespace(root),
+    init: (initOptions) => initLedger(root, initOptions),
+    register: (registerOptions) => registerLedger(root, registerOptions),
+    dag: createDagNamespace(root, { homeDir: options.homeDir }),
     cycles: createCyclesNamespace(root),
     instructions: createInstructionsNamespace(root),
   };

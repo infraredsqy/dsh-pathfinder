@@ -6,7 +6,8 @@ import { createConfigNamespace, SESSION_HOST_OVERRIDE } from '../src/config';
 import { isPfError, type PfError } from '../src/errors';
 import { open } from '../src/open';
 import { sessionNotePath, pfPaths } from '../src/paths';
-import { createSessionsNamespace, type SessionsNamespace } from '../src/sessions';
+import { createSessionsNamespace, type SessionShow, type SessionsNamespace } from '../src/sessions';
+import type { SessionNoteRecord } from '../src/types';
 
 /**
  * The read-only face of session notes: list gives the whole book, show gives one node's page.
@@ -113,8 +114,15 @@ describe('show: one page for one node', () => {
     node = (await pf.ledger.dag.add({ title: '甲' })).id;
   });
 
+  /** One page as `show` hands it back: the node and its title in front of the note body. */
+  const page = (nodeId: string, note: SessionNoteRecord, title = '甲'): SessionShow => ({
+    node: nodeId,
+    title,
+    ...note,
+  });
+
   it('with nothing written, both lists are empty and nothing throws', async () => {
-    expect(await sessions.show(node)).toEqual({ v: 1, discussion: [], run: [] });
+    expect(await sessions.show(node)).toEqual(page(node, { v: 1, discussion: [], run: [] }));
   });
 
   it('both lists read back separately, with session, host, timestamp and source on each entry exactly as written', async () => {
@@ -123,11 +131,11 @@ describe('show: one page for one node', () => {
       discussion: [{ session: 'dsh-1', host: 'dsh', at: '2026-01-01T00:00:00Z' }],
       run: [{ session: 'sess_z', host: 'zcode', at: null, source: 'ledger' }],
     });
-    expect(await sessions.show(node)).toEqual({
+    expect(await sessions.show(node)).toEqual(page(node, {
       v: 1,
       discussion: [{ session: 'dsh-1', host: 'dsh', at: '2026-01-01T00:00:00Z' }],
       run: [{ session: 'sess_z', host: 'zcode', at: null, source: 'ledger' }],
-    });
+    }));
   });
 
   it('the written host is trusted whatever the id looks like: an id shaped one way says nothing about the host', async () => {
@@ -136,22 +144,22 @@ describe('show: one page for one node', () => {
       discussion: [{ session: 'sess_looks_like_zcode', host: 'dsh', at: null }],
       run: [{ session: 'plain-id', host: 'zcode', at: null }],
     });
-    expect(await sessions.show(node)).toEqual({
+    expect(await sessions.show(node)).toEqual(page(node, {
       v: 1,
       discussion: [{ session: 'sess_looks_like_zcode', host: 'dsh', at: null }],
       run: [{ session: 'plain-id', host: 'zcode', at: null }],
-    });
+    }));
   });
 
   it('a note with an unknown version reads as never written', async () => {
     writeNote(node, { v: 2, discussion: [{ session: 'x', host: 'dsh', at: null }], run: [] });
-    expect(await sessions.show(node)).toEqual({ v: 1, discussion: [], run: [] });
+    expect(await sessions.show(node)).toEqual(page(node, { v: 1, discussion: [], run: [] }));
   });
 
   it('an unreadable note reads as never written, without throwing', async () => {
     mkdirSync(join(root, '.pf', 'meta', 'sessions'), { recursive: true });
     writeFileSync(notePath(node), '{ 这不是 JSON');
-    expect(await sessions.show(node)).toEqual({ v: 1, discussion: [], run: [] });
+    expect(await sessions.show(node)).toEqual(page(node, { v: 1, discussion: [], run: [] }));
   });
 
   it('entries that make no sense are dropped; a missing host means dsh; an unreadable timestamp becomes null', async () => {
@@ -165,14 +173,14 @@ describe('show: one page for one node', () => {
       ],
       run: 'not a list',
     });
-    expect(await sessions.show(node)).toEqual({
+    expect(await sessions.show(node)).toEqual(page(node, {
       v: 1,
       discussion: [
         { session: 'sess_abc', host: 'dsh', at: null },
         { session: 'plain-id', host: 'dsh', at: '2026-01-01T00:00:00Z' },
       ],
       run: [],
-    });
+    }));
   });
 
   it('a host outside the closed set stops the reading and names the word it did not recognise', async () => {
@@ -202,11 +210,11 @@ describe('show: one page for one node', () => {
       discussion: [{ session: 'sess_z', host: 'zcode', at: '2026-01-01T00:00:00Z' }],
       run: [{ session: 'plain', host: 'anything-goes-away', at: null }],
     });
-    expect(await sessions.show(node)).toEqual({
+    expect(await sessions.show(node)).toEqual(page(node, {
       v: 1,
       discussion: [{ session: 'sess_z', host: 'dsh', at: '2026-01-01T00:00:00Z' }],
       run: [{ session: 'plain', host: 'dsh', at: null }],
-    });
+    }));
   });
 
   it('the override switch is a machine-layer setting only: a project-layer value is not in force, and the written host is trusted again', async () => {
@@ -216,11 +224,11 @@ describe('show: one page for one node', () => {
       discussion: [{ session: 'sess_z', host: 'zcode', at: null }],
       run: [],
     });
-    expect(await sessions.show(node)).toEqual({
+    expect(await sessions.show(node)).toEqual(page(node, {
       v: 1,
       discussion: [{ session: 'sess_z', host: 'zcode', at: null }],
       run: [],
-    });
+    }));
   });
 
   it('an unparsable machine layer is an error, not a silent "off": the same read of the setting refuses', async () => {
@@ -244,7 +252,8 @@ describe('show: one page for one node', () => {
 
   it('ids accept the full form and a unique prefix; ambiguous and unrecognised ones are rejected', async () => {
     writeGraph(['aaaa1111-1111-4111-8111-111111111111', 'aaaa2222-2222-4222-8222-222222222222', NODE_B]);
-    expect(await sessions.show(NODE_B.slice(0, 4))).toEqual({ v: 1, discussion: [], run: [] });
+    expect(await sessions.show(NODE_B.slice(0, 4)))
+      .toEqual(page(NODE_B, { v: 1, discussion: [], run: [] }, NODE_B));
     await expect(sessions.show('aaaa')).rejects.toThrow('matches multiple nodes');
     await expect(sessions.show('cccc')).rejects.toThrow('not found');
   });

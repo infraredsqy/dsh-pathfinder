@@ -1,0 +1,10 @@
+{
+  "path": "ledger.dag.info",
+  "args": [
+    "@node-a@",
+    {
+      "verbose": true
+    }
+  ],
+  "expect": "return"
+}

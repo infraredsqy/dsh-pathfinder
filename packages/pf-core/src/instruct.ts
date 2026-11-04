@@ -4,10 +4,11 @@ import { assertLedgerInitialized } from './initledger';
 import type {
   InstructionAddInput,
   InstructionListFilter,
+  InstructionReaderRow,
   InstructionsNamespace,
 } from './ledger';
 import { withLedgerLock } from './ledgerlock';
-import { pfPaths } from './paths';
+import { pfPaths, type PfPaths } from './paths';
 import type {
   CycleHolding,
   CycleRecord,
@@ -51,8 +52,10 @@ import type {
  * - removal leaves a tombstone: the entry leaves the account together with its text, and `removed`
  *   keeps the id and the timestamp (no text, no state word); an issued id is never issued again —
  *   the next id is "the highest issued + 1", and tombstones count too.
- * - the reading of list is ordered as the spec decides: global → by line → grouped by node; within a
- *   group the live ones are shown first, then newest to oldest (ties keep the on-disk order).
+ * - the reading has two shapes, one verb: by default it is the reader-facing view — the live entries
+ *   visible from where the reader stands, in account order, folded to the three structural words
+ *   (`scope`, `target`, `reach`) plus text and id. The account switches (`all` / `live` / `scope`)
+ *   hand back the raw rows, also in account order. Visibility is the same decision either way.
  */
 
 const SCOPES: readonly InstructionScope[] = ['global', 'cycle', 'node'];
@@ -64,8 +67,6 @@ const LIVE_STATE = 'live';
 const REMOVED_KEY = 'removed';
 /** The shape of an issued instruction id: starting with `i-` followed by digits. An issued number is never issued again. */
 const ISSUED_ID = /^i-(\d+)$/;
-/** The order of the three scopes in the reading sort: global, by line, by node. */
-const SCOPE_ORDER: Readonly<Record<string, number>> = { global: 0, cycle: 1, node: 2 };
 
 interface InstructionsLedger {
   /** The whole document object of instructions.json: the instructions own only the `instructions`
@@ -210,63 +211,95 @@ function locate(
 // ── presenting the reading ───────────────────────────────────────────────────
 
 /**
- * The presentation order of the reading (the reading the spec decides): global → by line → grouped
- * by node; within a group the live ones come first (live before archived), then newest to oldest.
- * A stable sort: tied timestamps keep the on-disk order.
+ * One entry as the reader-facing view carries it: the sentence, the scope as read, and how it is
+ * delivered. The ids and the bookkeeping stay on the account; `reach` is the delivery channel with the
+ * read side's default filled in, so it is always one of the two words and never a sentence.
  */
-function orderForReading(rows: InstructionRecord[]): InstructionRecord[] {
-  return [...rows].sort((a, b) => {
-    const byScope = (SCOPE_ORDER[entryScope(a)] ?? 0) - (SCOPE_ORDER[entryScope(b)] ?? 0);
-    if (byScope !== 0) return byScope;
-    const byForce = (isLive(a) ? 0 : 1) - (isLive(b) ? 0 : 1);
-    if (byForce !== 0) return byForce;
-    const aAt = typeof a.at === 'string' ? a.at : '';
-    const bAt = typeof b.at === 'string' ? b.at : '';
-    if (aAt === bAt) return 0;
-    return aAt < bAt ? 1 : -1;
-  });
+function foldReaderRow(entry: InstructionRecord): InstructionReaderRow {
+  const target = entry.target ?? null;
+  return {
+    id: entry.id,
+    text: typeof entry.text === 'string' ? entry.text : '',
+    scope: entryScope(entry),
+    target,
+    // The delivery channel keeps the two words only: a word outside the vocabulary is not a channel a
+    // reader could have been promised, so it reads the stage default (the noisy direction).
+    reach: target === 'boundary' ? 'boundary' : 'stage',
+  };
 }
 
 // ── the namespace ────────────────────────────────────────────────────────────
+
+async function readInstructionsAt(paths: PfPaths): Promise<InstructionsLedger> {
+  const read = await readJsonFile(paths.instructionsJson, 'instructions.json');
+  const data = read.kind === 'present' && read.value !== null && typeof read.value === 'object'
+    ? (read.value as Record<string, unknown>)
+    : {};
+  if (!Array.isArray(data.instructions)) data.instructions = [];
+  return { data, instructions: data.instructions as InstructionRecord[] };
+}
+
+/** Write instructions.json: the whole document is written back as it was (only the changed cells), in construction order (no sorting). */
+async function writeInstructionsAt(paths: PfPaths, ledger: InstructionsLedger): Promise<void> {
+  await atomicWriteJson(paths.instructionsJson, ledger.data, jsonOptionsForRecord('instructions'));
+}
+
+/** Read-only view of the line account: registering a binding and deciding visibility need "is the line active, who does it hold", and not one byte is written. */
+async function readStateCyclesAt(paths: PfPaths): Promise<CycleRecord[]> {
+  const read = await readJsonFile(paths.stateJson, 'state.json');
+  const data = read.kind === 'present' && read.value !== null && typeof read.value === 'object'
+    ? (read.value as Record<string, unknown>)
+    : {};
+  return Array.isArray(data.cycles) ? (data.cycles as CycleRecord[]) : [];
+}
+
+/** Read-only view of the graph: registering a binding has to check whether the named node is on the graph (visibility needs its statuses too). */
+async function readNodesAt(paths: PfPaths): Promise<Record<string, NodeRecord>> {
+  const read = await readJsonFile(paths.ideasJson, 'ideas.json');
+  const data = read.kind === 'present' && read.value !== null && typeof read.value === 'object'
+    ? (read.value as Record<string, unknown>)
+    : {};
+  const nodes = data.nodes;
+  return nodes !== null && typeof nodes === 'object' && !Array.isArray(nodes)
+    ? (nodes as Record<string, NodeRecord>)
+    : {};
+}
+
+/**
+ * The instructions visible from where the reader stands, as the raw rows and in account order.
+ *
+ * This is the one visibility computation (see `instructionInScope`): `list`'s default view folds these
+ * rows for a reader, and dispatch preparation renders them (it needs the binding and the stopping
+ * boundary, which the reader-facing row does not carry). Reading holds no lock and asks no gate.
+ */
+export async function visibleInstructionRows(
+  root: string,
+  filter: InstructionListFilter = {},
+): Promise<InstructionRecord[]> {
+  const paths = pfPaths(root);
+  const { instructions } = await readInstructionsAt(paths);
+  const cycles = await readStateCyclesAt(paths);
+  const position = positionOf(cycles, filter.node ?? null);
+  const nodes = await readNodesAt(paths);
+  const active = new Set(
+    cycles
+      .filter((record) => record.status === 'active')
+      .map((record) => record.id)
+      .filter((id): id is string => typeof id === 'string'),
+  );
+  return instructions
+    .filter((entry) => isLive(entry))
+    .filter((entry) => instructionInScope(entry, nodes, active, position.cycle, position.node));
+}
 
 /** Build the instructions namespace: one per project root. */
 export function createInstructionsNamespace(root: string): InstructionsNamespace {
   const paths = pfPaths(root);
 
-  async function readInstructions(): Promise<InstructionsLedger> {
-    const read = await readJsonFile(paths.instructionsJson, 'instructions.json');
-    const data = read.kind === 'present' && read.value !== null && typeof read.value === 'object'
-      ? (read.value as Record<string, unknown>)
-      : {};
-    if (!Array.isArray(data.instructions)) data.instructions = [];
-    return { data, instructions: data.instructions as InstructionRecord[] };
-  }
-
-  /** Write instructions.json: the whole document is written back as it was (only the changed cells), in construction order (no sorting). */
-  async function writeInstructions(ledger: InstructionsLedger): Promise<void> {
-    await atomicWriteJson(paths.instructionsJson, ledger.data, jsonOptionsForRecord('instructions'));
-  }
-
-  /** Read-only view of the line account: registering a binding and deciding visibility need "is the line active, who does it hold", and not one byte is written. */
-  async function readStateCycles(): Promise<CycleRecord[]> {
-    const read = await readJsonFile(paths.stateJson, 'state.json');
-    const data = read.kind === 'present' && read.value !== null && typeof read.value === 'object'
-      ? (read.value as Record<string, unknown>)
-      : {};
-    return Array.isArray(data.cycles) ? (data.cycles as CycleRecord[]) : [];
-  }
-
-  /** Read-only view of the graph: registering a binding has to check whether the named node is on the graph. */
-  async function readNodes(): Promise<Record<string, NodeRecord>> {
-    const read = await readJsonFile(paths.ideasJson, 'ideas.json');
-    const data = read.kind === 'present' && read.value !== null && typeof read.value === 'object'
-      ? (read.value as Record<string, unknown>)
-      : {};
-    const nodes = data.nodes;
-    return nodes !== null && typeof nodes === 'object' && !Array.isArray(nodes)
-      ? (nodes as Record<string, NodeRecord>)
-      : {};
-  }
+  const readInstructions = (): Promise<InstructionsLedger> => readInstructionsAt(paths);
+  const writeInstructions = (ledger: InstructionsLedger): Promise<void> => writeInstructionsAt(paths, ledger);
+  const readStateCycles = (): Promise<CycleRecord[]> => readStateCyclesAt(paths);
+  const readNodes = (): Promise<Record<string, NodeRecord>> => readNodesAt(paths);
 
   /** The one gate the verbs that change the instruction account share: the init decision first (which creates no directory), then the lock and the read-change-write. */
   function mutate<T>(body: (ledger: InstructionsLedger) => Promise<T>): Promise<T> {
@@ -386,36 +419,24 @@ export function createInstructionsNamespace(root: string): InstructionsNamespace
       });
     },
 
-    async list(filter: InstructionListFilter = {}): Promise<InstructionRecord[]> {
-      const { instructions } = await readInstructions();
-      let rows: InstructionRecord[];
-      if (filter.all === true || filter.scope !== undefined) {
-        // The whole-account view: the raw rows. Only all brings archived rows along; scope narrows
-        // the whole account to one scope (an unrecognised scope word reads as global, so it lands in
-        // the global group).
-        rows = instructions;
+    async list(filter: InstructionListFilter = {}): Promise<InstructionReaderRow[] | InstructionRecord[]> {
+      if (filter.all === true || filter.live === true || filter.scope !== undefined) {
+        // The account view: the raw rows, in account order. Only `all` brings archived rows along;
+        // `live` keeps the live ones, and `scope` narrows the account to one scope (an unrecognised
+        // scope word reads as global, so it lands in the global group).
+        const { instructions } = await readInstructions();
+        let rows = instructions;
         if (filter.all !== true) rows = rows.filter((entry) => isLive(entry));
         if (filter.scope !== undefined) {
           rows = rows.filter((entry) => entryScope(entry) === filter.scope);
         }
-      } else {
-        // The default view: visibility computed from where the reader stands (THE one decision), giving only the live rows that reach.
-        const cycles = await readStateCycles();
-        const position = positionOf(cycles, filter.node ?? null);
-        const nodes = await readNodes();
-        const active = new Set(
-          cycles
-            .filter((record) => record.status === 'active')
-            .map((record) => record.id)
-            .filter((id): id is string => typeof id === 'string'),
-        );
-        rows = instructions
-          .filter((entry) => isLive(entry))
-          .filter((entry) =>
-            instructionInScope(entry, nodes, active, position.cycle, position.node),
-          );
+        if (filter.live === true) rows = rows.filter((entry) => isLive(entry));
+        return rows;
       }
-      return orderForReading(rows);
+      // The default view: the one visibility decision (the reader's spot) over the whole account, then
+      // folded to the reader-facing rows. Account order is kept on both sides: the reading never sorts.
+      const rows = await visibleInstructionRows(root, { node: filter.node });
+      return rows.map(foldReaderRow);
     },
 
     async resolve(id: string): Promise<InstructionRecord> {

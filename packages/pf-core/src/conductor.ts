@@ -14,7 +14,8 @@ import {
   shadowedKnobs,
   verifyPlugins,
 } from './plugins/registry';
-import type { Executor, OpenedSession } from './executor';
+import type { DispatchRequest, Executor, OpenedSession } from './executor';
+import { envSpawnDryRun, envSpawner, zcodeDataDir } from './env';
 import { PfError } from './errors';
 import type { GitResult, GitRunner } from './git';
 import { atomicWriteBytes, atomicWriteJson, EOL, jsonOptionsForRecord, readJsonFile } from './jsonio';
@@ -26,7 +27,7 @@ import type { DagNamespace } from './ledger';
 import type { CycleRecord, HandoffRecord, NodeMode, NodeResult } from './types';
 import type { PluginFolder } from './plugins/types';
 import { withLedgerLock } from './ledgerlock';
-import { createCyclesNamespace } from './cycles';
+import { createCyclesNamespace, cyclePolicy } from './cycles';
 
 /** The verdict words a handoff ticket takes: these three only (`pending` is the marker a re-run leaves, coming from the re-run verb, not from a session). */
 const HANDOFF_RESULTS: readonly NodeResult[] = ['completed', 'failed', 'stopped'];
@@ -48,6 +49,16 @@ export function warningsOf(result: object): readonly string[] {
 export interface ConductorTarget {
   cycle?: string;
   node?: string;
+}
+
+/**
+ * What one dispatch names on the call itself: the line, the node, and the spawner. The spawner is the
+ * most specific answer for this one dispatch — it beats the line's `spawner` policy, and that beats the
+ * machine's own `DSH_CONDUCT_SPAWNER`. A bare word (`dsh` / `zcode`) or a path both count; left out,
+ * the executor's own default opens the session.
+ */
+export interface ConductorDispatchInput extends ConductorTarget {
+  spawner?: string;
 }
 
 /**
@@ -260,7 +271,7 @@ export interface ConductorNamespace {
    * Hand the next step to the executor: the node goes to a session, and the promise ends when that
    * session is **open**. The result is not here — the worker files a ticket and `close` settles it.
    */
-  dispatch(input?: ConductorTarget): Promise<DispatchReceipt>;
+  dispatch(input?: ConductorDispatchInput): Promise<DispatchReceipt>;
   /** Write one handoff ticket, landing at "line id / node id" under signals. */
   handoff(input: ConductorHandoffInput): Promise<HandoffRecord>;
   /** Close out the line and settle. */
@@ -579,12 +590,24 @@ export function createConductorNamespace(
       // The request goes to the executor: the line's and the node's identity are carried as they are, role is
       // carried by the request, and the prompt is the one line preparation handed back. What comes back is a
       // receipt, not a result: the session is open, and the result will arrive as a ticket from the worker.
-      const session = await executor.dispatch({
+      // Which spawner opens this session is the most specific answer: what this call named, then the line's
+      // own `spawner` policy, then the machine's switch; with nothing said the cell is absent and the
+      // executor's default speaks. The drill switch and the ZCode host's data root ride along the same seam,
+      // both read at this call (never cached).
+      const policySpawner = cyclePolicy(cycle).spawner;
+      const namedSpawner = input?.spawner
+        ?? (typeof policySpawner === 'string' ? policySpawner : undefined)
+        ?? envSpawner();
+      const request: DispatchRequest = {
         cycle: cycleId,
         node: nodeId,
         role: 'execute',
         prompt: slot.prompt_text,
-      });
+        ...(namedSpawner === undefined ? {} : { spawner: namedSpawner }),
+        ...(namedSpawner === 'zcode' ? { zcodeDataDir: zcodeDataDir() } : {}),
+        ...(envSpawnDryRun() ? { dryRun: true } : {}),
+      };
+      const session = await executor.dispatch(request);
       // The claim of this dispatch: the session is out, so the marker lands and the plan stops counting this
       // cell as dispatchable. Success is never handed back without it — a missing claim would let the next
       // dispatch open a second session on a node that already has one, so a claim that cannot be written throws

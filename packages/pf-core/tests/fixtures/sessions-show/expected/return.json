@@ -1,0 +1,19 @@
+{
+  "node": "@node-a@",
+  "title": "甲",
+  "v": 1,
+  "discussion": [
+    {
+      "session": "session-d1",
+      "host": "dsh",
+      "at": "@t1@"
+    }
+  ],
+  "run": [
+    {
+      "session": "sess_r1",
+      "host": "zcode",
+      "at": "@t2@"
+    }
+  ]
+}

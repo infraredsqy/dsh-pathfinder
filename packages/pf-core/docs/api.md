@@ -4,12 +4,15 @@
 
 - `open(root, options?)` 交回一个 `pf` 句柄，里面是 `ledger` / `conductor` / `config` /
   `sessions` 四个命名空间；`options` 的形状是 `PfOpenOptions`。
-- `PfOpenOptions { executor?: Executor }` —— 执行的唯一注入点；不传执行者时，`conductor.dispatch`
+- `PfOpenOptions { executor?: Executor; homeDir?: string }` —— `executor` 是执行的唯一注入点；不传执行者时，`conductor.dispatch`
   直接抛错，记录一个字节都不动。git 不走这里：`ledger.init`、`ledger.register` 与 `conductor.doctor`
   每次调用自带一个 `git`（形状就是 `src/git.ts` 里的 `GitRunner`），句柄上不存 git；哪一次调用不传，
-  那一次问 git 的部分就不问（doctor 的合并驱动一格只说没问，不判红）。
+  那一次问 git 的部分就不问（doctor 的合并驱动一格只说没问，不判红）。`homeDir` 是机器层设置的 home
+  （`<home>/.pf/config.json`）：句柄把它交给每一个读这一层的命名空间——`ledger`（`dag.info` 的会话档）、
+  `config` 的 global 层、`sessions` 的宿主解析，以及 `conductor` 的派发准备与插件上下文；同一个句柄只
+  有一套机器层。不传时按 `PF_HOME_DIR`，再缺省到本机 home。
 - `Pf { root: string; ledger; conductor; config; sessions }` —— `root` 是打开时给的项目根，原样保存。
-- `pf.ledger.dag` 十四动词、`pf.ledger.cycles` 十一动词、`pf.ledger.instructions` 五动词、
+- `pf.ledger.dag` 十五动词、`pf.ledger.cycles` 十一动词、`pf.ledger.instructions` 五动词、
   `pf.config` 四动词、`ledger.init` / `ledger.register`、`pf.sessions` 两动词与
   `conductor.next` / `conductor.close` / `conductor.dispatch` / `conductor.doctor` /
   `conductor.handoff` 都在句柄上，全是真实现；没有一个桩。
@@ -26,6 +29,10 @@ open
 运行时出口就这两条。包另有一个进程入口 `pf-merge-ledger`（`package.json` 的 `bin` 里只有这一条，
 产物是 `dist/merge-ledger.mjs`）：git 的合并驱动只能靠进程叫，它是边界上唯一那个例外，做的是
 argv 与退出码的搬运，一条合并规则都不在它里面。
+
+类型出口在 `src/index.ts` 里按命名空间逐项列出——记录类型、各命名空间的输入 / 选项 / 返回形状，
+外部调用方按名字 `import type` 就能拿到：`DagInfo`、`DagInfoEdge`、`DagInfoOptions`、
+`InstructionReaderRow`、`ConductorDispatchInput`、`SessionShow` 都在这张清单上。
 
 ## pf.ledger
 
@@ -71,7 +78,7 @@ checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
 
 ### pf.ledger.dag
 
-图：节点与边的读写，十四个动词。
+图：节点与边的读写，十五个动词。
 
 | 动作 | 签名 | 一句话语义 |
 | --- | --- | --- |
@@ -84,11 +91,30 @@ checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
 | `ledger.dag.approve` | `approve(id, at?)` | 记人对本次交付的认可；时刻不得早于完成时刻 |
 | `ledger.dag.revive` | `revive(id)` | 把 shelved 的节点放回 todo |
 | `ledger.dag.get` | `get(id)` | 读一个节点的记录；不在图上时为 `null` |
+| `ledger.dag.info` | `info(id, options?)` | 读一个节点的详情：记录 + 两个方向的边、就绪、两个读数与会话名单 |
 | `ledger.dag.context` | `context(id)` | 读上下游传递闭包 |
 | `ledger.dag.search` | `search(query, options?)` | 按正则搜标题与描述，标题命中排前 |
 | `ledger.dag.list` | `list(filter?)` | 按状态 / 就绪 / 标签列出，重要与紧急排序 |
 | `ledger.dag.specPath` | `specPath(id)` | 节点 spec.md 的落点路径 |
 | `ledger.dag.validate` | `validate()` | 查环、悬空引用与重复边；孤立点点名不翻红 |
+
+**`info(id, options?)` 是节点详情。** `get` 原样交回记录；`info` 多给只有图能回答的那几格。它的选项是 `DagInfoOptions { verbose?: boolean }`，交回 `DagInfo`，键序固定：
+
+| 字段 | 取值 |
+| --- | --- |
+| `id` / `title` / `status` / `mode` / `description` | 记录里的词；标题、描述缺席读空串，状态缺席读 `todo`，模式缺席读 `auto` |
+| `depends_on` | 本节点记录里的依赖，按记录的次序；每项 `{ id, title }`，图上已经没有的那个读 `(unknown)` |
+| `depended_by` | 图上每条记录里写了本节点的那些节点，按节点表的次序；`{ id, title }`，标题缺席读空串 |
+| `ready` | 与 `list` 的 `ready` 同一把尺 |
+| `urgency_level` / `importance_score` | 与 `list` 同一份算法（未完的子图上算）；`shelved` 的节点不入排序，两个都读 0 |
+| `weight` | 只在 `light` 时有这一格 |
+| `created_at` / `updated_at` | 只在 `verbose` 时有 |
+| `sessions` | 会话档的两个名单；两个都空时整格缺席 |
+| `completed_at` / `approved_at` | 有那个时刻才给 |
+
+`verbose` 时两个方向的每一项多一个 `status`：依赖那侧缺席读 `(unknown)`（与它的标题同一格），被依赖那侧缺席读空串。`info` 与 `get` 一样是读动词：不持锁、不问 init 门槛；图上没有这个 id 时当场停下。
+
+`sessions` 格走本机会话档，读宿主时要解析机器层设置（`session_host_override`）：那一层的 home 由**句柄**带进来——`open(root, { homeDir })`（`PfOpenOptions.homeDir`），不传时按 `PF_HOME_DIR`、再缺省到本机 home。`DagInfoOptions` 只有 `verbose` 一格：这个开关的口径属于整台机器，落在句柄那一层，一问的选项不动它。
 
 ### pf.ledger.cycles
 
@@ -118,10 +144,23 @@ checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
 | 动作 | 签名 | 一句话语义 |
 | --- | --- | --- |
 | `ledger.instructions.add` | `add(input)` | 登记一条指令；正文与范围必填，绑定随范围走 |
-| `ledger.instructions.list` | `list(filter?)` | 生效中的指令；可放宽到连已归档的也一起给 |
+| `ledger.instructions.list` | `list(filter?)` | 缺省读法给读者面；`all` / `live` / `scope` 给原始记录 |
 | `ledger.instructions.resolve` | `resolve(id)` | 结清一条指令（落结清时刻） |
 | `ledger.instructions.revive` | `revive(id)` | 把已归档的指令重新生效 |
 | `ledger.instructions.remove` | `remove(id)` | 把指令摘走，留 id 与时刻的痕迹 |
+
+**`list` 有两种读法，一个动词。** 两种都按记录里的次序给，不排序：
+
+- **缺省读法（读者面）**：还在生效、且从读者当前位置能看见的那些，每行折成
+  `InstructionReaderRow`。`scope` 是读出来的范围词（认不得的词读 `global`）；`target` 是记录里的
+  词，记录没写时是 `null`；`reach` 是投递通道补上缺省后的那个词，只有 `stage` / `boundary` 两个。
+  引擎给词，不给句子——一句话怎么读是展现层的事。
+- **原始记录**：原样的记录行。`all` 连归档的一起给；`live` 只留还在生效的；`scope` 把清单收窄到
+  一个范围（`global` / `cycle` / `node`）。三者可以并给。
+- `node` 不是清单开关：它是「读者站在哪个节点」的定位词，缺省读法用它算可见性（两条线并排时它
+  同时钉住线）。
+
+`InstructionListFilter { all?; live?; scope?; node? }`。
 
 ## pf.config
 
@@ -193,8 +232,12 @@ pf 项目」，主树的设置一个字都漏不出来（in-repo 档记录随检
 
 | 动作 | 签名 | 一句话语义 |
 | --- | --- | --- |
-| `sessions.list` | `list()` | 全部会话档，按节点给 |
+| `sessions.list` | `list()` | 全部会话档，按节点给，每条带节点 id、标题与档本身 |
 | `sessions.show` | `show(node)` | 一个节点的会话档；没写过时两个名单都是空的 |
+
+`show` 交回 `SessionShow { node, title, v, discussion, run }`：节点 id 与图上的标题都在，标题从
+`ideas.json` 现读（记录没写标题时读空串）。`list` 每条是
+`SessionNoteSummary { node, title, note }`，按节点 id 排；节点已经不在节点表上时标题读空串，那一页照给。
 
 会话档住 `.pf/meta/sessions/<节点>.json`（会话 id 是本机的东西，不进记录）。读侧一律容忍：
 文件缺席、读不动、版本认不得，三者都读作「没写过」，两个名单都是空表；条目里没有会话 id 的
@@ -312,7 +355,31 @@ pf 项目」，主树的设置一个字都漏不出来（in-repo 档记录随检
 - `class SimulatedExecutor implements Executor` —— 模拟开出一个会话：按次序交回 `sess-1` /
   `sess-2` …，并把收到的每次派发请求记在 `dispatched` 里；脚本是 `'open'`（缺省）、`'throw'`
   （开不出会话就抛）或 `'hang'`（永不落定），给函数就按请求与序号逐次现算。
-- `DispatchRequest { cycle?; node?; role?; prompt }`，`OpenedSession { sessionId?; host? }`。
+- `DispatchRequest { cycle?; node?; role?; prompt; spawner?; dryRun?; zcodeDataDir? }`，
+  `OpenedSession { sessionId?; host? }`。后三格都由派发这一次调用现读：
+  - `spawner`：这场会话由哪个 spawner 开（词或路径）。次序是本次调用点名的 `spawner` > 线的
+    `spawner` 策略 > 机器的 `DSH_CONDUCT_SPAWNER`；都没说时这一格缺席，执行者自己的缺省说了算。
+    本次点名走 `conductor.dispatch({ spawner })`（输入的形状是 `ConductorDispatchInput`）。
+  - `dryRun`：演练档开着时是 `true`（缺席即关）。调用照做、回执照给，但执行者不许真的开一场会话。
+  - `zcodeDataDir`：只有解出的 spawner 是 `zcode` 那个词时才有；ZCode 宿主的 `.zcode` 根就在那里。
+
+## 运行时开关
+
+六个环境变量，读在**每次调用**上，不在 import 时缓存。显式选项永远压过它，它压过出厂缺省；一个都
+没设时，行为与没有这些开关时一字不差。
+
+| 开关 | 读在哪 | 语义 |
+| --- | --- | --- |
+| `PF_HOME_DIR` | 机器层设置的 home | `<home>/.pf/config.json` 的 home；沙盒靠它把机器层关进临时目录，不碰真的 `~/.pf` |
+| `PF_PLUGINS_DIR` | 插件目录 | 一个插件一个子目录的那个目录；去掉首尾空白，空值读出厂缺省 `<root>/plugins`；以 `~` 开头的路径按本机 home 展开（光杆 `~` 就是 home 本身） |
+| `DSH_CONDUCT_SPAWNER` | `conductor.dispatch` | 下一场会话由哪个 spawner 开：`dsh` / `zcode`，或一条路径。本次调用点名与线的策略都压过它 |
+| `DSH_CONDUCT_SPAWN_DRY_RUN` | `conductor.dispatch` | 演练档：值不是 `''` / `0` / `false` / `False` 就是开，请求多带 `dryRun: true` |
+| `DSH_SESSION_ID` | `ledger.dag.add` | 本进程自己的会话 id：登记节点时作为这个节点的 discussion 会话记进它的会话档。尽力而为，写不进去也不回滚已登记的节点。本引擎只在这一处读它：另一个读点（本机自答「这台机器就是 dsh 宿主」）在引擎里没有落点——引擎不起进程，「这台机器是哪个宿主」由执行者接缝决定 |
+| `ZCODE_DATA_BASE_DIR` | `conductor.dispatch` | ZCode 宿主的数据根（`.zcode` 挂在它下面，本机 home 为缺省）；只有 spawner 解出来是 `zcode` 这个词时请求才带这一格——spawner 写成一条路径时不带，这一格只认那个词 |
+
+除演练档外，其余开关都把值去掉首尾空白之后再用，空值当没说；路径形的值里只有 `PF_PLUGINS_DIR` 认
+`~`（展开到本机 home），其余开关按写下的字面读。演练档是例外：它原样读、不去空白，值只在 `''` / `0` /
+`false` / `False` 四个词上是关——`' 0 '`、`'   '` 都算开。
 
 ## 可判定错误码
 

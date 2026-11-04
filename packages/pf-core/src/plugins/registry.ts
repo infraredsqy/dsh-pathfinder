@@ -12,6 +12,7 @@ import {
   type KnobSpec,
 } from '../config';
 import { readJsonFile } from '../jsonio';
+import { envPluginsDir } from '../env';
 import { standInContext } from './standin';
 import type {
   PluginAction,
@@ -62,9 +63,13 @@ export const PLUGIN_IMPL_NAME = 'impl.mjs';
 export const PLUGIN_SKILLS_DIR = 'skills';
 export const PLUGIN_SKILL_FILE = 'SKILL.md';
 
-/** The location of the plugin directory: `<root>/plugins`, one folder per plugin; the caller can point it elsewhere through the namespace's own options. */
+/**
+ * The location of the plugin directory: the option the call hands in, then `PF_PLUGINS_DIR`, then
+ * `<root>/plugins` — one folder per plugin. The option wins over the switch, so a caller that names
+ * a folder reads that folder whatever the environment says.
+ */
 export function pluginsDirOf(root: string, pluginsDir?: string): string {
-  return pluginsDir ?? join(root, 'plugins');
+  return pluginsDir ?? envPluginsDir() ?? join(root, 'plugins');
 }
 
 // ── words the core already occupies: the core wins when a plugin command collides ──

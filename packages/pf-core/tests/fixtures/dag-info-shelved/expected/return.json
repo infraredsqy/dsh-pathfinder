@@ -1,0 +1,12 @@
+{
+  "id": "@node-d@",
+  "title": "丁",
+  "status": "shelved",
+  "mode": "auto",
+  "description": "",
+  "depends_on": [],
+  "depended_by": [],
+  "ready": false,
+  "urgency_level": 0,
+  "importance_score": 0
+}

@@ -1,0 +1,9 @@
+{
+  "path": "ledger.instructions.list",
+  "args": [
+    {
+      "live": true
+    }
+  ],
+  "expect": "return"
+}

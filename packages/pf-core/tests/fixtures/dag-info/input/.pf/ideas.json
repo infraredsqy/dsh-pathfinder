@@ -1,0 +1,50 @@
+{
+  "nodes": {
+    "@node-a@": {
+      "title": "甲",
+      "description": "甲的说明",
+      "status": "todo",
+      "mode": "checkpoint",
+      "dependencies": [
+        "@node-b@"
+      ],
+      "created_at": "@t1@",
+      "updated_at": "@t1@",
+      "tags": [
+        "coding"
+      ],
+      "weight": "light"
+    },
+    "@node-b@": {
+      "title": "乙",
+      "description": "",
+      "status": "completed",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t2@",
+      "updated_at": "@t3@",
+      "completed_at": "@t3@",
+      "approved_at": "@t4@"
+    },
+    "@node-c@": {
+      "title": "丙",
+      "description": "",
+      "status": "todo",
+      "mode": "auto",
+      "dependencies": [
+        "@node-a@"
+      ],
+      "created_at": "@t2@",
+      "updated_at": "@t2@"
+    },
+    "@node-d@": {
+      "title": "丁",
+      "description": "",
+      "status": "shelved",
+      "mode": "auto",
+      "dependencies": [],
+      "created_at": "@t2@",
+      "updated_at": "@t2@"
+    }
+  }
+}

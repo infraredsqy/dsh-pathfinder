@@ -8,6 +8,7 @@ import { createConfigNamespace } from '../../src/config';
 import { createConductorNamespace } from '../../src/conductor';
 import { SimulatedExecutor } from '../../src/executor';
 import { open } from '../../src/open';
+import { createSessionsNamespace } from '../../src/sessions';
 
 /**
  * Golden corpus replayer: one set of input records + one operation → byte-for-byte comparison of
@@ -536,7 +537,7 @@ export async function replayCase(caseDir: string, run?: CorpusRunner): Promise<R
     // The action path is the API path: walk down from the handle and spread the args by position.
     // When a runner is given (for a transitional shape the corpus cannot reach) it takes the call,
     // everything else the same.
-    // The config and conductor namespaces close "home" into the temporary project root
+    // The config, conductor and sessions namespaces close "home" into the temporary project root
     // (<root>/_home): machine-wide reads and writes never touch the real machine's ~/.pf, and the
     // generation side uses the same convention (PF_HOME_DIR=<sandbox>/_home).
     // The conductor's plugin directory uses the default (<root>/plugins) and is provided by the
@@ -547,6 +548,7 @@ export async function replayCase(caseDir: string, run?: CorpusRunner): Promise<R
     const pf = {
       ...open(root),
       config: createConfigNamespace(root, { homeDir: home }),
+      sessions: createSessionsNamespace(root, { homeDir: home }),
       conductor: createConductorNamespace(
         root,
         new SimulatedExecutor(),
@@ -616,7 +618,10 @@ export async function replayCase(caseDir: string, run?: CorpusRunner): Promise<R
  * The generation side of the expected products (used when generating, and not part of the replay
  * list): stage → snapshot the file list from before the operation → run the operation → fold
  * the **newly appeared** products back into tokens and write them into the case's expected/, either
- * through the record formatting (jsonBytes) or as plain text. Returns the relative paths written.
+ * through the record formatting (jsonBytes) or as plain text. A case whose product is the return
+ * value (`"expect": "return"`) gets its `expected/return.json` the same way — generated from the
+ * operation's answer, never written by hand — and the file products are still laid down beside it.
+ * Returns the relative paths written.
  */
 export async function generateExpected(
   caseDir: string,
@@ -628,7 +633,7 @@ export async function generateExpected(
     const before = new Set(listFilesUnder(root));
     await alignOpToSecondStart();
     const args = JSON.parse(substitute(JSON.stringify(op.args), maps, false, root)) as unknown[];
-    await run(root, args);
+    const returned = await run(root, args);
     // Ids in file names are folded back into tokens too (the landing paths of handoffs and dispatch
     // material carry the node id) — the same spelling as the tokenised relative paths in expected/.
     const foldPath = (rel: string): string => {
@@ -650,6 +655,14 @@ export async function generateExpected(
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, text, 'utf8');
       written.push(relTokenized);
+    }
+    if (op.expect === 'return') {
+      // The same serialisation the replayer compares: two-space indentation, tokenised, one final LF.
+      const text = toLf(detokenize(JSON.stringify(returned, null, 2), maps, root)) + '\n';
+      const target = join(expectedDir, 'return.json');
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, text, 'utf8');
+      written.push('return.json');
     }
   });
   return written;

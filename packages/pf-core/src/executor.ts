@@ -8,6 +8,22 @@ export interface DispatchRequest {
   readonly role?: string;
   /** The prompt handed to the executor. */
   readonly prompt: string;
+  /**
+   * Which spawner opens this session: a bare word (`dsh` / `zcode`) or a path. Read at the call, in the
+   * most specific order — the dispatch's own `spawner` > the line's `spawner` policy > the machine's
+   * `DSH_CONDUCT_SPAWNER` — and absent when nothing names one (the executor's own default speaks).
+   */
+  readonly spawner?: string;
+  /**
+   * The drill switch was on for this call: the call is made and its result is reported, but no session
+   * may actually be opened. Absent means off (the ordinary state).
+   */
+  readonly dryRun?: boolean;
+  /**
+   * The ZCode host's data root (`.zcode` under it), present only when the resolved spawner is the
+   * `zcode` word: that host's own store hangs there, and the host layer needs it to queue a session.
+   */
+  readonly zcodeDataDir?: string;
 }
 
 /**

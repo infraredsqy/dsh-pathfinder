@@ -1,15 +1,31 @@
 import { readdirSync } from 'node:fs';
+import { nowSeconds } from './clock';
 import { SESSION_HOST_OVERRIDE, resolveConfig } from './config';
 import { PfError, isPfError } from './errors';
 import { resolveNodeId } from './graph';
-import { readJsonFile } from './jsonio';
-import { pfPaths, sessionNotePath } from './paths';
-import type { SessionHost, SessionNoteEntry, SessionNoteRecord, SecondsTimestamp } from './types';
+import { atomicWriteJson, jsonOptionsForRecord, readJsonFile } from './jsonio';
+import { withLedgerLock } from './ledgerlock';
+import { pfPaths, sessionNotePath, type PfPaths } from './paths';
+import type {
+  SessionHost,
+  SessionNoteEntry,
+  SessionNoteRecord,
+  SecondsTimestamp,
+} from './types';
 
-/** One row of the session file listing. */
+/** One row of the session file listing: the node, its title on the graph, and the note this machine holds. */
 export interface SessionNoteSummary {
   node: string;
+  /** The node's title as the graph has it; an empty string when the node is no longer on the graph. */
+  title: string;
   note: SessionNoteRecord;
+}
+
+/** One node's note as `show` hands it back: which node, its title, and the two lists of the note itself. */
+export interface SessionShow extends SessionNoteRecord {
+  node: string;
+  /** The node's title as the graph has it; an empty string when the node is no longer on the graph. */
+  title: string;
 }
 
 /** The sessions namespace: reading session files, these two verbs only. */
@@ -20,7 +36,7 @@ export interface SessionsNamespace {
    */
   list(): Promise<SessionNoteSummary[]>;
   /** Read one node's session file; when nothing was ever written, both lists are empty. */
-  show(node: string): Promise<SessionNoteRecord>;
+  show(node: string): Promise<SessionShow>;
 }
 
 /** The own options of the namespace: where the machine layer's home is (the host override is a global-layer setting). */
@@ -37,6 +53,12 @@ const ASSUMED_HOST: SessionHost = 'dsh';
 
 /** The names of the two lists, which are also how `reading` reads them. */
 const ROLES = ['discussion', 'run'] as const;
+
+/** The role a note is written under; a caller naming a third one is a bug and is refused loudly. */
+export type SessionNoteRole = (typeof ROLES)[number];
+
+/** The id prefix of the ZCode host's own sessions; used by the writer's fallback when an entry states no host. */
+const ZCODE_ID_PREFIX = 'sess_';
 
 function emptyNote(): SessionNoteRecord {
   return { v: 1, discussion: [], run: [] };
@@ -87,6 +109,178 @@ function cleanEntry(
   return clean;
 }
 
+/**
+ * One raw session file in the reading shape: two lists, entries outside the closed set dropped.
+ *
+ * An entry naming a host outside the closed set is the one thing that does stop the reading, and it
+ * says which word it read (see `hostOf`).
+ */
+function cleanNote(
+  record: Record<string, unknown>,
+  override: boolean,
+  where: string,
+): SessionNoteRecord {
+  const note = emptyNote();
+  for (const role of ROLES) {
+    const entries = record[role];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      const clean = cleanEntry(entry, override, where);
+      if (clean !== null) note[role].push(clean);
+    }
+  }
+  return note;
+}
+
+/**
+ * The host a session id belongs to, by the id's shape alone — the writer's fallback for an entry that
+ * states none. Nothing on the reading side ever guesses from the shape: this is what lands on disk
+ * when a note is written, so a reader afterwards sees a stated host either way.
+ */
+function hostOfSession(session: string): SessionHost {
+  return session.startsWith(ZCODE_ID_PREFIX) ? 'zcode' : ASSUMED_HOST;
+}
+
+/**
+ * One note in the shape a rewrite can carry forward: entries without a session id are dropped, a
+ * stated host is kept as written, a missing one takes the id's own answer, and an unreadable
+ * timestamp becomes null. This is the writer's own cleaning (a rewrite normalises the file it
+ * carries) and it deliberately does not refuse a host word the reader would refuse: reading is
+ * where an unknown word stops a page, and a rewrite must not be the reason a note dies.
+ */
+function cleanNoteForRewrite(record: Record<string, unknown>): SessionNoteRecord {
+  const note = emptyNote();
+  for (const role of ROLES) {
+    const entries = record[role];
+    if (!Array.isArray(entries)) continue;
+    for (const item of entries) {
+      if (item === null || typeof item !== 'object' || Array.isArray(item)) continue;
+      const entry = item as Record<string, unknown>;
+      const session = entry.session;
+      if (typeof session !== 'string' || session === '') continue;
+      const clean: SessionNoteEntry = {
+        session,
+        host: typeof entry.host === 'string' ? (entry.host as SessionHost) : hostOfSession(session),
+        at: typeof entry.at === 'string' ? (entry.at as SecondsTimestamp) : null,
+      };
+      if (typeof entry.source === 'string') clean.source = entry.source;
+      note[role].push(clean);
+    }
+  }
+  return note;
+}
+
+/**
+ * One node's session file, raw: `null` when it can say nothing at all.
+ *
+ * A missing file, an unreadable one (bad JSON / bad bytes) and an unrecognised version all read as
+ * `null` — a session file is local corroboration that any reader can rebuild from the session itself,
+ * and it must not be a reason for the engine to die.
+ */
+async function readRawNote(paths: PfPaths, nodeId: string): Promise<Record<string, unknown> | null> {
+  let raw: unknown;
+  try {
+    const read = await readJsonFile(sessionNotePath(paths, nodeId), 'session note');
+    if (read.kind !== 'present') return null;
+    raw = read.value;
+  } catch {
+    return null;
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  if (record.v !== NOTE_VERSION) return null;
+  return record;
+}
+
+/**
+ * Whether every session entry reads as the DSH host whatever the file says.
+ *
+ * Nothing stated anywhere is the ordinary state and reads as off through the declaration's default: a
+ * missing settings file, or a file without this key, is silent. A layer that cannot be read or parsed
+ * is handed out as the error it is, exactly as the plain read of this setting does — an unreadable
+ * machine layer is not the same thing as an absent value, so "off" is not made up for it. (The session
+ * file itself stays tolerant: it is local corroboration, and "cannot be read" reads as never written.)
+ */
+async function hostOverrideAt(root: string, options: SessionsOptions): Promise<boolean> {
+  const readings = await resolveConfig(root, options);
+  return readings[SESSION_HOST_OVERRIDE]?.value === 'on';
+}
+
+/**
+ * One node's session file, always in the reading shape: two lists, empty when nothing was written.
+ *
+ * This is the one reading `show` and the node detail both use: the file first, and the machine layer
+ * only when there is something to read (an unreadable file is a page that says nothing, never a
+ * refusal).
+ */
+export async function readSessionNote(
+  root: string,
+  nodeId: string,
+  options: SessionsOptions = {},
+): Promise<SessionNoteRecord> {
+  const paths = pfPaths(root);
+  const record = await readRawNote(paths, nodeId);
+  if (record === null) return emptyNote();
+  return cleanNote(record, await hostOverrideAt(root, options), sessionNotePath(paths, nodeId));
+}
+
+/**
+ * Note one session under one role: `true` when the file changed, `false` when the id was already there
+ * (a retry after a partial failure must not leave the same run in the note twice).
+ *
+ * The read and the write are one act and the project's ledger lock is held for it, so two writers
+ * noting two sessions on one node cannot lose one another. A caller already holding the lock (the
+ * node registration writes its discussion note inside its own read-change-write) may call this: the
+ * lock is re-entrant for the process. The file is rewritten in the canonical shape — two lists,
+ * `{v, discussion, run}` — and everything the old file carried forward comes back through the
+ * writer's own cleaning (see `cleanNoteForRewrite`); nothing else is touched.
+ */
+export async function appendSessionNote(
+  root: string,
+  nodeId: string,
+  role: SessionNoteRole,
+  session: string,
+): Promise<boolean> {
+  if (role !== 'discussion' && role !== 'run') {
+    throw new Error(`session note role must be one of ${JSON.stringify([...ROLES])}, got ${JSON.stringify(role)}`);
+  }
+  if (typeof session !== 'string' || session === '') {
+    throw new Error('a session note entry needs a session id');
+  }
+  const paths = pfPaths(root);
+  return withLedgerLock(paths, async () => {
+    const raw = await readRawNote(paths, nodeId);
+    const note = raw === null ? emptyNote() : cleanNoteForRewrite(raw);
+    if (note[role].some((entry) => entry.session === session)) return false;
+    note[role].push({ session, host: hostOfSession(session), at: nowSeconds() });
+    await atomicWriteJson(sessionNotePath(paths, nodeId), note, jsonOptionsForRecord('session-note'));
+    return true;
+  });
+}
+
+/** The node table on the graph: an unreadable graph counts as an empty graph (only borrowed for ids and titles here, the records are not judged). */
+async function graphNodes(paths: PfPaths): Promise<Record<string, unknown>> {
+  try {
+    const read = await readJsonFile(paths.ideasJson, 'ideas.json');
+    if (read.kind !== 'present') return {};
+    const data = read.value;
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) return {};
+    const nodes = (data as Record<string, unknown>).nodes;
+    if (nodes === null || typeof nodes !== 'object' || Array.isArray(nodes)) return {};
+    return nodes as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** One node's title off the table `graphNodes` read; a node that is gone (or says nothing) gives an empty string. */
+function titleOn(nodes: Record<string, unknown>, nodeId: string): string {
+  const node = nodes[nodeId];
+  if (node === null || typeof node !== 'object' || Array.isArray(node)) return '';
+  const title = (node as Record<string, unknown>).title;
+  return typeof title === 'string' ? title : '';
+}
+
 /** Assemble the sessions namespace: one per project root; home is shut in only through its own options. */
 export function createSessionsNamespace(
   root: string,
@@ -95,96 +289,10 @@ export function createSessionsNamespace(
   const paths = pfPaths(root);
 
   /**
-   * Whether every session entry reads as the DSH host whatever the file says.
-   *
-   * Nothing stated anywhere is the ordinary state and reads as off through the declaration's default: a
-   * missing settings file, or a file without this key, is silent. A layer that cannot be read or parsed
-   * is handed out as the error it is, exactly as the plain read of this setting does — an unreadable
-   * machine layer is not the same thing as an absent value, so "off" is not made up for it. (The session
-   * file itself stays tolerant: it is local corroboration, and "cannot be read" reads as never written.)
-   *
-   * The whole chain is resolved here, so a caller reads it once for all the pages it needs — the
-   * listing reads it once, not once per session file, and a page that turns out to have nothing in it
-   * never reaches this at all.
+   * The whole chain is resolved once for one listing, so a caller reads the settings once for all the
+   * pages it needs: the listing reads it once, not once per session file, and a page that turns out
+   * to have nothing in it never reaches this at all.
    */
-  async function hostOverride(): Promise<boolean> {
-    const readings = await resolveConfig(root, options);
-    return readings[SESSION_HOST_OVERRIDE]?.value === 'on';
-  }
-
-  /**
-   * One node's session file, raw: `null` when it can say nothing at all.
-   *
-   * A missing file, an unreadable one (bad JSON / bad bytes) and an unrecognised version all read as
-   * `null` — a session file is local corroboration that any reader can rebuild from the session itself,
-   * and it must not be a reason for the engine to die.
-   */
-  async function readRawNote(nodeId: string): Promise<Record<string, unknown> | null> {
-    let raw: unknown;
-    try {
-      const read = await readJsonFile(sessionNotePath(paths, nodeId), 'session note');
-      if (read.kind !== 'present') return null;
-      raw = read.value;
-    } catch {
-      return null;
-    }
-    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    const record = raw as Record<string, unknown>;
-    if (record.v !== NOTE_VERSION) return null;
-    return record;
-  }
-
-  /**
-   * One raw session file in the reading shape: two lists, entries outside the closed set dropped.
-   *
-   * An entry naming a host outside the closed set is the one thing that does stop the reading, and it
-   * says which word it read (see `hostOf`).
-   */
-  function cleanNote(
-    record: Record<string, unknown>,
-    override: boolean,
-    where: string,
-  ): SessionNoteRecord {
-    const note = emptyNote();
-    for (const role of ROLES) {
-      const entries = record[role];
-      if (!Array.isArray(entries)) continue;
-      for (const entry of entries) {
-        const clean = cleanEntry(entry, override, where);
-        if (clean !== null) note[role].push(clean);
-      }
-    }
-    return note;
-  }
-
-  /**
-   * One node's session file, always in this shape: two lists, empty when nothing was written.
-   *
-   * This is what `show` reads: the file first, and the machine layer only when there is something to
-   * read (an unreadable file is a page that says nothing, never a refusal).
-   */
-  async function readNote(nodeId: string): Promise<SessionNoteRecord> {
-    const where = sessionNotePath(paths, nodeId);
-    const record = await readRawNote(nodeId);
-    if (record === null) return emptyNote();
-    return cleanNote(record, await hostOverride(), where);
-  }
-
-  /** The node keys on the graph: an unreadable graph counts as an empty graph (only borrowed to resolve ids here, the records are not judged). */
-  async function graphIds(): Promise<Record<string, unknown>> {
-    try {
-      const read = await readJsonFile(paths.ideasJson, 'ideas.json');
-      if (read.kind !== 'present') return {};
-      const data = read.value;
-      if (data === null || typeof data !== 'object' || Array.isArray(data)) return {};
-      const nodes = (data as Record<string, unknown>).nodes;
-      if (nodes === null || typeof nodes !== 'object' || Array.isArray(nodes)) return {};
-      return nodes as Record<string, unknown>;
-    } catch {
-      return {};
-    }
-  }
-
   return {
     async list(): Promise<SessionNoteSummary[]> {
       let names: string[];
@@ -203,11 +311,12 @@ export function createSessionsNamespace(
       const readable: { node: string; record: Record<string, unknown> }[] = [];
       for (const name of names) {
         const node = name.slice(0, -'.json'.length);
-        const record = await readRawNote(node);
+        const record = await readRawNote(paths, node);
         if (record !== null) readable.push({ node, record });
       }
       if (readable.length === 0) return [];
-      const override = await hostOverride();
+      const override = await hostOverrideAt(root, options);
+      const nodes = await graphNodes(paths);
       const out: SessionNoteSummary[] = [];
       for (const { node, record } of readable) {
         let note: SessionNoteRecord;
@@ -224,15 +333,18 @@ export function createSessionsNamespace(
         }
         // A session file that can say nothing does not enter the listing: an empty file is not a session.
         if (note.discussion.length === 0 && note.run.length === 0) continue;
-        out.push({ node, note });
+        out.push({ node, title: titleOn(nodes, node), note });
       }
       return out;
     },
 
-    async show(node: string): Promise<SessionNoteRecord> {
-      const nodes = await graphIds();
+    async show(node: string): Promise<SessionShow> {
+      const nodes = await graphNodes(paths);
       const uid = resolveNodeId(node, nodes as Record<string, never>);
-      return readNote(uid);
+      const note = await readSessionNote(root, uid, options);
+      // The title is read off the same table the id was resolved against: a node that is gone gives
+      // an empty title, and the note it left behind is still worth reading.
+      return { node: uid, title: titleOn(nodes, uid), ...note };
     },
   };
 }

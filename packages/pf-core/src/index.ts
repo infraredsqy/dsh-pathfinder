@@ -53,6 +53,9 @@ export type {
   CycleStartInput,
   CyclesNamespace,
   DagAddInput,
+  DagInfo,
+  DagInfoEdge,
+  DagInfoOptions,
   DagListFilter,
   DagNamespace,
   DagRemoveOptions,
@@ -62,6 +65,7 @@ export type {
   DagValidationReport,
   InstructionAddInput,
   InstructionListFilter,
+  InstructionReaderRow,
   InstructionsNamespace,
   ExcludeReading,
   InitReport,
@@ -84,8 +88,9 @@ export type {
   ConfigSource,
   ConfigValue,
 } from './config';
-export type { SessionNoteSummary, SessionsNamespace } from './sessions';
+export type { SessionNoteSummary, SessionShow, SessionsNamespace } from './sessions';
 export type {
+  ConductorDispatchInput,
   ConductorDoctorOptions,
   ConductorHandoffInput,
   ConductorNamespace,

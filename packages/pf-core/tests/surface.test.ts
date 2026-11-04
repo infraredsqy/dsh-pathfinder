@@ -9,7 +9,7 @@ import { open } from '../src/open';
 
 const DAG_METHODS = [
   'add', 'remove', 'update', 'link', 'unlink', 'setStatus', 'approve', 'revive',
-  'get', 'context', 'search', 'list', 'specPath', 'validate',
+  'get', 'info', 'context', 'search', 'list', 'specPath', 'validate',
 ];
 const CYCLE_METHODS = [
   'create', 'start', 'rename', 'setStatus', 'setPolicy', 'list', 'current',
@@ -38,7 +38,7 @@ describe('pf.ledger', () => {
     expect(typeof pf.ledger.init).toBe('function');
     expect(typeof pf.ledger.register).toBe('function');
   });
-  it('dag has all fourteen verbs', () => {
+  it('dag has all fifteen verbs', () => {
     expect(Object.keys(pf.ledger.dag).sort()).toEqual([...DAG_METHODS].sort());
   });
   it('cycles has all eleven verbs', () => {

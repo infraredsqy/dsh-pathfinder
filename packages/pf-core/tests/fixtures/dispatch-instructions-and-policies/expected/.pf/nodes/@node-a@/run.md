@@ -15,7 +15,7 @@
 - worktree_mode=off
 - max_agents=3
 - 用户指令（生效中）：
-  1. stop after three nodes（global，boundary，stop_after_nodes=3）
-  2. global note: keep the shared notes in docs/（global）
-  3. cycle-scoped note: keep the line moving（cycle c1）
-  4. node-scoped note: this round touches only its own files（node @short-a@）
+  1. node-scoped note: this round touches only its own files（node @short-a@）
+  2. cycle-scoped note: keep the line moving（cycle c1）
+  3. global note: keep the shared notes in docs/（global）
+  4. stop after three nodes（global，boundary，stop_after_nodes=3）

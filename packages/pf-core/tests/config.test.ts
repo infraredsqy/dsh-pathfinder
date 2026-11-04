@@ -1199,10 +1199,12 @@ describe('the declared knobs of the project own plugin folder', () => {
   it('a handle from open() lists the knobs its plugins declare, and the project and line layers written under them are read back', async () => {
     const root = mkdtempSync(join(tmpdir(), 'pf-config-declared-'));
     try {
-      // The handle is the one surface with no internal options: no `homeDir` seam and no declaration table,
-      // so both have to come from the project itself. The machine layer is this machine's own file, the one
-      // layer `open` cannot wall in; the knob names below belong to the declaration, so no wider layer can
-      // hold a value under them, and every reading asserted here is the project's or the line's.
+      // The handle carries a `homeDir` seam: `open(root, { homeDir })` hands one home to every namespace
+      // that reads the machine layer (`config`, `sessions`, `ledger.dag.info`, `conductor`), so `open` can
+      // wall the machine layer in. The declaration table has no option of its own: it is read from the
+      // project's plugin folder on each call. This test names no home, so that layer is this machine's own
+      // file; the knob names below belong to the declaration, so no wider layer can hold a value under
+      // them, and every reading asserted here is the project's or the line's.
       const pf = open(root);
       await pf.ledger.init();
       const folder = join(root, 'plugins', 'pool');

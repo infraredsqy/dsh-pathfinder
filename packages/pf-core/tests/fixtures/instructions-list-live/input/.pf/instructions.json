@@ -1,0 +1,56 @@
+{
+  "instructions": [
+    {
+      "id": "i-0001",
+      "text": "全局的约束",
+      "scope": "global",
+      "target": "stage",
+      "state": "live",
+      "cycle": null,
+      "node": null,
+      "said_by": "user",
+      "at": "@t1@",
+      "resolved_at": null,
+      "note": null
+    },
+    {
+      "id": "i-0002",
+      "text": "线上的约束",
+      "scope": "cycle",
+      "target": "boundary",
+      "state": "live",
+      "cycle": "main",
+      "node": "@node-a@",
+      "said_by": "user",
+      "at": "@t2@",
+      "resolved_at": null,
+      "note": null
+    },
+    {
+      "id": "i-0003",
+      "text": "节点上的约束",
+      "scope": "node",
+      "target": "stage",
+      "state": "live",
+      "cycle": "main",
+      "node": "@node-a@",
+      "said_by": "user",
+      "at": "@t3@",
+      "resolved_at": null,
+      "note": null
+    },
+    {
+      "id": "i-0004",
+      "text": "已归档的约束",
+      "scope": "global",
+      "target": "stage",
+      "state": "withdrawn",
+      "cycle": null,
+      "node": null,
+      "said_by": "user",
+      "at": "@t4@",
+      "resolved_at": "@t5@",
+      "note": null
+    }
+  ]
+}

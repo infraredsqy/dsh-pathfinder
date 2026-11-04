@@ -11,7 +11,7 @@ const FROZEN_METHODS = [
   'ledger.init', 'ledger.register',
   'ledger.dag.add', 'ledger.dag.remove', 'ledger.dag.update', 'ledger.dag.link',
   'ledger.dag.unlink', 'ledger.dag.setStatus', 'ledger.dag.approve', 'ledger.dag.revive',
-  'ledger.dag.get', 'ledger.dag.context', 'ledger.dag.search', 'ledger.dag.list',
+  'ledger.dag.get', 'ledger.dag.info', 'ledger.dag.context', 'ledger.dag.search', 'ledger.dag.list',
   'ledger.dag.specPath', 'ledger.dag.validate',
   'ledger.cycles.create', 'ledger.cycles.start', 'ledger.cycles.rename',
   'ledger.cycles.setStatus', 'ledger.cycles.setPolicy', 'ledger.cycles.list',

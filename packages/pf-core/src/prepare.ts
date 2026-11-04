@@ -5,7 +5,7 @@ import type { ConductorTarget } from './conductor';
 import { createCyclesNamespace, cycleHoldingIds, cyclePolicy } from './cycles';
 import { createDagNamespace } from './dag';
 import { isExistingPath } from './fs-helpers';
-import { createInstructionsNamespace, entryScope } from './instruct';
+import { entryScope, visibleInstructionRows } from './instruct';
 import { assertLedgerInitialized } from './initledger';
 import { atomicWriteBytes, exclusiveCreateBytes, EOL } from './jsonio';
 import { launchPromptPath, nodeRunDocPath, nodeSpecPath, pfPaths } from './paths';
@@ -298,7 +298,6 @@ export async function prepareDispatch(
   }
   assertLedgerInitialized(paths);
   const dag = createDagNamespace(root);
-  const instructions = createInstructionsNamespace(root);
   const config = createConfigNamespace(
     root,
     options.homeDir === undefined ? {} : { homeDir: options.homeDir },
@@ -319,7 +318,7 @@ export async function prepareDispatch(
       nodeId: entry.node_id,
       specPath,
       method,
-      instructions: await instructions.list({ node: entry.node_id }),
+      instructions: await visibleInstructionRows(root, { node: entry.node_id }),
       knobs: {
         test_tier: (await config.get('test_tier')).value,
         worktree_mode: (await config.get('worktree_mode')).value,

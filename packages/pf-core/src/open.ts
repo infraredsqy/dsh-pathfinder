@@ -13,6 +13,15 @@ import { pluginAssemblyOf } from './plugins/assembly';
 export interface PfOpenOptions {
   /** The executor is handed in from outside; without one, actions that need an executor stay unavailable. */
   readonly executor?: Executor;
+  /**
+   * The home of the machine layer (the one `<home>/.pf/config.json` lives in), handed to every
+   * namespace that reads that layer: `ledger.dag.info` reads this machine's session notes through
+   * it, `sessions` resolves the written host through it, `config` reads its global layer there, and
+   * `conductor` reads the same home in dispatch preparation and in the plugin context. One handle
+   * answers from one machine layer. Nothing given here falls back to `PF_HOME_DIR`, then to this
+   * user's home.
+   */
+  readonly homeDir?: string;
 }
 
 /** The pf handle: the project root plus four namespaces. */
@@ -46,11 +55,14 @@ export function open(root: string, options: PfOpenOptions = {}): Pf {
   }
   const pf: Pf = {
     root,
-    ledger: createLedgerNamespace(root),
-    conductor: createConductorNamespace(root, options.executor),
+    ledger: createLedgerNamespace(root, { homeDir: options.homeDir }),
+    conductor: createConductorNamespace(root, options.executor, { homeDir: options.homeDir }),
     // Each call makes its own assembly: the folder on disk is the answer every time.
-    config: createConfigNamespace(root, { declaredKnobsOf: (dir) => pluginAssemblyOf(dir).knobs() }),
-    sessions: createSessionsNamespace(root),
+    config: createConfigNamespace(root, {
+      homeDir: options.homeDir,
+      declaredKnobsOf: (dir) => pluginAssemblyOf(dir).knobs(),
+    }),
+    sessions: createSessionsNamespace(root, { homeDir: options.homeDir }),
   };
   executors.set(pf, options.executor);
   return pf;

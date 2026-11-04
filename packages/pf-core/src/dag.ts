@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { nowMicro } from './clock';
+import { envSessionId } from './env';
 import {
   atomicWriteJson,
   jsonOptionsForRecord,
@@ -10,6 +11,9 @@ import { assertLedgerInitialized } from './initledger';
 import type {
   AddedNode,
   DagAddInput,
+  DagInfo,
+  DagInfoEdge,
+  DagInfoOptions,
   DagListFilter,
   DagNamespace,
   DagRemoveOptions,
@@ -22,6 +26,7 @@ import type {
   NodeSummary,
 } from './ledger';
 import { withLedgerLock } from './ledgerlock';
+import { appendSessionNote, readSessionNote } from './sessions';
 import { nodeDir, nodeSpecPath, pfPaths, sessionNotePath, type PfPaths } from './paths';
 import type { MicroTimestamp, NodeMode, NodeRecord, NodeStatus, NodeWeight } from './types';
 import {
@@ -44,9 +49,9 @@ import {
  * - every verb that changes the graph holds the record tree's lock through the whole "read → change → write";
  *   the init gate comes before the lock (a `.pf` that was never initialised gets not one byte — the lock's
  *   directory creation is the only trace that would be left, so the gate has to come before it).
- * - read-side verbs (get / context / search / list / specPath / validate) hold no lock and ask no gate: writes
- *   are atomic and what is read is one complete record; a graph that was never initialised reads as an empty
- *   graph.
+ * - read-side verbs (get / info / context / search / list / specPath / validate) hold no lock and ask no
+ *   gate: writes are atomic and what is read is one complete record; a graph that was never initialised
+ *   reads as an empty graph.
  * - every rewrite touches `updated_at`; landing completed writes `completed_at` and leaving takes it off;
  *   `approved_at` only moves on an approval and is not taken off when the node leaves completed (whether an
  *   approval still counts is up to "the approval timestamp is not earlier than the completion timestamp", and
@@ -123,9 +128,22 @@ function specPathOf(paths: PfPaths, uid: string): string {
   return nodeSpecPath(paths, uid);
 }
 
+/**
+ * The own options of the dag namespace when it is assembled (not on the per-call options): where the
+ * machine layer's home is. The node detail's session lists are read through that layer, so the home
+ * travels with the handle; `DagInfoOptions` stays the one call's own question (`verbose`) and never
+ * carries a second home.
+ */
+export interface DagNamespaceOptions {
+  /** The home of the machine layer (`<home>/.pf/config.json`); this machine's user home directory by default (`PF_HOME_DIR` when set), which tests shut into a temporary directory. */
+  readonly homeDir?: string;
+}
+
 /** Build the dag namespace: one per project root. */
-export function createDagNamespace(root: string): DagNamespace {
+export function createDagNamespace(root: string, options: DagNamespaceOptions = {}): DagNamespace {
   const paths = pfPaths(root);
+  // The handle's answer, kept out of the per-call options' name: `info(id, options)` shadows it there.
+  const machineHome = options.homeDir;
 
   async function readIdeas(): Promise<IdeasLedger> {
     const read = await readJsonFile(paths.ideasJson, 'ideas.json');
@@ -193,6 +211,18 @@ export function createDagNamespace(root: string): DagNamespace {
         }
 
         await writeIdeas(ledger);
+        // The session this node was born in is noted here, after the graph write: a dependency check that
+        // rolled the node back leaves no note behind. It is plumbing and best effort — failing to write it
+        // must not undo a node that already landed, so the error is swallowed and the switch's job is done
+        // as soon as the note is on disk. The id is read at this call, never cached.
+        const session = envSessionId();
+        if (session !== undefined) {
+          try {
+            await appendSessionNote(root, uid, 'discussion', session);
+          } catch {
+            // The note is local corroboration that can be rebuilt from the session at hand.
+          }
+        }
         // The on-disk record does not carry an id (it is the key of the node table); the one handed back does, so the caller can go on with it.
         return { ...node, id: uid };
       });
@@ -382,6 +412,87 @@ export function createDagNamespace(root: string): DagNamespace {
         throw new Error(`"${id}" matches multiple nodes (${matches.join(', ')})`);
       }
       return null;
+    },
+
+    /**
+     * One node's detail: the record plus what only the graph can answer. Read-only, like `get`: no lock,
+     * no init gate, and a record that is not on the graph stops on the spot.
+     *
+     * The two readings (urgency, importance) are computed on the unfinished subgraph — the same
+     * algorithm `list` uses, never a second copy — and a shelved node is not ranked, so both read 0.
+     * A dependency the graph no longer holds still shows up: it reads `(unknown)`, and it counts as
+     * delivered for `ready` (the one readiness rule of the graph layer).
+     *
+     * The session lists come from this machine's note file, read through the one session-note reading:
+     * the key is absent when both lists are empty, so "a key that is not here was never written" holds.
+     */
+    async info(id: string, options: DagInfoOptions = {}): Promise<DagInfo> {
+      const verbose = options.verbose === true;
+      const { nodes } = await readIdeas();
+      const uid = resolveNodeId(id, nodes);
+      const node = nodes[uid]!;
+
+      // Upstream: the edges this node's own record names, in the order the record has them. A dependency
+      // the graph no longer holds reads (unknown) — the same two defaults the read side always gives.
+      const dependsOn: DagInfoEdge[] = [];
+      for (const depId of node.dependencies ?? []) {
+        const dep = nodes[depId];
+        const edge: DagInfoEdge = { id: depId, title: dep?.title ?? '(unknown)' };
+        if (verbose) edge.status = dep?.status ?? '(unknown)';
+        dependsOn.push(edge);
+      }
+
+      // Downstream: every node on the graph whose record names this one, in table order. A dependent
+      // without a title / status word reads the empty string, not the dependency's (unknown) default.
+      const dependedBy: DagInfoEdge[] = [];
+      for (const [otherId, other] of Object.entries(nodes)) {
+        if (!(other.dependencies ?? []).includes(uid)) continue;
+        const edge: DagInfoEdge = { id: otherId, title: other.title ?? '' };
+        if (verbose) edge.status = other.status ?? '';
+        dependedBy.push(edge);
+      }
+
+      // Both readings are the graph layer's own (non-completed subgraph), exactly as `list` computes them.
+      const notCompleted: NodeMap = {};
+      for (const [otherId, other] of Object.entries(nodes)) {
+        if (other.status !== 'completed') notCompleted[otherId] = other;
+      }
+      const adj = adjacency(notCompleted);
+      const urgency = urgencyScores(adj);
+      const importance = importanceScores(adj);
+      // A shelved node is out of play: it is not ranked and both readings are 0.
+      const blocked = (node.status ?? 'todo') === 'shelved';
+
+      const info: DagInfo = {
+        id: uid,
+        title: node.title ?? '',
+        // The read side's own default: a record that says nothing reads `todo` (as `api.md` states),
+        // exactly as readiness below already reads an absent status as todo.
+        status: node.status ?? 'todo',
+        mode: node.mode ?? DEFAULT_MODE,
+        description: node.description ?? '',
+        depends_on: dependsOn,
+        depended_by: dependedBy,
+        ready: nodeReady(node, nodes),
+        urgency_level: blocked ? 0 : (urgency[uid] ?? 0),
+        importance_score: blocked ? 0 : (importance[uid] ?? 0),
+      };
+      if (weightOf(node) === 'light') info.weight = 'light';
+      if (verbose) {
+        // The two timestamps keep their cells under `verbose` even when the record wrote none: the
+        // read side's own default is the empty string, so the shape does not depend on the writer.
+        info.created_at = node.created_at ?? '';
+        info.updated_at = node.updated_at ?? '';
+      }
+      // The machine layer's home rides on the handle (see `DagNamespaceOptions`); the per-call options
+      // say nothing about it.
+      const note = await readSessionNote(root, uid, { homeDir: machineHome });
+      if (note.discussion.length > 0 || note.run.length > 0) {
+        info.sessions = { discussion: note.discussion, run: note.run };
+      }
+      if (node.completed_at !== undefined) info.completed_at = node.completed_at;
+      if (node.approved_at !== undefined) info.approved_at = node.approved_at;
+      return info;
     },
 
     async context(id: string): Promise<NodeContext> {

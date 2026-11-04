@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { envHomeDir } from './env.ts';
 import { PfError } from './errors.ts';
 
 /**
@@ -132,12 +133,13 @@ export function nodeConfigPath(paths: PfPaths, nodeId: string): string {
 
 /**
  * The location of the machine-layer settings file: `<home>/.pf/config.json` — the same spelling as
- * the project layer, where home defaults to this machine's user home directory. home is only taken
- * in at the call site (tests shut it into a temporary directory); no environment variable is read
- * here, and the location spelling has the same source as the project layer of `pfPaths`.
+ * the project layer. home is resolved in this order: the option the call hands in (tests shut it
+ * into a temporary directory), then `PF_HOME_DIR`, then this machine's user home directory. The
+ * option wins over the switch on purpose: a sandbox stays closed even when the environment names a
+ * home.
  */
 export function globalConfigPath(homeDir?: string): string {
-  return join(homeDir ?? homedir(), PF_DIR_NAME, 'config.json');
+  return join(homeDir ?? envHomeDir() ?? homedir(), PF_DIR_NAME, 'config.json');
 }
 
 /** The process-artifact directory of one node: `<pf>/nodes/<node>/temp/` (temporary, not in the repository). */
