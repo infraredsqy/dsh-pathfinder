@@ -5,21 +5,23 @@
  * spawns, what inputs the argument gate keeps out, and how the command line is assembled on Windows.
  *
  * "Add an instruction" carries the user's verbatim words, which cannot pass that gate, so it has
- * its own argv: interpreter + `pf.py`, the whole sentence passed as a single argument — `&` stays
- * `&` in that command line, which is why these tests lock it separately.
+ * its own argv: this package's own command entry (`bin/pf.mjs`, beside the host half in the
+ * artifact) run by the same node that runs the host, the whole sentence passed as a single
+ * argument — `&` and quotes stay themselves there, and PATH is never asked where the command is,
+ * which is why these tests lock it separately.
  *
  *   node --test tests/
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { PathfinderRecordsGateway } from '../src/host/gateway.ts'
-import { fakeContext, fakeSubprocess as sharedSubprocess, wordsOf } from './helpers/host-fixtures.mjs'
+import { fakeContext, fakeSubprocess, wordsOf } from './helpers/host-fixtures.mjs'
 
-/** The shared subprocess stand-in wearing this file's own interpreter defaults: the two names
- * `pf.py` can be launched through, each overridable per case (pass `null` to take it off PATH). */
-function fakeSubprocess({ python = 'C:\\python\\python.exe', py = 'C:\\Windows\\py.exe', ...rest } = {}) {
-  return sharedSubprocess({ ...rest, interpreters: { python, py } })
-}
+/** The shipped entry as the artifact has it: `bin/pf.mjs` at the package root, beside `lib/host/`. */
+const ENTRY = fileURLToPath(new URL('../bin/pf.mjs', import.meta.url))
 
 test('归档一条：pf instruction resolve <id> --state withdrawn', async () => {
   const subprocess = fakeSubprocess()
@@ -86,36 +88,36 @@ test('记下一条：绑哪条线、绑哪一格各自点名，另外那两个�
   )
 })
 
-test('记下一条：Windows 上那一次起的是解释器，不经过 cmd', { skip: process.platform !== 'win32' }, async () => {
+test('记下一条：那一次起的是本包的命令入口，同一个 node 直接跑，不经过 cmd、也不经过解释器', { skip: process.platform !== 'win32' }, async () => {
   const subprocess = fakeSubprocess()
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  await gateway.addInstruction('s1', '', '有 & 的一句', 'global', '', '')
+  const said = '有 & 的一句 "带引号" 和 \'单引号\''
+  const outcome = await gateway.addInstruction('s1', '', said, 'global', '', '')
+  const argv = subprocess.specs[0].argv
 
+  assert.equal(outcome.ok, true)
+  assert.equal(argv[0], process.execPath, '起的必须是跑宿主半身的那个 node')
+  assert.equal(resolve(argv[1]), resolve(ENTRY), '入口必须是本包 bin/pf.mjs 那一份')
+  assert.equal(existsSync(ENTRY), true, `入口不在盘上：${ENTRY}`)
+  assert.ok(!argv.some((arg) => arg.toLowerCase().endsWith('.py')), `argv 里还有 .py：${JSON.stringify(argv)}`)
   assert.deepEqual(
-    subprocess.specs[0].argv,
-    ['C:\\python\\python.exe', '-X', 'utf8', 'C:\\tools\\bin\\pf.py', 'instruction', 'add', '--scope', 'global', '--text', '有 & 的一句'],
+    argv.slice(2),
+    ['instruction', 'add', '--scope', 'global', '--text', said],
+    '原话整句是一个参数：& 与两种引号都原样在里面',
   )
 })
 
-test('记下一条：`python` 不在就换 `py -3`，两条路都留着', { skip: process.platform !== 'win32' }, async () => {
-  const subprocess = fakeSubprocess({ python: null })
+test('记下一条：原话那条不问 PATH 要命令，路径解析改变不了它', async () => {
+  const subprocess = fakeSubprocess()
+  subprocess.resolveExecutable = async () => {
+    throw new Error('原话那条不应当向 PATH 问命令')
+  }
   const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
   const outcome = await gateway.addInstruction('s1', '', '一句话', 'global', '', '')
 
   assert.equal(outcome.ok, true)
-  assert.deepEqual(
-    subprocess.specs[0].argv.slice(0, 5),
-    ['C:\\Windows\\py.exe', '-3', '-X', 'utf8', 'C:\\tools\\bin\\pf.py'],
-  )
-})
-
-test('记下一条：两种叫法都不在这台机器上，宁可不落笔，如实说', async () => {
-  const subprocess = fakeSubprocess({ python: null, py: null })
-  const gateway = new PathfinderRecordsGateway(fakeContext({ subprocess }))
-  const outcome = await gateway.addInstruction('s1', '', '一句话', 'global', '', '')
-
-  assert.deepEqual(outcome, { ok: false, code: 'no-interpreter' }, '没有解释器时报这个码，句子留给面板去说')
-  assert.deepEqual(subprocess.specs, [])
+  assert.equal(subprocess.specs[0].argv[0], process.execPath)
+  assert.equal(resolve(subprocess.specs[0].argv[1]), resolve(ENTRY))
 })
 
 test('记下一条：空话与不认识的范围当场说清，命令一条都不递', async () => {

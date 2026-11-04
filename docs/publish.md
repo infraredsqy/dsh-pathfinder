@@ -7,19 +7,21 @@
 
 ## 交付形态：预构建产物随包走
 
-用户端不跑构建。三份产物在本仓构建一次：
+用户端不跑构建。四份产物在本仓构建一次：
 
 ```sh
 pnpm install --frozen-lockfile
-npm run types          # lib/types/**（宿主入口的类型）
-npm run bundle         # lib/host/index.js（宿主半身）
-npm run bundle:client  # lib/client.js（浏览器半身）
+pnpm --filter pf-core build   # packages/pf-core/dist/**（引擎的产物，`pf` 命令带的那一份）
+npm run types                 # lib/types/**（宿主入口的类型）
+npm run bundle                # lib/host/index.js（宿主半身）
+npm run bundle:client         # lib/client.js（浏览器半身）
 ```
 
-这三条绑在 `prepack` 上，`npm pack` 与 `npm publish` 会自己跑一遍。
+这四条绑在 `prepack` 上（引擎排头，后面三样跟着），`npm pack` 与 `npm publish` 会自己跑一遍。
 
-`package.json` 的 `files` 只收两个运行时入口、`lib/types/**/*.d.ts`、`locale/*.json`、
-`cordis.patch.yml`，以及 `packages/pf-core/plugins/**/*`——插件目录整个进包，随插件装与卸的那几套技能
+`package.json` 的 `files` 只收这几样：两个运行时入口、`lib/types/**/*.d.ts`、`locale/*.json`、
+`cordis.patch.yml`、`bin/**/*`（`pf` 那条命令）、`packages/pf-core/dist/**/*`（它身边那一份引擎），
+以及 `packages/pf-core/plugins/**/*`——插件目录整个进包，随插件装与卸的那几套技能
 就在里面（一个技能指向同目录的兄弟文件，半个文件夹装出去就是引用的文件不在），技能文本与引擎因此落在
 同一份发布件里。于是 `npm pack` 出的那一个 `.tgz` 就是分发件本身（`lib/client-body.js` 是浏览器
 那一步的中间件，构建脚本用完当场删掉，不进包）。三个口子：
@@ -113,7 +115,7 @@ npm view dsh-pathfinder version --registry=https://registry.npmjs.org
 #    —— 两处都对，才算发出去的是同一份产物
 ```
 
-CI 会自己跑 `npm test` 与 `node tools/css-check.mjs`；`prepack` 也在 CI 上现跑一遍 types + bundle +
+CI 会自己跑 `npm test` 与 `node tools/css-check.mjs`；`prepack` 也在 CI 上现跑一遍引擎构建 + types + bundle +
 bundle:client，所以装出去的就是这份预构建产物。`tools/testbed/` 那条要一个真实 DSH 实例，留在本机手动跑。
 
 新包名第一次发布会先落一个**公开的占位版本** `0.0.0-stage`：它一直留在 `versions` 列表里，真版本随后就公开；
@@ -198,6 +200,62 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
 被卸下来时按那份清单摘净，别人的技能一个不碰。那个根里已经有别人的同名副本时，这一行的技能就不装
 （面板照常起来），拒绝里点名两处——这一行的那份与占名的那份——一个字节都不写。
 
+## 装一个运行时（`pf` 那条命令与它带的引擎）
+
+装插件装的是面板；`pf` 这条命令是另一份安装，装的是同一个 `.tgz`。**运行时装在仓外**：命令与引擎都从
+发布件落进 npm 的全局前缀，一份检出从此退到「读过它」的位置，命令与引擎都由那一次安装供给。
+
+```sh
+npm install --global --omit=peer --no-audit --no-fund <那份 .tgz 的绝对路径>
+```
+
+- 载荷落 `<npm 全局前缀>/node_modules/dsh-pathfinder`（Windows 上是 `%APPDATA%\npm\node_modules\dsh-pathfinder`）：
+  `bin/` 与 `packages/pf-core/dist/` 并排在那里。命令先按包名取引擎，取不到就直接加载身边这一份
+  （`bin/lib/engine.mjs`），所以装到哪儿都不需要仓、也不需要 `node_modules`
+- `pf` / `pf.cmd` / `pf.ps1` 三个 shim 落全局前缀本身（它排在 PATH 上）。装上之后 `where.exe pf` 与
+  `Get-Command pf` 指的就是它，PATH 上更早的那一份被它压过
+- `pf version` 印的就是这份装机目录：`pf <号> at <前缀>/node_modules/dsh-pathfinder/bin (tools: <前缀>/node_modules/dsh-pathfinder)`。
+  在一个没有 `.pf` 的目录里（比如 `~`）与在项目根里印的是同一份，仓外跑得起来就是装对了
+- 面板的写入交给 `pf`：不带用户原话的那些走 PATH 上解析到的那个（装了这份之后就是它的三个 shim）；
+  带用户原话的那次不走 PATH，也不经 shell——它直接跑发布件里那条命令入口（`<装机目录>/bin/pf.mjs`），
+  由跑宿主半身的那个 node 起，不经过 Python 或任何解释器
+
+核一遍，都在仓外跑：`pf version`，然后进一个有记录的项目根跑 `pf doctor`。`doctor` 的 `plugins` 那一格读的是
+**这份运行时自带的插件**（`<装机目录>/packages/pf-core/plugins`，与引擎的产物并排）；项目根下的 `plugins/`
+留给引擎自己的缺省，这条命令不经过它。于是没有 `plugins/` 的项目照样读到 `2 installed`，插件词（`pf issue …`）
+与两道收尾守卫（`issue_pool_weight_limit` / `test_seconds_limit`）在任何项目里都答得上。优先级一行：用户的
+`PF_PLUGINS_DIR` 压过这份自带的插件（指哪儿扫哪儿），这也是把扫描指回项目文件夹的唯一出口。引擎里那条
+`<项目根>/plugins` 的缺省因此不经这条命令生效——这是照参考实现（旧 CLI 扫自己那棵树）对齐后定下的口径。
+
+### 卸掉就是回滚
+
+```sh
+npm uninstall --global dsh-pathfinder
+```
+
+卸掉之后命令回落到 PATH 上更早的那一份；再装上同一个 `.tgz` 就回到新的这份。**旧的 Python 树只作只读参照**：
+它是这份效应的对照实现，盘上原样留着；切过去之后，本仓与它之间没有命令解析、也没有插件来源的依赖，只剩下
+「读过它」这一句来路说明。技能那一半只剪干净了一部分：随插件装的四条（`pf-issue-scan` / `pf-issue-repair` /
+`pf-issue-discuss` / `pf-test-audit`）由发布件供给，落在 `$DSH_HOME/skills`（真目录，`SKILL.md` 与该产物里的
+同哈希，根序 rank 400 压过 rank 500）；三条核心技能（`pf-conduct` / `pf-instruct` / `pf-route`）仍经
+`~\.agents\skills` 的 junction 读到旧树，属上一节点记下的已知项。
+
+### 与旧实现共用记录时的锁
+
+`.pf/meta/ledger.lock` 在两边是两个协议，互不兼容：
+
+- 旧实现：**常驻文件 + 操作系统字节锁**——文件一直在盘上，锁的是文件内容，靠操作系统判忙；
+- 引擎：**文件存在即互斥**——以排他方式建文件，建不上就等，等满 10 秒报 busy，记录一个字不改。
+
+于是同一个项目在两套运行时之间来回一次就会卡住：
+
+- 被旧实现写过的项目，盘上留着那个 0 字节文件 → 引擎的任何写命令等满 10 秒后报 busy；
+- 切到引擎这一套之前，先把它备份到别处再删掉，引擎的写就正常了；
+- 引擎这一套自己不建常驻锁文件（写完就删），所以删过之后不会再出现；
+- 旧实现此后不再对记录写入；万一它又写过一次，文件会重新出现，照上面再删一次。
+
+引擎侧一个字不改（那是它的协议）。这条互操作记在问题池 `engine-lock-file-interop`。
+
 ## 发版前走一遍
 
 自动的那三样，各跑一次：
@@ -209,7 +267,7 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
 - `tools/testbed/testbed.ps1 up|check|down` —— 真实例：这一行装得上、启动清单里列了它、宿主半身答得上话。
 
 **验的是打包出来的那一份。** `npm pack --pack-destination .tmp/pack` 打出 `.tgz`，再用
-`tools/testbed/testbed.ps1 up -Plugin <.tgz>` 装它：`prepack` 会把两份产物现构建一次，装到的才是发出去的
+`tools/testbed/testbed.ps1 up -Plugin <.tgz>` 装它：`prepack` 会把四份产物现构建一次，装到的才是发出去的
 内容。隔离实例不带 `-Plugin` 时装的是本仓目录（pnpm 的 `link:`），读到的是盘上现成的那两份——而 `npm test`
 只重建浏览器半身，宿主半身那份可能是旧的。
 

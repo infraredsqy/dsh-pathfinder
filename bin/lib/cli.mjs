@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { COMMANDS, GROUPS, groupFor, rowFor, specOf, useConfigKnobs } from './spec.mjs';
 import { helpText, parse, usageBlock, usageError } from './argparse.mjs';
-import { BIN_DIR, REPO_ROOT, configKeys, handleOf, messageOf, projectRoot, version } from './engine.mjs';
+import { BIN_DIR, REPO_ROOT, configKeys, engineProductPath, handleOf, messageOf, projectRoot, version } from './engine.mjs';
 import { refuse } from './out.mjs';
 import * as verbs from './verbs.mjs';
 
@@ -288,8 +288,14 @@ function settle(answer) {
 
 /** `pf merge-ledger`: hand the argv to the engine's one process entry, and keep its exit code. */
 async function mergeLedgerVerb({ positionals }) {
-  const engineEntry = await import.meta.resolve('pf-core');
-  const binary = join(dirname(new URL(engineEntry).pathname.replace(/^\/(?=[A-Za-z]:)/u, '')), 'merge-ledger.mjs');
+  // Beside the engine's product, wherever this process found that: the checkout's node_modules or
+  // the copy the artifact ships next to `bin/`.
+  const product = engineProductPath();
+  if (product === null) {
+    process.stderr.write("pf: the engine's product is not on disk: neither node_modules/pf-core nor the copy beside bin/\n");
+    return { code: 1 };
+  }
+  const binary = join(dirname(product), 'merge-ledger.mjs');
   const argv = (positionals ?? []).flatMap((words) => [...words]);
   return { code: await forward(binary, argv) };
 }

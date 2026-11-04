@@ -21,7 +21,7 @@ git 那一侧由 `init` / `register` 接上：`.pf/.gitattributes` 是 `init` �
   `"<node 可执行文件的绝对路径>" "<本包 merge-ledger.mjs 的绝对路径>" %O %A %B %P`（两条路径都带
   引号；Windows 的 node 路径里有空格，git 按空格切这条命令串）。
 
-回答那条命令的就是 `pf-merge-ledger` 这一个进程（命令形式由仓根的 `pf` 命令把整行转交给它，两者
+回答那条命令的就是 `pf-merge-ledger` 这一个进程（命令形式由 `pf` 把整行转交给它，两者
 跑的是同一份合并）：它把 git 给的四个参数（`%O` 公共侧、`%A` 这一侧、
 `%B` 另一侧、`%P` 记录在仓库里的路径）搬进来，把合并交给 `runMergeDriver`，再把退出码原样交出去。
 `--dry-run` 出现在参数里的任何位置都只打判词、一个字节都不写。stdout / stderr 按 UTF-8 写。

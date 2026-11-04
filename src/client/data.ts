@@ -297,7 +297,6 @@ const KNOWN_CODES = {
   'no-subprocess': true,
   'pf-missing': true,
   'pf-path-unsafe': true,
-  'no-interpreter': true,
   'tool-refused': true,
   'spawn-failed': true,
   'scope-unknown': true,

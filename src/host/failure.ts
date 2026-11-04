@@ -21,8 +21,6 @@ export type PfRefusalCode =
   | 'pf-missing'
   /** `pf` resolves to a path cmd cannot be handed. */
   | 'pf-path-unsafe'
-  /** Neither interpreter that can carry a verbatim sentence exists. */
-  | 'no-interpreter'
   /** The tool ran and exited non-zero; `detail` is its own output. */
   | 'tool-refused'
   /** Spawning or collecting the command failed outright. */

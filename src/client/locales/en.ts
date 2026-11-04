@@ -190,7 +190,6 @@ export const en: Readonly<Record<WordKey, string>> = {
   'failure.no-subprocess': 'This host exposes no process gateway, so this write cannot run.',
   'failure.pf-missing': 'The pf command was not found: {detail}',
   'failure.pf-path-unsafe': 'The pf command sits at a path cmd cannot be handed ({detail}), so this write cannot run.',
-  'failure.no-interpreter': 'This machine has no interpreter that can carry a verbatim sentence into pf: neither `python` nor `py` is on PATH.',
   'failure.tool-refused': '{detail}',
   'failure.spawn-failed': '{detail}',
   'failure.scope-unknown': 'Unrecognized scope: {detail}',

@@ -187,7 +187,6 @@ const FAILURE_WORDS: Readonly<Record<FailureCode, WordKey>> = {
   'no-subprocess': 'failure.no-subprocess',
   'pf-missing': 'failure.pf-missing',
   'pf-path-unsafe': 'failure.pf-path-unsafe',
-  'no-interpreter': 'failure.no-interpreter',
   'tool-refused': 'failure.tool-refused',
   'spawn-failed': 'failure.spawn-failed',
   'scope-unknown': 'failure.scope-unknown',

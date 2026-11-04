@@ -14,7 +14,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -89,6 +89,42 @@ test('包面：浏览器那一侧声明了它等的加载依赖，`connection` �
 test('包面：engines.dsh 写着一段非空的范围', () => {
   assert.equal(typeof manifest.engines?.dsh, 'string')
   assert.ok(manifest.engines.dsh.trim().length > 0)
+})
+
+/*
+ * The command and the engine travel together.
+ *
+ * Installing the line installs a `pf` too, and that `pf` runs outside this checkout: it has no
+ * `node_modules` to walk up to. So the artifact carries `bin/` (the command, its table, the help
+ * surface — a bin field pointing at a file the package does not carry is an install that puts
+ * nothing on the PATH) and the engine's built product beside it, which `prepack` has to build or the
+ * pack ships a stale one or none at all.
+ */
+test('包面：`bin` 交出 `pf` 那条命令，落点有 shebang，且整份 bin/ 都进包', () => {
+  assert.equal(manifest.bin?.pf, 'bin/pf.mjs', `bin 字段没交出 pf：${JSON.stringify(manifest.bin)}`)
+  const entry = fileURLToPath(new URL('../bin/pf.mjs', import.meta.url))
+  assert.ok(existsSync(entry), 'bin/pf.mjs 不在盘上：bin 字段指着一个不存在的文件')
+  assert.match(readFileSync(entry, 'utf8').split('\n')[0], /^#!/u, 'bin/pf.mjs 的头一行不是 shebang，装成命令跑不起来')
+  const files = manifest.files ?? []
+  for (const rel of ['bin/pf.mjs', 'bin/lib/cli.mjs', 'bin/lib/engine.mjs']) {
+    assert.ok(files.some((pattern) => covered(pattern, rel)), `${rel} 没被 files 盖住：装出去的 pf 缺文件`)
+  }
+  assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml', 'profile 里那一行的挂载点动了')
+})
+
+test('包面：引擎的构建产物随包走，`prepack` 先把它构建出来', () => {
+  const files = manifest.files ?? []
+  for (const rel of ['packages/pf-core/dist/index.mjs', 'packages/pf-core/dist/merge-ledger.mjs']) {
+    assert.ok(
+      files.some((pattern) => covered(pattern, rel)),
+      `${rel} 没进包：装出去的运行时身上没有引擎：files=${JSON.stringify(files)}`,
+    )
+  }
+  assert.match(
+    manifest.scripts?.prepack ?? '',
+    /pnpm --filter pf-core build/u,
+    `prepack 不构建引擎，包里那份 dist 就是旧的或者根本没有：prepack=${JSON.stringify(manifest.scripts?.prepack)}`,
+  )
 })
 
 /*

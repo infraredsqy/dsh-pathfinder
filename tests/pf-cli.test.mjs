@@ -272,6 +272,29 @@ test('插件的词：没装插件时明确说不认识，装了就转发到它',
   }
 });
 
+test('插件的词：命令自带那套插件——项目里没有 plugins/ 也照旧转发，两道收尾守卫的旋钮也答得上', () => {
+  const scratch = scratchProject();
+  try {
+    // Nothing here but the records: no `plugins/` folder, and no PF_PLUGINS_DIR in this run. The
+    // reference implementation scanned its own tree, so the plugin words worked in any project; the
+    // command supplies its bundled set for the same reason, and that is what this leg pins.
+    assert.equal(existsSync(join(scratch.project, 'plugins')), false);
+    const answer = run(['issue', 'list'], { cwd: scratch.project, home: scratch.home });
+    assert.equal(answer.code, 0, answer.stderr);
+    assert.equal(answer.stdout.trim(), '[]');
+
+    // The two closing guards (`issue_pool_weight_limit`, `test_seconds_limit`) come from the same
+    // two plugins: a knob that is not installed is refused as an invalid choice, so answering here
+    // is what says the guards are back.
+    for (const key of ['test_seconds_limit', 'issue_pool_weight_limit']) {
+      const guard = run(['config', 'get', key], { cwd: scratch.project, home: scratch.home });
+      assert.equal(guard.code, 0, `${key}: ${guard.stderr}`);
+    }
+  } finally {
+    scratch.done();
+  }
+});
+
 test('插件的词：main 交回数字就是退出码；抛错保留插件自己的 stderr 并点名插件', () => {
   const scratch = scratchProject();
   try {

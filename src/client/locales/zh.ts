@@ -218,7 +218,6 @@ export const zh = {
   'failure.no-subprocess': '该宿主没有可用的进程通道，无法执行这次写入。',
   'failure.pf-missing': '未找到 pf 命令：{detail}',
   'failure.pf-path-unsafe': 'pf 命令的路径中含有 cmd 无法处理的字符（{detail}），无法执行这次写入。',
-  'failure.no-interpreter': '这台机器上没有能把原话送进 pf 的解释器：`python` 与 `py` 都不在 PATH 上。',
   'failure.tool-refused': '{detail}',
   'failure.spawn-failed': '{detail}',
   'failure.scope-unknown': '无法识别的范围：{detail}',

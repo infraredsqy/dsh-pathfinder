@@ -5,20 +5,14 @@
 
 /**
  * A subprocess stand-in: every spawn's spec lands on `specs`, and each run answers with the given
- * exit code and streams. The interpreter resolution table is optional: pass one when a case needs
- * a command resolved to a named path (`host-write` passes its `python`/`py` table); omit it and
- * every command resolves to the `pf.cmd` executable (`host-config` does).
+ * exit code and streams. `resolveExecutable` answers with `executable` for every command — pass a
+ * different one to move the command that PATH would hand back.
  */
-export function fakeSubprocess({ executable = 'C:\\tools\\bin\\pf.cmd', interpreters = null, exitCode = 0, stdout = '', stderr = '' } = {}) {
+export function fakeSubprocess({ executable = 'C:\\tools\\bin\\pf.cmd', exitCode = 0, stdout = '', stderr = '' } = {}) {
   const specs = []
   return {
     specs,
-    async resolveExecutable(command) {
-      if (interpreters !== null && command in interpreters) {
-        const path = interpreters[command]
-        if (path === null) throw new Error(`${command} 不在 PATH 上`)
-        return path
-      }
+    async resolveExecutable() {
       return executable
     },
     spawn(spec) {

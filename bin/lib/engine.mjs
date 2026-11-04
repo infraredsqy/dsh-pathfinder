@@ -1,14 +1,16 @@
 /**
- * The engine handle, the working project, the two outward seams this process owns (git and the
- * executor), and the words for a refusal.
+ * The engine handle, the working project, the plugin folder the engine scans, the two outward seams
+ * this process owns (git and the executor), and the words for a refusal.
  *
  * The engine is reached through its package export only: `open` from `pf-core`, whose product is the
- * frozen interface (`packages/pf-core/docs/api.md`). Nothing here imports the engine's source.
+ * frozen interface (`packages/pf-core/docs/api.md`). Nothing here imports the engine's source, and a
+ * runtime installed outside the repository reads that same export out of the copy shipped beside
+ * `bin/` (`packages/pf-core/dist/`) rather than out of a checkout it does not have.
  */
 import { spawn } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** This checkout's root: `bin/lib/` sits two levels under it. */
@@ -16,7 +18,66 @@ export const REPO_ROOT = resolve(HERE, '..', '..');
 /** This checkout's binary directory. */
 export const BIN_DIR = join(REPO_ROOT, 'bin');
 
-const engine = await import('pf-core');
+/**
+ * The engine's product as this tree ships it: `bin/` and `packages/pf-core/dist/` sit side by side
+ * in the artifact, so a runtime installed outside the repository carries the engine in its own
+ * directory and reaches it by this path, not through some `node_modules` it does not have.
+ */
+export const ENGINE_PRODUCT = join(REPO_ROOT, 'packages', 'pf-core', 'dist', 'index.mjs');
+
+/**
+ * The plugins this tree ships, by the same "beside `bin/`" shape as the engine's product: the
+ * artifact carries `packages/pf-core/plugins/` next to `packages/pf-core/dist/`, so one path finds
+ * them in the checkout and in an installed runtime alike.
+ */
+export const BUNDLED_PLUGINS = join(REPO_ROOT, 'packages', 'pf-core', 'plugins');
+
+/**
+ * The plugin folder the engine scans for this command, in one line of precedence: the user's
+ * `PF_PLUGINS_DIR` when it names one, else the plugins this runtime bundles. The command layer
+ * supplies its own set because the reference implementation scanned its own tree — that is what
+ * kept `pf issue …` and the two closing guards (`issue_pool_weight_limit`, `test_seconds_limit`)
+ * answering in any project. The engine's own default (`<project root>/plugins`) is therefore not
+ * reachable through this command: a project's own `plugins/` folder is no longer consulted here, and
+ * that is the deliberate alignment on the reference, not an oversight.
+ */
+function useBundledPlugins() {
+  const stated = process.env.PF_PLUGINS_DIR;
+  // An empty value is the engine's own "switch names none", so it falls through to the bundled set.
+  if (stated !== undefined && stated.trim() !== '') return;
+  process.env.PF_PLUGINS_DIR = BUNDLED_PLUGINS;
+}
+
+useBundledPlugins();
+
+/**
+ * The engine's product file this process would load: the package name where it resolves (the
+ * checkout, `node_modules/pf-core` linked at the workspace package), else the copy shipped beside
+ * `bin/` (everything an install unpacks). `null` when neither is there.
+ */
+export function engineProductPath() {
+  try {
+    return fileURLToPath(import.meta.resolve('pf-core'));
+  } catch {
+    return existsSync(ENGINE_PRODUCT) ? ENGINE_PRODUCT : null;
+  }
+}
+
+/**
+ * The engine module itself, by the same two routes. Only a name that resolves nowhere falls through
+ * to the shipped copy: an engine that is found and fails to load keeps its own error.
+ */
+async function loadEngine() {
+  try {
+    return await import('pf-core');
+  } catch (error) {
+    const shipped = engineProductPath();
+    if (error?.code !== 'ERR_MODULE_NOT_FOUND' || shipped === null) throw error;
+    return await import(pathToFileURL(shipped).href);
+  }
+}
+
+const engine = await loadEngine();
 
 /** This tree's own version number, read off the package manifest it ships. */
 export function version() {

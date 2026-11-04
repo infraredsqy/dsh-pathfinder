@@ -10,10 +10,11 @@
  * The user's verbatim sentence is the only thing that cannot pass that gate —
  * it may be any sentence, with spaces and punctuation. On Windows such a
  * sentence cannot travel the cmd command line (see `launchArgs`), so the run
- * that carries it gets its own argv.
+ * that carries it gets its own argv: this package's own command entry, run by
+ * the very node that runs this host half.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 /* The subprocess gateway lives on the `@deepseek-ai/dsh-subprocess` package entry, only to attach `subprocess` to the Context: a type-only import, nothing enters the runtime. */
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type { PfFailure, PfOutcome } from './failure.ts'
@@ -91,9 +92,9 @@ interface Spawner {
 /**
  * What the launcher produced: the argv to run, or why it could not be built.
  *
- * A refusal that a person can act on (the command is missing, its path cannot be handed to cmd,
- * no interpreter exists) is an ordinary answer here, not an exception: throwing would make the
- * reason travel as a message string, which is exactly the shape this layer is getting out of.
+ * A refusal that a person can act on (the command is missing, its path cannot be handed to cmd)
+ * is an ordinary answer here, not an exception: throwing would make the reason travel as a
+ * message string, which is exactly the shape this layer is getting out of.
  */
 type Launch = { readonly ok: true; readonly argv: readonly string[] } | PfFailure
 
@@ -103,7 +104,7 @@ type Launch = { readonly ok: true; readonly argv: readonly string[] } | PfFailur
  * The executable's absolute path is resolved by the gateway itself; this
  * layer hard-codes no machine's path. On Windows `pf` lands on `pf.cmd`, and
  * `.cmd` can only be launched by `cmd.exe` (spawned directly, Node rejects it
- * with `EINVAL`), so that branch becomes "interpreter + one command line".
+ * with `EINVAL`), so that branch becomes `cmd.exe` plus one command line.
  *
  * Paths in that command line must not be quoted: on Windows Node rebuilds the
  * command line per the C runtime's rules, and the added quotes become `\"`,
@@ -114,10 +115,15 @@ type Launch = { readonly ok: true; readonly argv: readonly string[] } | PfFailur
  *
  * The run carrying the verbatim sentence does not take that command line:
  * cmd would split the sentence on spaces and would execute an `&` inside it
- * (measured: `--text a & echo x` really runs the second command). Instead it
- * launches `pf.py`, which sits beside `pf.cmd`, and hands the whole sentence
- * to the interpreter as one argument — the argument is quoted by Node itself
- * per the C runtime's rules, and `&` arrives there still `&`.
+ * (measured: `--text a & echo x` really runs the second command). It does not
+ * ask PATH for the command either: after the runtime moved out of a checkout,
+ * what PATH answers is a package manager's shim, and what sits beside that shim
+ * is the shim's own business, not this package's. The command entry ships
+ * inside this package already — `bin/pf.mjs`, at the package root beside
+ * `lib/host/` in the artifact — so that run is `process.execPath` plus that
+ * entry, argv handed over directly. No shell, so the whole sentence arrives as
+ * one argument; and no interpreter is guessed at, because the entry is this
+ * package's own file and the node running this host is known.
  */
 async function launchArgs(
   subprocess: Spawner,
@@ -125,6 +131,8 @@ async function launchArgs(
   signal: AbortSignal,
   said: string | undefined,
 ): Promise<Launch> {
+  if (said !== undefined) return { ok: true, argv: [process.execPath, PF_ENTRY, ...args, said] }
+
   let pf: string
   try {
     pf = await subprocess.resolveExecutable('pf', undefined, signal)
@@ -132,11 +140,7 @@ async function launchArgs(
     /* "The command does not exist on this machine" and the failure below ("it exists, but its path cannot enter cmd") are two different things, kept as two separate codes: merged into one, the reader would go reinstall an already-installed command on the first one's advice. */
     return { ok: false, code: 'pf-missing', detail: messageOf(error) }
   }
-  if (process.platform !== 'win32') return { ok: true, argv: said === undefined ? [pf, ...args] : [pf, ...args, said] }
-  if (said !== undefined) {
-    const script = await scriptArgs(subprocess, pf, signal)
-    return script.ok ? { ok: true, argv: [...script.argv, ...args, said] } : script
-  }
+  if (process.platform !== 'win32') return { ok: true, argv: [pf, ...args] }
   if (!CMD_SAFE_PATH.test(pf)) return { ok: false, code: 'pf-path-unsafe', detail: pf }
   const comspec = process.env['ComSpec'] ?? 'cmd.exe'
   return { ok: true, argv: [comspec, '/d', '/s', '/c', `${pf} ${args.join(' ')}`] }
@@ -145,29 +149,13 @@ async function launchArgs(
 /** Only these characters are allowed in the path; commas, spaces, quotes, and cmd's metacharacters all stay outside the gate. */
 const CMD_SAFE_PATH = /^[A-Za-z0-9_.:\\/-]+$/
 
-/** The Python entry sitting next to `pf.cmd`: in the end `pf.cmd` just hands the arguments to it. */
-const PF_SCRIPT = 'pf.py'
-
-/** The interpreter's two spellings, probed in the same order as `pf.cmd`'s own probe; `-X utf8` aligns with its two spots. */
-const INTERPRETERS: readonly (readonly [string, ...string[]])[] = [
-  ['python', '-X', 'utf8'],
-  ['py', '-3', '-X', 'utf8'],
-]
-
 /**
- * The head of the argv that carries the verbatim sentence: the interpreter,
- * its flags, and `pf.py`.
+ * The shipped command entry, named from this file's own location rather than
+ * found on PATH: `../../bin/pf.mjs` is the package root's `bin/pf.mjs` from
+ * both shapes this file runs in — `lib/host/index.js` in the artifact and
+ * `src/host/write.ts` in a checkout.
  */
-async function scriptArgs(subprocess: Spawner, pf: string, signal: AbortSignal): Promise<Launch> {
-  for (const [command, ...flags] of INTERPRETERS) {
-    try {
-      return { ok: true, argv: [await subprocess.resolveExecutable(command, undefined, signal), ...flags, join(dirname(pf), PF_SCRIPT)] }
-    } catch (error) {
-      /* This spelling does not exist on this machine: try the next one. When neither exists, the refusal below is the one to give. */
-    }
-  }
-  return { ok: false, code: 'no-interpreter' }
-}
+const PF_ENTRY = fileURLToPath(new URL('../../bin/pf.mjs', import.meta.url))
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
