@@ -68,6 +68,14 @@ function registeredAgainst(driver: string): GitRunner {
   };
 }
 
+/** Put one `pf` on `PATH` for the duration of one test (this tree's own command, which routes the word). */
+function pfOnPath(): string {
+  const shimDir = mkdtempSync(join(tmpdir(), 'pf-command-'));
+  writeFileSync(join(shimDir, 'pf'), '#!/usr/bin/env node\n', 'utf8');
+  process.env['PATH'] = `${shimDir}${delimiter}${pathBefore ?? ''}`;
+  return shimDir;
+}
+
 /** Put one `pf-merge-ledger` on `PATH` for the duration of one test (the shim this package installs). */
 function shimOnPath(): string {
   const shimDir = mkdtempSync(join(tmpdir(), 'pf-shim-'));
@@ -212,18 +220,41 @@ describe('the merge-driver cell', () => {
     expect(check.detail).not.toContain('registered in the absolute form (');
   });
 
-  it('registered as neither form (the legacy "pf merge-ledger" spelling): red, naming the value and ledger.register', async () => {
-    // This is the string the pre-batch init wrote: a command no package here ships. The form test
-    // must not call it the absolute form -- that sentence tells a person the dead registration works.
+  it('registered in the command form this tree routes (`pf merge-ledger …`) with pf on PATH: green', async () => {
+    // The form the reference tool writes, and the one this tree answers through its own `pf` command:
+    // a real registration in a drill area is this string, so the cell must not call it dead.
     await git(root, 'init', '-b', 'master');
     await git(root, 'config', '--local', 'merge.pf.name', 'pf ledger three-way merge');
     await git(root, 'config', '--local', 'merge.pf.driver', 'pf merge-ledger %O %A %B %P');
-    const check = (await doctorWithGit()).checks.find((entry) => entry.name === 'merge-driver')!;
-    expect(check.ok).toBe(false);
-    expect(check.detail).toContain('pf merge-ledger %O %A %B %P');
-    expect(check.detail).toContain('ledger.register');
-    expect(check.detail).not.toContain('registered in the absolute form');
-    expect(check.detail).not.toContain('works on this machine');
+    const commandDir = pfOnPath();
+    try {
+      const check = (await doctorWithGit()).checks.find((entry) => entry.name === 'merge-driver')!;
+      expect(check.ok).toBe(true);
+      expect(check.detail).toContain('name form (pf merge-ledger)');
+      expect(check.detail).toContain('resolves on PATH');
+      expect(check.detail).not.toContain('plain git conflict');
+    } finally {
+      rmSync(commandDir, { recursive: true, force: true });
+    }
+  });
+
+  it('registered as `pf merge-ledger …` but pf does not resolve on PATH: red, naming the missing command', async () => {
+    const emptyPath = mkdtempSync(join(tmpdir(), 'pf-nopath-'));
+    try {
+      process.env['PATH'] = emptyPath;
+      const check = (
+        await createConductorNamespace(root).doctor({
+          git: registeredAgainst('pf merge-ledger %O %A %B %P'),
+        })
+      ).checks.find((entry) => entry.name === 'merge-driver')!;
+      expect(check.ok).toBe(false);
+      expect(check.detail).toContain('pf merge-ledger');
+      expect(check.detail).toContain('pf does not resolve on PATH');
+      expect(check.detail).toContain('ledger.register');
+      expect(check.detail).not.toContain('works on this machine');
+    } finally {
+      rmSync(emptyPath, { recursive: true, force: true });
+    }
   });
 });
 

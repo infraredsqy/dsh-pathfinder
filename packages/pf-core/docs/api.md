@@ -12,10 +12,11 @@
   `config` 的 global 层、`sessions` 的宿主解析，以及 `conductor` 的派发准备与插件上下文；同一个句柄只
   有一套机器层。不传时按 `PF_HOME_DIR`，再缺省到本机 home。
 - `Pf { root: string; ledger; conductor; config; sessions }` —— `root` 是打开时给的项目根，原样保存。
-- `pf.ledger.dag` 十五动词、`pf.ledger.cycles` 十一动词、`pf.ledger.instructions` 五动词、
-  `pf.config` 四动词、`ledger.init` / `ledger.register`、`pf.sessions` 两动词与
-  `conductor.next` / `conductor.close` / `conductor.dispatch` / `conductor.doctor` /
-  `conductor.handoff` 都在句柄上，全是真实现；没有一个桩。
+- `pf.ledger.dag` 十五动词、`pf.ledger.cycles` 十三动词、`pf.ledger.instructions` 五动词、
+  `pf.config` 五动词、`ledger.init` / `ledger.register` / `ledger.cleanTemp`、`pf.sessions` 两动词与
+  `conductor.next` / `conductor.close` / `conductor.closeWith` / `conductor.dispatch` /
+  `conductor.doctor` / `conductor.handoff` / `conductor.handoffForm` / `conductor.pluginCommand` /
+  `conductor.pluginCommands` / `conductor.prepare` 都在句柄上，全是真实现；没有一个桩。
 - 动作路径即 API 路径：`ledger.dag.add` 这样的动作路径，同时就是将来 API 的命名空间路径——
   按这个拼写找方法，从句柄一路点下去就能到。
 
@@ -41,16 +42,19 @@ argv 与退出码的搬运，一条合并规则都不在它里面。
 | 动作 | 签名 | 一句话语义 |
 | --- | --- | --- |
 | `ledger.init` | `init(options?)` | 为项目立起 `.pf/` 记录目录，交回这一次做了什么的读数 |
-| `ledger.register` | `register(options?)` | 把合并驱动的两个 git config 键写进本项目（`[merge "pf"]` 一节）；不是 git checkout、或没给 git 时静默跳过 |
+| `ledger.register` | `register(options?)` | 把合并驱动的两个 git config 键写进本项目（`[merge "pf"]` 一节）；这台机器已经答得上的注册原样留着，交回此刻生效的命令串；不是 git checkout、或没给 git 时静默跳过，交回 `null` |
+| `ledger.cleanTemp` | `cleanTemp(options?)` | 列（给 `remove` 就删）每个节点自己的 `temp/`：一处清扫，只整目录 |
 
 ### pf.ledger.init 与 pf.ledger.register
 
-`init(options?)` 的选项是 `LedgerInitOptions { force?; layout?; git? }`。
+`init(options?)` 的选项是 `LedgerInitOptions { force?; layout?; ownRepo?; git? }`。
 
 **两档布局，只有两档。** `layout` 缺省 `'own-repo'`：`.pf` 不在项目仓库里，项目仓库的
-`info/exclude` 里有一行把它挡在外面；`'in-repo'`：`.pf` 随项目仓库走，那一行被抽掉。引擎不建
-也不删 `.pf` 自己的仓库——`git init .pf` 是人的动作；`.pf/.git` 在场时它只报读数（切到 in-repo
-时点名「历史不会随项目走」）。两档各自幂等，来回切也幂等。
+`info/exclude` 里有一行把它挡在外面；`'in-repo'`：`.pf` 随项目仓库走，那一行被抽掉。`.pf`
+自己的仓库只有 `ownRepo` 要的时候才给（缺省要，且只在 `'own-repo'` 那一档）：`.pf/.git` 不在
+时，经调用方插进来的 `GitRunner` 跑一次 `git init --quiet`；`.git` 已经在场时一个字节不碰，
+`'in-repo'` 档永远不建。引擎只给不收：`.pf/.git` 一旦在场就留在原处，删它等于删历史，这个
+决定留给人。两档各自幂等，来回切也幂等。
 
 **底线先落，附加件后做。** 四份布局文件（`.gitignore`、`.gitattributes`、`AGENTS.md`、
 `config.json`；`config.json` 只在缺席或 `force` 时写）在任何环境里都落——没有 git、不是
@@ -63,9 +67,10 @@ checkout，都一样；字节不同就从常量重写，一样就一个字节不
 | --- | --- |
 | `layout` | `'own-repo' \| 'in-repo'` |
 | `written` | 这次真写了的布局文件名 |
-| `ownRepo` | `'present' \| 'skipped' \| 'skipped-no-git'` |
+| `ownRepo` | `'created' \| 'present' \| 'skipped' \| 'skipped-no-git'` |
 | `exclude` | `'written' \| 'removed' \| 'skipped-not-a-checkout' \| 'skipped-not-own-repo' \| 'failed'` |
-| `mergeDriver` | `'written' \| 'skipped-no-config'` |
+| `mergeDriver` | `'written' \| 'kept' \| 'skipped-no-config'` |
+| `mergeDriverCommand` | 这一轮之后 `merge.pf.driver` 里的那个命令串（这一轮写的，或留着没动的）；什么都没注册成时 `null` |
 | `warnings` | 每一件没做成的附加件一条人话：没做什么、为什么、`.pf` 现在是什么状态 |
 
 `exclude` 的落点问 git 要：`git rev-parse --git-path info/exclude`（引擎不自己拼 git 的目录布局）；
@@ -75,6 +80,19 @@ checkout，都一样；字节不同就从常量重写，一样就一个字节不
 `register(options?)` 只做那两个键：`merge.pf.name`（git 给驱动看的标签）与 `merge.pf.driver`，
 都经 `git config --local` 写（config 文件的锁与原子性归 git）。命令串在写的时候现算；不是
 checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
+
+**已经答得上的注册原样留着。** `init` 与 `register` 都先读一遍 `merge.pf.driver`：这个命令串要是
+本机此刻真答得上的一种形式，那就一个字节都不改写，读数记 `kept`，命令串照交回——重跑 `init` 不会
+把人选好的、能用的驱动悄悄换掉。没有注册、或注册已经答不上时，才按写的时候现算的那一档重写。
+哪几种形式算答得上、现算的是哪一档，见 [merge.md](merge.md)。
+
+**`cleanTemp(options?)` 是那一处清扫**：扫的是这个项目自己的节点目录，一个节点最多一个
+`nodes/<id>/temp/`。选项是 `CleanTempOptions { node?; remove?; force? }`：`node` 收全 id 或前缀，
+`remove` 才是真删（不给只列、一个字节不动），`force` 连一条线此刻握着的节点也清（它的会话已经没了、
+认领还没放下时的那一档）。交回 `CleanTempReport { targets; running; removed }`，三格都是
+`CleanTempEntry { name; node; worktree; dir; files; bytes }`：`targets` 是这一轮要删（或列出来）的，
+`running` 是被线握着跳过的那几个，`removed` 只在 `remove` 下填，记的是真删掉的（删不掉的不算）。
+工作树那一块不进：目录名是用户数据，出处无从证明。
 
 ### pf.ledger.dag
 
@@ -118,7 +136,7 @@ checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
 
 ### pf.ledger.cycles
 
-线：一条工作线的立、跑、停、收，十一个动词。
+线：一条工作线的立、跑、停、收，十三个动词。
 
 | 动作 | 签名 | 一句话语义 |
 | --- | --- | --- |
@@ -130,9 +148,16 @@ checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
 | `ledger.cycles.list` | `list()` | 全部的线 |
 | `ledger.cycles.current` | `current()` | 现在该干活的线；多条在服务时拒绝点名；没有时为 `null` |
 | `ledger.cycles.show` | `show(id)` | 一条线的完整记录 |
+| `ledger.cycles.policies` | `policies(id)` | 这条线的有效策略集：缺省在前，线自己写了的盖上去 |
+| `ledger.cycles.standing` | `standing(id, node)` | 一个节点在这条线里的站况：`holding` / `walked` / `nothing`，外加磁盘上那张票 |
 | `ledger.cycles.hold` | `hold(id, node)` | 认领一个节点进这条线的在册名单 |
 | `ledger.cycles.close` | `close(id, input)` | 结算一步：判决进 path，认领放下 |
-| `ledger.cycles.retry` | `retry(id, node?, options?)` | 撤旧票、改写 pending，线册不动；`{ drop: true }` 连认领一起摘掉，会话已经死掉时重来要的是这一档 |
+| `ledger.cycles.retry` | `retry(id, node?, options?)` | 撤旧票、改写 pending，线册不动；`{ drop: true }` 连认领一起摘掉，会话已经死掉时重来要的是这一档；`{ summary: '…' }` 是改写后那张票上的那句话，没给时用固定的那句 |
+
+**`standing` 交回 `CycleStanding { cycle; node; standing; since?; step?; signal }`**：`holding`
+时 `since` 是认领时刻；`walked` 时 `step` 是 path 里最近一条点名它的步（判决与起止时刻）；
+`signal` 是 `signals/<线>/<节点>.json` 那张票读出来的 `{ status; summary; outputs }`，没票时为
+`null`。读动词：不拿锁、不碰门槛、一个字节都不写。
 
 线自己的策略键：`when_shelved`（节点没交付被放下时停线还是继续）、`parallel`
 （同时认领几个节点，缺省 1）、`spawner`（用哪个宿主开会话，只写词）；其余是插件声明的旋钮。
@@ -145,7 +170,7 @@ checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
 | --- | --- | --- |
 | `ledger.instructions.add` | `add(input)` | 登记一条指令；正文与范围必填，绑定随范围走 |
 | `ledger.instructions.list` | `list(filter?)` | 缺省读法给读者面；`all` / `live` / `scope` 给原始记录 |
-| `ledger.instructions.resolve` | `resolve(id)` | 结清一条指令（落结清时刻） |
+| `ledger.instructions.resolve` | `resolve(id, options?)` | 结清一条指令（落结清时刻；`{ note }` 给了就一并落在档案里） |
 | `ledger.instructions.revive` | `revive(id)` | 把已归档的指令重新生效 |
 | `ledger.instructions.remove` | `remove(id)` | 把指令摘走，留 id 与时刻的痕迹 |
 
@@ -160,11 +185,13 @@ checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
 - `node` 不是清单开关：它是「读者站在哪个节点」的定位词，缺省读法用它算可见性（两条线并排时它
   同时钉住线）。
 
-`InstructionListFilter { all?; live?; scope?; node? }`。
+`InstructionListFilter { all?; live?; scope?; node? }`。`resolve` 的选项是
+`InstructionResolveOptions { note? }`：给了这句就写在结清时刻旁边，没给时档案里原有的注释
+留原样。
 
 ## pf.config
 
-设置：一条解析链上的读写，四个动词。链上窄的盖宽的：node（`<root>/.pf/nodes/<节点>/config.json`）
+设置：一条解析链上的读写，五个动词。链上窄的盖宽的：node（`<root>/.pf/nodes/<节点>/config.json`）
 → cycle（线记录的 `policies` 槽）→ project（`.pf/config.json`）→ global（`<home>/.pf/config.json`），
 最底下是旋钮声明里的出厂缺省。
 
@@ -178,6 +205,7 @@ checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
 | `config.set` | `set(key, value, at, dir?)` | 往点名的那一层写一个设置项 |
 | `config.unset` | `unset(key, at, dir?)` | 撤掉点名那一层的设置项，露出下一层 |
 | `config.list` | `list(at?, dir?)` | 到点名那一层为止的全部设置，每一项都是 `{ value, source }` |
+| `config.keys` | `keys(dir?)` | 这几个设置动词此刻认得的旋钮名，排序后的字符串数组 |
 
 `get` 与 `list` 都交回 `ConfigReading { value: ConfigValue | null; source: ConfigSource }`；
 `source` 是五个词之一：`node` / `cycle` / `project` / `global`，或 `builtin`——链上没人说话，
@@ -186,7 +214,12 @@ checkout、没给 `git` 或者 git 拒绝时静默跳过，不抛。
 不点名 `at` 时读两层宽层（global → project）。`list` 没有键可拒，就照那一层往上给：旋钮不收那一层的，
 读数来自它下面那层。
 
-四个动词都带一个可选目录 `dir`：缺席时用句柄自己的项目根。无论哪种，那个目录都得自己有一份
+`keys(dir?)` 交回此刻这份清单上的名字，排序后的字符串数组：引擎自己的设置加上已装插件声明的旋钮，
+只留收 project 层的那些。只收 global 的一格（`session_host_override` 那种）不在里面——它不是一次
+project 读写的对象。调用方要印「这几个动词收哪些名字」时印的就是这一份，插件装上或摘掉，下一次
+调用就换。
+
+五个动词都带一个可选目录 `dir`：缺席时用句柄自己的项目根。无论哪种，那个目录都得自己有一份
 `.pf`——没有就是 `not_a_project`，不会往上找更宽的目录。句柄自己的根也不豁免：fork 档的节点在
 自己的 worktree 里干活；own-repo 档下那份 worktree 里没有 `.pf`，在那里问设置得到的是「这不是
 pf 项目」，主树的设置一个字都漏不出来（in-repo 档记录随检出走，问的是那个 worktree 自己的记录）。
@@ -213,7 +246,7 @@ pf 项目」，主树的设置一个字都漏不出来（in-repo 档记录随检
 `TypeError`），所以核心设置不会读到「没配」，那个缺省的 `source` 就是 `builtin`。插件声明的格子不走这道门，
 但 `default` 一样必填：写 `null` 才是「没有出厂值」，字段缺席是声明问题。
 
-读侧被拦住的就是这几处，再没有别的：那个目录自己没有 `.pf`（`not_a_project`，四个动词都先查
+读侧被拦住的就是这几处，再没有别的：那个目录自己没有 `.pf`（`not_a_project`，五个动词都先查
 它）、`get` 点了一个不在清单上的名（`unknown_key`）、旋钮不收那一层（`layer_not_allowed`）、
 点名的线不在 `state.json` 里（`cycle_not_found`）、点名的节点不在图上（`node_not_found`）、一个节点
 被两条线同时认领（`ambiguous_holder`），以及一层文件读不动或解析不了（`invalid_utf8` /
@@ -251,22 +284,31 @@ pf 项目」，主树的设置一个字都漏不出来（in-repo 档记录随检
 
 ## pf.conductor
 
-流水线：推线走的一组动作，五个动词。
+流水线：推线走的一组动作，十个动词。
 
 | 动作 | 签名 | 一句话语义 |
 | --- | --- | --- |
 | `conductor.next` | `next(input?)` | 读一份只读规划：下一步该干什么，不执行、不写记录 |
+| `conductor.prepare` | `prepare(input?)` | 把一次派发的材料落下来、不开会话：提示词落到它的位置、运行稿立在节点目录、交接单模板随材料交回 `PreparedDispatch { cycle; nodes }`；只有规划交回 `dispatch` 时才有材料可落，别的计划当场拒绝、一个字节不写 |
 | `conductor.dispatch` | `dispatch(input?)` | 把节点交给一个会话，交回收据 `DispatchReceipt { action; cycle; node_id; node_title; prompt; prompt_text; session? }`；`action` 只有 `opened` / `already_open` 两个词 |
 | `conductor.handoff` | `handoff(input)` | 写一张交接单，落在 signals 下的「线 id / 节点 id」 |
 | `conductor.close` | `close(input?)` | 收线结算 |
+| `conductor.closeWith` | `closeWith(input?)` | 收线结算，并带上调用方自己的收尾答案（`continue` / `stop`、一行理由、点名下一个节点）；落地的动作与 `close` 是同一套 |
+| `conductor.handoffForm` | `handoffForm(input?)` | 这条线要的交接单形状：它问哪几个读数格（不写一个字节） |
+| `conductor.pluginCommand` | `pluginCommand(input)` | 把一个词连同它的行交给声明这个词的插件，在本进程里跑，交回 `PluginCommandAnswer { word; plugin; ran; text; code; error }` |
+| `conductor.pluginCommands` | `pluginCommands()` | 装上的插件声明的命令词，按文件夹次序，带路由表认的那个名字 |
 | `conductor.doctor` | `doctor(options?)` | 体检：记录齐全、引用不悬空、没有成环 |
 
-五个动词的口径：`next` 是只读规划；`dispatch` 是整段派发——先读这一格（线、节点）的
+推线三个动词的口径：`next` 是只读规划；`prepare` 是派发准备的写侧、单独一个入口——它读同一份规划、
+只接受交回 `dispatch` 的那一份，把提示词与运行稿按同样的落点落下（交接单模板随材料交回；线配了
+`source: ticket` 的读数且门上有生效值时，模板多带一格 `reading`），不开会话、不碰执行者；`dispatch` 是整段派发——先读这一格（线、节点）的
 `started` 记号：它已经在盘上就直接答 `already_open`（不碰执行者、不写一个字节；`session`
 缺席，那张收据属于当初开出它的那次调用），否则先过插件的拦下缝（任何一家拦就是拦，错误码
-`dispatch_blocked`，理由逐条列在错误文案里），再做派发准备（提示词落盘、运行稿立在节点目录、
-交接单模板随材料交回；线配了 `source: ticket` 的读数且门上有生效值时，模板多带一格 `reading`），
-绿灯才把请求交给注入的执行者。交回的只是收据：`opened` 带 `session`，说的是会话已经开着；
+`dispatch_blocked`，理由逐条列在错误文案里），再做派发准备（与 `prepare` 同一份材料）。
+这一格（线、节点）的提示词**已经在盘上**时，准备这一步整个跳过：那份提示词是钉住它的那一步落的
+（命令行的另一侧，钉住节点的那次 `next` 调用就是 `prepare`），而「提示词在盘上、`started` 记号
+不在」这一对盘上事实本身就是一次派发，哪怕规划此刻还在等交接单——跳过时不落第二份材料，只落
+`started` 记号。绿灯才把请求交给注入的执行者。交回的只是收据：`opened` 带 `session`，说的是会话已经开着；
 节点的收场由 worker 写交接单、再由 `close` 结算。记号随之落盘，规划从此把这一格算作在飞，
 不再派第二遍；执行者缺席或抛出时，记号不落、记录一个字节都不动。记号写不下去当场抛出：
 会话已经出去了而盘上没有凭证，文案带会话 id，并说清再派一次会开出第二个会话；凭证落盘
@@ -288,6 +330,21 @@ pf 项目」，主树的设置一个字都漏不出来（in-repo 档记录随检
 上限，到点没答这一格判红——问的是哪条 git 命令、上限多少、实等多久都点出来，没读到的注册
 不当作在场，下一步该怎么办也一并说清，其余格子照常算完，不被这一格拖住）。
 没有 `.pf/` 的新项目不算红，那一格只说该跑一次 `ledger.init`。
+
+**`closeWith` 与 `close` 落的是同一次结算。** 两个动作共用一套判据、一套落地步骤，区别只在
+收尾答案从哪来：`close` 按判据自己看着办，`closeWith` 收调用方给的那几格——`decision`（`continue` /
+`stop`）、`note`（一行理由）、`named`（点名下一个节点）。`close` 的签名与行为一个字没动。
+
+**`handoffForm` 交回 `HandoffForm { cycle; readings }`**：`readings` 是这条线要 worker 上报的读数格
+（`source: ticket` 的声明，且它的 `when_knob` 在链上有生效值），按声明次序，一格一个
+`{ key; ask }`。它读线、读设置链，一个字节都不写；这条线不在记录里时拒绝。
+
+**插件的命令词走 `pluginCommand`。** 路由表里没有这个词时答 `{ plugin: null, ran: false }`——调用方
+据此说「没有这条命令」；有的话就在本进程里按插件契约跑（`main(argv, ctx)`），跑完算 `ran: true`，
+它答了文字就填 `text`（只做动作、不答文字的命令照样算跑过），`main` 交回一个数字就把这个数字填进
+`code`——那是这个插件要调用方留下的退出码，交回别的（或什么都不交）时 `code` 是 `null`；抛出则
+`ran: false` 并把那句话放进 `error`。插件自己的 stdout / stderr 是它在本进程里直接写的，调用方
+不必、也不能替它重印一遍。命令行上的调用方拿到 `code` 就照它退出。
 
 ### 只读规划（`conductor.next`）
 

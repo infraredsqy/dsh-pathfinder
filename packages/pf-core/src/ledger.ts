@@ -3,6 +3,9 @@ import { createDagNamespace } from './dag';
 import { createInstructionsNamespace } from './instruct';
 import { initLedger, registerLedger } from './initledger';
 import type { InitReport, LedgerInitOptions, LedgerRegisterOptions } from './initledger';
+import { pfPaths } from './paths';
+import { cleanTemp } from './tempclean';
+import type { CleanTempOptions, CleanTempReport } from './tempclean';
 import type {
   CycleRecord,
   CycleStatus,
@@ -15,6 +18,7 @@ import type {
   NodeResult,
   NodeStatus,
   NodeWeight,
+  SecondsTimestamp,
   SessionNoteEntry,
 } from './types';
 
@@ -235,7 +239,33 @@ export interface CycleCloseInput {
   outputs?: Record<string, unknown>;
 }
 
-/** The cycles namespace: setting up, running, stopping and settling one work line, these eleven verbs. */
+/** One step a line walked, as the standing reading hands it back (both moments spelled out). */
+export interface CycleStandingStep {
+  result: NodeResult;
+  started_at: SecondsTimestamp | null;
+  ended_at: SecondsTimestamp | null;
+}
+
+/** The ticket on disk for one (line, node), as the standing reading hands it back. */
+export interface CycleStandingSignal {
+  status: string;
+  summary: string;
+  outputs: Record<string, unknown> | null;
+}
+
+/** One node's standing in one line: held now, walked before, or nothing; plus the ticket on disk. */
+export interface CycleStanding {
+  cycle: string;
+  node: string;
+  standing: 'holding' | 'walked' | 'nothing';
+  /** The claim's moment; present only while holding. */
+  since?: SecondsTimestamp | null;
+  /** The most recent walked step naming this node; present only after a walk. */
+  step?: CycleStandingStep;
+  signal: CycleStandingSignal | null;
+}
+
+/** The cycles namespace: setting up, running, stopping and settling one work line, these thirteen verbs. */
 export interface CyclesNamespace {
   create(input: CycleCreateInput): Promise<CycleRecord>;
   start(input: CycleStartInput): Promise<CycleRecord>;
@@ -247,12 +277,16 @@ export interface CyclesNamespace {
   /** The line that should be working now; null when there is none. */
   current(): Promise<CycleRecord | null>;
   show(id: string): Promise<CycleRecord>;
+  /** One line's effective policy set: the defaults this line's picks read, then whatever it states. */
+  policies(id: string): Promise<CyclePolicySet>;
+  /** One node's standing in this line: held now / walked before / nothing, plus the ticket on disk. */
+  standing(id: string, node: string): Promise<CycleStanding>;
   /** Claim a node onto this line's roster. */
   hold(id: string, node: string): Promise<CycleRecord>;
   /** Settle one step: the verdict goes into path, and the claim is laid down with it. */
   close(id: string, input: CycleCloseInput): Promise<CycleRecord>;
-  /** Pick a line that did not run to the end back up and run it again; `drop` also clears the claim, which is what a dead session needs. */
-  retry(id: string, node?: string, options?: { drop?: boolean }): Promise<CycleRecord>;
+  /** Pick a line that did not run to the end back up and run it again; `drop` also clears the claim, which is what a dead session needs, and `summary` is the sentence the new pending ticket carries. */
+  retry(id: string, node?: string, options?: { drop?: boolean; summary?: string }): Promise<CycleRecord>;
 }
 
 // ── instructions ─────────────────────────────────────────────────────────────
@@ -284,6 +318,15 @@ export interface InstructionListFilter {
 }
 
 /**
+ * What a resolve leaves beside the state and the moment: the note the owner put on the archive. An
+ * entry already carrying one is not cleared by resolving without a note — only a note that is
+ * actually given is written.
+ */
+export interface InstructionResolveOptions {
+  note?: string;
+}
+
+/**
  * One row of the reader-facing view: what the instruction says, where it can be seen from, and how it
  * is delivered — ids and bookkeeping stay on the account.
  *
@@ -309,8 +352,8 @@ export interface InstructionsNamespace {
    * `scope`) hand back the raw rows, also in account order.
    */
   list(filter?: InstructionListFilter): Promise<InstructionReaderRow[] | InstructionRecord[]>;
-  /** Resolve one instruction (lands resolved_at). */
-  resolve(id: string): Promise<InstructionRecord>;
+  /** Resolve one instruction (lands resolved_at, and the note when one is given). */
+  resolve(id: string, options?: InstructionResolveOptions): Promise<InstructionRecord>;
   /** Put an archived instruction back in force. */
   revive(id: string): Promise<InstructionRecord>;
   /** Take the instruction off the records (leaving a trace of the id and the timestamp). */
@@ -338,8 +381,14 @@ export interface LedgerNamespace {
    * named in `warnings` rather than thrown.
    */
   init(options?: LedgerInitOptions): Promise<InitReport>;
-  /** Write the merge driver into this project's git config (the `[merge "pf"]` section); skipped silently when git cannot be asked (no runner, or not a git checkout). */
-  register(options?: LedgerRegisterOptions): Promise<void>;
+  /**
+   * Write the merge driver into this project's git config (the `[merge "pf"]` section), unless a
+   * registration this machine already answers is there — that one is kept as it is. Hands back the
+   * command now in force, or null when nothing was registered (no runner, or not a git checkout).
+   */
+  register(options?: LedgerRegisterOptions): Promise<string | null>;
+  /** List (or, with `remove`, delete) every node's `temp/` directory: one sweep, whole directories only. */
+  cleanTemp(options?: CleanTempOptions): Promise<CleanTempReport>;
   readonly dag: DagNamespace;
   readonly cycles: CyclesNamespace;
   readonly instructions: InstructionsNamespace;
@@ -358,8 +407,8 @@ export interface LedgerNamespaceOptions {
 }
 
 /**
- * Assemble the ledger namespace: init, register and the three blocks of graph, lines and instructions
- * (the locations come from the caller's project root).
+ * Assemble the ledger namespace: init, register, the temp sweep and the three blocks of graph, lines
+ * and instructions (the locations come from the caller's project root).
  */
 export function createLedgerNamespace(
   root: string,
@@ -368,6 +417,7 @@ export function createLedgerNamespace(
   return {
     init: (initOptions) => initLedger(root, initOptions),
     register: (registerOptions) => registerLedger(root, registerOptions),
+    cleanTemp: (cleanOptions) => cleanTemp(pfPaths(root), cleanOptions),
     dag: createDagNamespace(root, { homeDir: options.homeDir }),
     cycles: createCyclesNamespace(root),
     instructions: createInstructionsNamespace(root),

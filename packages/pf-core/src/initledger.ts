@@ -26,12 +26,21 @@ import { pfPaths, type PfPaths } from './paths';
  *   never a rollback.
  * - **git is asked, never guessed at.** All directory-layout knowledge of git (where
  *   `info/exclude` lives, where the repository root is, whether this is a checkout at all) goes
- *   through the injected `GitRunner`. No `.git` file is parsed by hand, and the engine creates no
- *   repository of a `.pf`'s own: that is `git init .pf`, run by hand. Without a runner — or when
- *   git answers "not a checkout" — the attachments are skipped and said so.
- * - **The merge driver's command is computed at write time**, in the two forms of the merge-driver
- *   plan: the name form when `pf-merge-ledger` resolves on `PATH` (position-independent), the
- *   absolute form otherwise (quoted, `process.execPath` plus this package's built entry).
+ *   through the injected `GitRunner`. No `.git` file is parsed by hand. A repository of `.pf`'s own
+ *   is given only when the caller asks for it (`ownRepo`, the default, own-repo layout only), and
+ *   the giving is one `git init --quiet` through the same runner; an existing one is never touched.
+ *   Without a runner the git-side attachments are skipped and said so, and a `git init` git refuses
+ *   leaves one warning.
+ * - **The merge driver's registration is read before it is written.** A registration this machine
+ *   really answers — the command form `pf merge-ledger …` with `pf` on `PATH`, the package's own name
+ *   form `pf-merge-ledger …` with that command on `PATH`, or the absolute form whose two quoted paths
+ *   are both files here — is left exactly as it is (re-running `init` must not silently rewrite a
+ *   working driver, a string a person may have chosen on purpose), and the reading says so. Only a
+ *   missing or dead registration is replaced, with the command computed at write time: the command
+ *   form when `pf` resolves on `PATH` (position-independent, and the form an installed `pf` answers),
+ *   the package's name form when only `pf-merge-ledger` does, and the absolute form otherwise (quoted,
+ *   `process.execPath` plus this package's built entry). The command now in force is handed back with
+ *   the report, so a caller prints what was really written or kept.
  */
 
 /**
@@ -100,6 +109,13 @@ const INIT_MARKERS = ['.gitignore', '.gitattributes'] as const;
 /** The name the merge driver is registered under, and the one command on `PATH` that answers it. */
 const MERGE_DRIVER_COMMAND = 'pf-merge-ledger';
 
+/** The other command form this tree answers: an installed `pf` command's own `merge-ledger` word. */
+const PF_COMMAND = 'pf';
+const MERGE_DRIVER_PF_FORM = `${PF_COMMAND} merge-ledger`;
+
+/** The two command forms, under the names the doctor's cell speaks of them: the writer and the reader share them. */
+export { MERGE_DRIVER_COMMAND as MERGE_DRIVER_NAME_FORM, MERGE_DRIVER_PF_FORM };
+
 /** The args git hands a merge driver, in its own order. */
 const MERGE_DRIVER_ARGS = '%O %A %B %P';
 
@@ -130,8 +146,8 @@ export function assertLedgerInitialized(paths: PfPaths): void {
  * The two layouts, and there are exactly two:
  *
  * - `own-repo`: `.pf` is not part of the project repository (the default). One `info/exclude` line
- *   in the project repository keeps it out; a repository of `.pf`'s own is the person's move
- *   (`git init .pf`), never the engine's.
+ *   in the project repository keeps it out; a repository of `.pf`'s own is created when the caller
+ *   asks for one (`ownRepo`, the default) and there is none yet.
  * - `in-repo`: `.pf` travels with the project repository. That `info/exclude` line is taken away;
  *   `.pf/.git`, if there is one from an earlier layout, is left exactly where it is — removing a
  *   directory is removing history, and that is not this engine's call.
@@ -148,6 +164,13 @@ export interface LedgerInitOptions {
   readonly force?: boolean;
   /** Which layout to set up: `own-repo` (the default) or `in-repo`. Re-running switches idempotently either way. */
   readonly layout?: LedgerLayout;
+  /**
+   * Whether `.pf` should have a repository of its own: one `git init --quiet` in the record
+   * directory, run through the injected runner, when it has none yet and the layout is `own-repo`.
+   * The default is yes (the reference tool's default); `in-repo` never creates one, and an existing
+   * one is never touched.
+   */
+  readonly ownRepo?: boolean;
   /** The git capability; without it the git-side attachments are skipped and named in `warnings`. */
   readonly git?: GitRunner;
 }
@@ -159,17 +182,17 @@ export interface LedgerRegisterOptions {
 }
 
 /**
- * How `.pf`'s own repository reads this time. There are three readings and every one of them
- * happens: the engine only looks, so "there is no repository of `.pf`'s own" is a reading in
- * which nothing failed — the difference between the two skipped states is only whether git was
- * at hand to give the advice.
+ * How `.pf`'s own repository reads this time. Four readings: what was there, and whether this run
+ * was the one that gave it.
  */
 export type OwnRepoReading =
-  /** `.pf/.git` is there. The engine created nothing and removes nothing. */
+  /** No `.pf/.git` was there, one was asked for, and `git init --quiet` created it now. */
+  | 'created'
+  /** `.pf/.git` is there. The engine created nothing this time and removes nothing. */
   | 'present'
-  /** Not there, and git is at hand: `git init .pf` is the person's move, and the warning says so. */
+  /** No `.pf/.git`, and one was not asked for (or the layout is `in-repo`): plain files, on purpose. */
   | 'skipped'
-  /** Not there, and no git was handed in, so even that advice has to wait for one. */
+  /** No `.pf/.git`, one was asked for, and no git was handed in: `git init .pf` stays the person's move. */
   | 'skipped-no-git';
 
 /**
@@ -191,7 +214,10 @@ export type ExcludeReading =
 
 /** How the merge driver's two keys read this time. */
 export type MergeDriverReading =
+  /** The two keys were written now: there was no registration, or the one there did not answer this machine. */
   | 'written'
+  /** A registration this machine really answers was already there and was left exactly as it was. */
+  | 'kept'
   /** No writable git config (no runner, not a checkout, or git refused). */
   | 'skipped-no-config';
 
@@ -203,6 +229,8 @@ export interface InitReport {
   ownRepo: OwnRepoReading;
   exclude: ExcludeReading;
   mergeDriver: MergeDriverReading;
+  /** The command `merge.pf.driver` holds after this run — written now, or the registration that was kept; null when nothing could be registered. */
+  mergeDriverCommand: string | null;
   /** One sentence per attachment that did not happen: what was not done, why, and what `.pf` is like without it. */
   warnings: string[];
 }
@@ -565,14 +593,21 @@ function mergeLedgerProductPath(): string {
 }
 
 /**
- * The string written into `merge.pf.driver`, computed at write time in exactly two forms:
+ * The string written into `merge.pf.driver`, computed at write time in exactly three forms:
  *
- * - the **name form** (preferred) when `pf-merge-ledger` resolves on `PATH`: position-independent,
- *   so moving the checkout or moving to another machine needs no re-registration;
+ * - the **command form** (preferred) when `pf` resolves on `PATH`: `pf merge-ledger %O %A %B %P` — the
+ *   form an installed `pf` command answers, position-independent, and the one this tree's own router
+ *   answers;
+ * - the **name form** when only `pf-merge-ledger` resolves: this package's own bin entry, also
+ *   position-independent;
  * - the **absolute form** otherwise: `process.execPath` (node) plus this package's built entry, both
- *   quoted — a Windows node path has spaces in it, and git splits the driver string on spaces.
+ *   quoted — a Windows node path has spaces in it, and git splits the driver string on spaces. It runs
+ *   here and now with nothing on `PATH`, and goes on running after `pf` is installed.
  */
 export function mergeDriverCommand(): string {
+  if (resolvesOnPath(PF_COMMAND)) {
+    return `${MERGE_DRIVER_PF_FORM} ${MERGE_DRIVER_ARGS}`;
+  }
   if (resolvesOnPath(MERGE_DRIVER_COMMAND)) {
     return `${MERGE_DRIVER_COMMAND} ${MERGE_DRIVER_ARGS}`;
   }
@@ -607,21 +642,52 @@ export function readAbsoluteForm(driver: string): AbsoluteFormReading {
   return { shaped: true, paths, missing };
 }
 
+/**
+ * The command a registered driver string names, when it is spelled in one of the command forms this
+ * tree answers: `pf merge-ledger …` (this tree's own router, the form an installed `pf` command
+ * writes) or this package's `pf-merge-ledger …`. Anything else — the absolute form included — answers `null`.
+ * The writer and the doctor both go through this one reading, so what is written and what is judged
+ * cannot describe two different forms.
+ */
+export function namedDriverCommand(driver: string): string | null {
+  if (driver.startsWith(`${MERGE_DRIVER_PF_FORM} `)) return PF_COMMAND;
+  if (driver.startsWith(`${MERGE_DRIVER_COMMAND} `)) return MERGE_DRIVER_COMMAND;
+  return null;
+}
+
+/**
+ * Whether this machine really answers one registered driver string: the command forms only when their
+ * command resolves on `PATH` here, the absolute form only when both quoted paths are files here.
+ */
+export function registeredDriverRuns(driver: string): boolean {
+  const command = namedDriverCommand(driver);
+  if (command !== null) return resolvesOnPath(command);
+  const absolute = readAbsoluteForm(driver);
+  return absolute.shaped && absolute.missing.length === 0;
+}
+
 // ── the two attachments git writes ───────────────────────────────────────────
 
 interface MergeDriverOutcome {
   readonly reading: MergeDriverReading;
+  /** The command `merge.pf.driver` holds after this run, or null when the registration was skipped. */
+  readonly command: string | null;
   readonly warning?: string;
 }
 
 /**
  * Register the merge driver through `git config --local`: git owns the config file's locking,
  * atomicity and every other section in it, so the engine writes no config byte itself.
+ *
+ * The registration is read first. One this machine really answers is left exactly as it is — an
+ * existing working driver is not rewritten behind a person's back, and re-running `init` therefore has
+ * no side effect on it. Only a missing or dead registration is replaced, with the command computed now.
  */
 async function writeMergeDriver(root: string, probe: CheckoutProbe): Promise<MergeDriverOutcome> {
   if (probe.kind !== 'checkout') {
     return {
       reading: 'skipped-no-config',
+      command: null,
       warning:
         `The merge driver was not registered because ${probe.note}, so two branches that both changed ` +
         'a record come back as a plain git conflict.',
@@ -629,28 +695,37 @@ async function writeMergeDriver(root: string, probe: CheckoutProbe): Promise<Mer
   }
   const name = 'pf ledger three-way merge';
   try {
+    const read = await probe.git.run(root, ['config', '--local', '--get', 'merge.pf.driver']);
+    const registered = read.code === 0 ? read.stdout.trim() : '';
+    if (registered !== '' && registeredDriverRuns(registered)) {
+      // Already there and answerable here: kept byte for byte, and the report says which string it is.
+      return { reading: 'kept', command: registered };
+    }
+    const command = mergeDriverCommand();
     const wroteName = await probe.git.run(root, ['config', '--local', 'merge.pf.name', name]);
     const wroteDriver = await probe.git.run(root, [
       'config',
       '--local',
       'merge.pf.driver',
-      mergeDriverCommand(),
+      command,
     ]);
     const failed = [wroteName, wroteDriver].find((result) => result.code !== 0);
     if (failed !== undefined) {
       const detail = failed.stderr.trim().split(/\r?\n/)[0] ?? '';
       return {
         reading: 'skipped-no-config',
+        command: null,
         warning:
           `The merge driver was not registered: git config exited ${failed.code}` +
           `${detail === '' ? '' : ` (${detail})`}. Two branches that both changed a record come back ` +
           'as a plain git conflict.',
       };
     }
-    return { reading: 'written' };
+    return { reading: 'written', command };
   } catch (error) {
     return {
       reading: 'skipped-no-config',
+      command: null,
       warning: `The merge driver was not registered: git could not be run (${messageOf(error)}).`,
     };
   }
@@ -662,16 +737,19 @@ interface OwnRepoOutcome {
 }
 
 /**
- * What the engine sees of `.pf`'s own repository: it creates none, so it only reports and advises.
- * The whole look is one presence question — `existsSync` answers `false` on any error instead of
- * throwing — which is why the reading has three states and no "unknown" one.
+ * Settle `.pf`'s own repository: create one when the caller asked for it and there is none yet, and
+ * otherwise only report what is there. The whole look is one presence question — `existsSync`
+ * answers `false` on any error instead of throwing — so the reading has no "unknown" state; the one
+ * `git init` goes through the injected runner, never a process of the engine's own.
  */
-function observeOwnRepo(
+async function settleOwnRepo(
   paths: PfPaths,
   layout: LedgerLayout,
-  gitAtHand: boolean,
-): OwnRepoOutcome {
+  ownRepo: boolean,
+  git: GitRunner | undefined,
+): Promise<OwnRepoOutcome> {
   const dotGit = join(paths.pfDir, '.git');
+  const asked = ownRepo && layout === 'own-repo';
   if (existsSync(dotGit)) {
     return layout === 'in-repo'
       ? {
@@ -683,34 +761,49 @@ function observeOwnRepo(
         }
       : { reading: 'present' };
   }
-  if (layout === 'in-repo') return { reading: gitAtHand ? 'skipped' : 'skipped-no-git' };
+  if (!asked) return { reading: 'skipped' };
   const advice =
     'The records are one local copy until then: `git clean -xdf` would take the history with it.';
-  return gitAtHand
-    ? {
-        reading: 'skipped',
-        warning:
-          'This directory has no repository of its own: it is `git init .pf`, run by hand, and the ' +
-          `engine does not create it. ${advice}`,
-      }
-    : {
-        reading: 'skipped-no-git',
-        warning:
-          'No git was handed to the engine, so this directory has no repository of its own: run ' +
-          `\`git init .pf\` by hand once git is available. ${advice}`,
-      };
+  if (git === undefined) {
+    return {
+      reading: 'skipped-no-git',
+      warning:
+        'No git was handed to the engine, so this directory has no repository of its own: run ' +
+        `\`git init .pf\` by hand once git is available. ${advice}`,
+    };
+  }
+  try {
+    const done = await git.run(paths.pfDir, ['init', '--quiet']);
+    if (done.code === 0) return { reading: 'created' };
+    const detail = done.stderr.trim().split(/\r?\n/u)[0] ?? '';
+    return {
+      reading: 'skipped',
+      warning:
+        `\`git init\` failed: ${detail === '' ? `git exited ${done.code}` : detail}. ${advice}`,
+    };
+  } catch (error) {
+    return {
+      reading: 'skipped',
+      warning: `\`git init\` failed: git could not be run (${messageOf(error)}). ${advice}`,
+    };
+  }
 }
 
 // ── the two verbs ────────────────────────────────────────────────────────────
 
-/** `register`: write the merge driver's two keys into this project's git config (skipped silently when git cannot be asked). */
+/**
+ * `register`: write the merge driver's two keys into this project's git config — or keep a registration
+ * this machine already answers — and hand back the command now in force (null when git cannot be asked,
+ * or this is not a checkout: nothing was registered, so there is no string to claim).
+ */
 export async function registerLedger(
   root: string,
   options: LedgerRegisterOptions = {},
-): Promise<void> {
+): Promise<string | null> {
   const probe = await probeCheckout(root, options.git);
-  if (probe.kind !== 'checkout') return;
-  await writeMergeDriver(root, probe);
+  if (probe.kind !== 'checkout') return null;
+  const outcome = await writeMergeDriver(root, probe);
+  return outcome.command;
 }
 
 /**
@@ -732,7 +825,7 @@ export async function initLedger(
   const warnings: string[] = [];
   const probe = await probeCheckout(root, options.git);
 
-  const ownRepo = observeOwnRepo(paths, layout, options.git !== undefined);
+  const ownRepo = await settleOwnRepo(paths, layout, options.ownRepo !== false, options.git);
   if (ownRepo.warning !== undefined) warnings.push(ownRepo.warning);
 
   const exclude = await syncExclude(root, layout, probe);
@@ -747,6 +840,7 @@ export async function initLedger(
     ownRepo: ownRepo.reading,
     exclude: exclude.reading,
     mergeDriver: mergeDriver.reading,
+    mergeDriverCommand: mergeDriver.command,
     warnings,
   };
 }

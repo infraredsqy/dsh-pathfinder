@@ -13,13 +13,16 @@ git 那一侧由 `init` / `register` 接上：`.pf/.gitattributes` 是 `init` �
 
 - `.pf/.gitattributes` 把四份记录标成 `merge=pf`（`** -text` 顺带把行尾钉在记录的 LF 上）；
 - 项目 git 配置里两个键，都走 `git config --local`：`merge.pf.name`（git 给人看的标签
-  `pf ledger three-way merge`）与 `merge.pf.driver`（命令串）。重跑只把这两个键写成同一个样子，幂等；
-- 命令串在写的时候现算，两档。`pf-merge-ledger` 在 `PATH` 上解析得到时写名字档
-  `pf-merge-ledger %O %A %B %P`——位置无关，换机器、挪 checkout 都不用重注册；否则写绝对档
-  `"<node 可执行文件的绝对路径>" "<本包 merge-ledger.mjs 的绝对路径>" %O %A %B %P`，两条路径都带
-  引号（Windows 的 node 路径里有空格，git 按空格切这条命令串）。
+  `pf ledger three-way merge`）与 `merge.pf.driver`（命令串）。写之前先读一遍：本机真答得上的注册
+  一个字节都不改写，没有注册、或注册已经答不上时才写——重跑因此幂等；
+- 命令串在写的时候现算，三档，按这个次序挑：命令形式 `pf merge-ledger %O %A %B %P`（`pf` 在
+  `PATH` 上解析得到时——位置无关，换机器、挪 checkout 都不用重注册）；名字形式
+  `pf-merge-ledger %O %A %B %P`（只有本包的 bin 在 `PATH` 上时）；绝对形式
+  `"<node 可执行文件的绝对路径>" "<本包 merge-ledger.mjs 的绝对路径>" %O %A %B %P`（两条路径都带
+  引号；Windows 的 node 路径里有空格，git 按空格切这条命令串）。
 
-回答那条命令的就是 `pf-merge-ledger` 这一个进程：它把 git 给的四个参数（`%O` 公共侧、`%A` 这一侧、
+回答那条命令的就是 `pf-merge-ledger` 这一个进程（命令形式由仓根的 `pf` 命令把整行转交给它，两者
+跑的是同一份合并）：它把 git 给的四个参数（`%O` 公共侧、`%A` 这一侧、
 `%B` 另一侧、`%P` 记录在仓库里的路径）搬进来，把合并交给 `runMergeDriver`，再把退出码原样交出去。
 `--dry-run` 出现在参数里的任何位置都只打判词、一个字节都不写。stdout / stderr 按 UTF-8 写。
 

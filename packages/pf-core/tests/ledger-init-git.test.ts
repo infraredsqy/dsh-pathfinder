@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { GitResult, GitRunner } from '../src/git';
 import { mergeDriverCommand } from '../src/initledger';
@@ -70,12 +70,12 @@ function checkoutAnswers(args: readonly string[]): GitResult | undefined {
 }
 
 describe('ledger.init in a real checkout', () => {
-  it('the exclude line goes in and the driver is registered through git config; no repository of .pf is created', async () => {
+  it('the exclude line goes in, the driver is registered through git config, and .pf is given a repository of its own', async () => {
     await git(root, 'init', '-b', 'master');
     const report = await open(root).ledger.init({ git: realGit });
 
     expect(report.written).toEqual(LAYOUT_FILES);
-    expect(report.ownRepo).toBe('skipped');
+    expect(report.ownRepo).toBe('created');
     expect(report.exclude).toBe('written');
     expect(report.mergeDriver).toBe('written');
 
@@ -85,19 +85,21 @@ describe('ledger.init in a real checkout', () => {
     // git wrote the keys itself: the value is exactly the string this machine computes.
     const driver = (await git(root, 'config', '--local', '--get', 'merge.pf.driver')).trim();
     expect(driver).toBe(mergeDriverCommand());
-    if (driver.startsWith('pf-merge-ledger ')) {
+    if (driver.startsWith('pf merge-ledger ')) {
+      // The command form: `pf` is on this machine's PATH, so the registration names it.
+      expect(driver).toBe('pf merge-ledger %O %A %B %P');
+    } else if (driver.startsWith('pf-merge-ledger ')) {
       expect(driver).toBe('pf-merge-ledger %O %A %B %P');
     } else {
       // The absolute form quotes both paths: a Windows node path has spaces, and git splits on spaces.
-      expect(driver).toMatch(/^".+" ".+merge-ledger\.mjs" %O %A %B %P$/);
+      expect(driver).toMatch(/^".+" ".+merge-ledger\.mjs" %O %A %B %P$/u);
     }
     expect((await git(root, 'config', '--local', '--get', 'merge.pf.name')).trim())
       .toBe('pf ledger three-way merge');
 
-    // Everything worked, so the only sentence is the advice about .pf having no repository of its own.
-    expect(report.warnings).toHaveLength(1);
-    expect(report.warnings[0]).toContain('git init .pf');
-    expect(existsSync(join(root, '.pf', '.git'))).toBe(false);
+    // Everything worked, so no warning is left: the repository of .pf's own was given, not advised on.
+    expect(report.warnings).toEqual([]);
+    expect(existsSync(join(root, '.pf', '.git'))).toBe(true);
   });
 
   it('idempotent: a second run changes neither .pf, nor the exclude file, nor git config', async () => {
@@ -113,6 +115,28 @@ describe('ledger.init in a real checkout', () => {
     expect(hashTree(join(root, '.pf'))).toBe(before);
     expect(readFileSync(join(root, '.git', 'info', 'exclude'), 'utf8')).toBe(excludeBefore);
     expect(readFileSync(join(root, '.git', 'config'), 'utf8')).toBe(configBefore);
+  });
+
+  it('ownRepo: no repository when none was asked for, the given one is created, and an existing one is left alone', async () => {
+    await git(root, 'init', '-b', 'master');
+    const pf = open(root);
+
+    // `ownRepo: false` is the caller saying "plain files on purpose": nothing is created, nothing is warned about.
+    const notAsked = await pf.ledger.init({ ownRepo: false, git: realGit });
+    expect(notAsked.ownRepo).toBe('skipped');
+    expect(existsSync(join(root, '.pf', '.git'))).toBe(false);
+    expect(notAsked.warnings.join('\n')).not.toContain('repository of its own');
+
+    // Asked for (the default): one git init gives it a repository, and the reading says who gave it.
+    const asked = await pf.ledger.init({ git: realGit });
+    expect(asked.ownRepo).toBe('created');
+    expect(statSync(join(root, '.pf', '.git')).isDirectory()).toBe(true);
+
+    // A second run finds it there and leaves it exactly as it was.
+    const repoHash = hashTree(join(root, '.pf', '.git'));
+    const again = await pf.ledger.init({ git: realGit });
+    expect(again.ownRepo).toBe('present');
+    expect(hashTree(join(root, '.pf', '.git'))).toBe(repoHash);
   });
 
   it('a project in a subdirectory: the line is anchored at the repository root, one per project', async () => {
@@ -135,7 +159,8 @@ describe('switching between the two layouts', () => {
   it('own-repo → in-repo takes the line away and leaves .pf/.git alone; back again puts it back', async () => {
     await git(root, 'init', '-b', 'master');
     const pf = open(root);
-    await pf.ledger.init({ git: realGit });
+    // The first run leaves `.pf` as plain files, so the repository below stands for one an earlier layout had.
+    await pf.ledger.init({ ownRepo: false, git: realGit });
 
     // A repository of .pf's own, from an earlier layout: the engine never creates one (that is
     // `git init .pf`, run by hand) and it never removes one either (that would remove history).
@@ -179,15 +204,20 @@ describe('what is asked of git, and what happens when it will not answer', () =>
     const report = await open(root).ledger.init({ git: fake.runner });
     expect(report.exclude).toBe('written');
     expect(report.mergeDriver).toBe('written');
+    expect(report.mergeDriverCommand).toBe(mergeDriverCommand());
 
     expect(fake.calls.map((call) => call.args)).toEqual([
       ['rev-parse', '--git-common-dir'],
+      ['init', '--quiet'],
       ['rev-parse', '--git-path', 'info/exclude'],
       ['rev-parse', '--show-prefix'],
+      ['config', '--local', '--get', 'merge.pf.driver'],
       ['config', '--local', 'merge.pf.name', 'pf ledger three-way merge'],
       ['config', '--local', 'merge.pf.driver', mergeDriverCommand()],
     ]);
-    expect(fake.calls.every((call) => call.cwd === root)).toBe(true);
+    // The one `git init` stands in the record directory, every other call in the project root.
+    expect(fake.calls.filter((call) => call.cwd !== root).map((call) => call.args)).toEqual([['init', '--quiet']]);
+    expect(fake.calls.find((call) => call.args[0] === 'init')!.cwd).toBe(join(root, '.pf'));
     expect(excludeLines(readFileSync(join(root, '.git', 'info', 'exclude'), 'utf8')))
       .toEqual(['/.pf/']);
   });
@@ -297,26 +327,31 @@ describe('what is asked of git, and what happens when it will not answer', () =>
     expect(report.mergeDriver).toBe('written');
   });
 
-  it('git answers "not a checkout": both attachments are skipped, named in warnings, and init resolves', async () => {
+  it('git answers "not a checkout": every attachment is skipped, named in warnings, and init resolves', async () => {
     const refused: GitRunner = {
       run: () => Promise.resolve({ code: 128, stdout: '', stderr: 'fatal: not a git repository' }),
     };
     const report = await open(root).ledger.init({ git: refused });
     expect(report.written).toEqual(LAYOUT_FILES);
+    // The asked-for repository is the attachment whose own git init git refused: the reading stays
+    // "skipped" and the warning names what failed.
     expect(report.ownRepo).toBe('skipped');
     expect(report.exclude).toBe('skipped-not-a-checkout');
     expect(report.mergeDriver).toBe('skipped-no-config');
     expect(report.warnings).toHaveLength(3);
+    expect(report.warnings.join('\n')).toContain('`git init` failed: fatal: not a git repository');
     expect(report.warnings.join('\n')).toContain('exited 128');
     expect(readFileSync(join(root, '.pf', '.gitignore'), 'utf8').length).toBeGreaterThan(0);
   });
 
-  it('with pf-merge-ledger on PATH the registered string is the name form: position-independent', async () => {
+  it('with pf-merge-ledger alone on PATH the registered string is the name form: position-independent', async () => {
+    // `PATH` is narrowed to the shim directory, so the case measures the name form and nothing the
+    // test machine happens to have installed beside it.
     const shimDir = mkdtempSync(join(tmpdir(), 'pf-shim-'));
     const before = process.env['PATH'] ?? '';
     try {
       writeFileSync(join(shimDir, 'pf-merge-ledger'), '#!/usr/bin/env node\n', 'utf8');
-      process.env['PATH'] = `${shimDir}${delimiter}${before}`;
+      process.env['PATH'] = shimDir;
       mkdirSync(join(root, '.git', 'info'), { recursive: true });
       const fake = recordingGit(checkoutAnswers);
       await open(root).ledger.init({ git: fake.runner });
@@ -328,6 +363,43 @@ describe('what is asked of git, and what happens when it will not answer', () =>
       process.env['PATH'] = before;
       rmSync(shimDir, { recursive: true, force: true });
     }
+  });
+
+  it('with pf on PATH the registered string is the command form the reference writes', async () => {
+    const shimDir = mkdtempSync(join(tmpdir(), 'pf-shim-'));
+    const before = process.env['PATH'] ?? '';
+    try {
+      writeFileSync(join(shimDir, 'pf'), '#!/usr/bin/env node\n', 'utf8');
+      process.env['PATH'] = shimDir;
+      mkdirSync(join(root, '.git', 'info'), { recursive: true });
+      const fake = recordingGit(checkoutAnswers);
+      await open(root).ledger.init({ git: fake.runner });
+      const registered = fake.calls.find(
+        (call) => call.args[0] === 'config' && call.args[2] === 'merge.pf.driver',
+      )!;
+      expect(registered.args[3]).toBe('pf merge-ledger %O %A %B %P');
+    } finally {
+      process.env['PATH'] = before;
+      rmSync(shimDir, { recursive: true, force: true });
+    }
+  });
+
+  it('a registration this machine already answers is kept: nothing is written over it, and the report names it', async () => {
+    mkdirSync(join(root, '.git', 'info'), { recursive: true });
+    const standIn = join(root, 'chosen-merge.mjs');
+    writeFileSync(standIn, '#!/usr/bin/env node\n', 'utf8');
+    const chosen = `"${process.execPath}" "${standIn}" %O %A %B %P`;
+    const fake = recordingGit((args) => {
+      if (args.join(' ') === 'config --local --get merge.pf.driver') {
+        return { code: 0, stdout: `${chosen}\n`, stderr: '' };
+      }
+      return checkoutAnswers(args);
+    });
+    const report = await open(root).ledger.init({ git: fake.runner });
+    expect(report.mergeDriver).toBe('kept');
+    expect(report.mergeDriverCommand).toBe(chosen);
+    // Not one write of either key: the pair already there is the pair that stays.
+    expect(fake.calls.some((call) => call.args[0] === 'config' && call.args[2] !== '--get')).toBe(false);
   });
 });
 

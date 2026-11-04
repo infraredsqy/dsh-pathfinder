@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -39,10 +39,24 @@ describe('ledger.register', () => {
     expect(existsSync(join(root, '.pf'))).toBe(false);
   });
 
-  it('without git it is a silent no-op, and not a throw', async () => {
-    await expect(open(root).ledger.register()).resolves.toBeUndefined();
+  it('without git it is a silent no-op (no command to claim), and not a throw', async () => {
+    await expect(open(root).ledger.register()).resolves.toBeNull();
     expect(existsSync(join(root, '.pf'))).toBe(false);
     expect(existsSync(join(root, '.git'))).toBe(false);
+  });
+
+  it('hands back the command now in force, and keeps a registration this machine already answers', async () => {
+    await git(root, 'init', '-b', 'master');
+    const written = await open(root).ledger.register({ git: realGit });
+    expect(written).toBe(mergeDriverCommand());
+    // A working registration someone chose on purpose is left byte for byte, and handed back as it is:
+    // the absolute form names two paths that are both here, so this machine really answers it.
+    const chosenScript = join(root, 'chosen-merge.mjs');
+    writeFileSync(chosenScript, '#!/usr/bin/env node\n', 'utf8');
+    const chosen = `"${process.execPath}" "${chosenScript}" %O %A %B %P`;
+    await git(root, 'config', '--local', 'merge.pf.driver', chosen);
+    await expect(open(root).ledger.register({ git: realGit })).resolves.toBe(chosen);
+    expect((await git(root, 'config', '--local', '--get', 'merge.pf.driver')).trim()).toBe(chosen);
   });
 
   it('in a linked worktree the keys land in the common git config (git decides where, not the engine)', async () => {

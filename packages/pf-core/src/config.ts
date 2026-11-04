@@ -114,7 +114,7 @@ export interface ConfigReading {
 }
 
 /**
- * The config namespace: reading and writing along one settings chain, these four verbs. Each takes an
+ * The config namespace: reading and writing along one settings chain, these five verbs. Each takes an
  * optional directory to work in (the handle's project root when left out).
  */
 export interface ConfigNamespace {
@@ -126,6 +126,13 @@ export interface ConfigNamespace {
   unset(key: string, at: ConfigLayer, dir?: string): Promise<void>;
   /** Every setting with the value in force and its source, up to the named layer. */
   list(at?: ConfigLayer, dir?: string): Promise<Record<string, ConfigReading>>;
+  /**
+   * The names the settings verbs accept here, sorted: the knob list in force — the core settings plus the
+   * knobs installed plugins declare — narrowed to the names that take the project layer, which is what a
+   * `get` / `set` / `unset` answer is about. A name that has no project layer is the machine's own and is
+   * not on this list: a caller printing the vocabulary prints these names.
+   */
+  keys(dir?: string): Promise<string[]>;
 }
 
 // ── the knob list: kind, layers, default ─────────────────────────────────────
@@ -898,6 +905,15 @@ export function createConfigNamespace(
       await resolveReadNode(point, rootHere);
       const chain = chainUpTo(point);
       return chainValues(rootHere, options, chain.narrow, chain.wide, await specsHere(rootHere));
+    },
+
+    keys: async (dir?: string) => {
+      const specs = await specsHere(rootOf(dir, root));
+      // The settings a get / set / unset answers about: every knob that takes the project layer, in the
+      // order the help lists them (the names sorted). A machine-layer knob is not among them.
+      return Object.keys(specs)
+        .filter((name) => acceptedLayers(specs[name]!).includes('project'))
+        .sort();
     },
   };
 }

@@ -13,12 +13,15 @@ const DAG_METHODS = [
 ];
 const CYCLE_METHODS = [
   'create', 'start', 'rename', 'setStatus', 'setPolicy', 'list', 'current',
-  'show', 'hold', 'close', 'retry',
+  'show', 'policies', 'standing', 'hold', 'close', 'retry',
 ];
 const INSTRUCTION_METHODS = ['add', 'list', 'resolve', 'revive', 'remove'];
-const CONFIG_METHODS = ['get', 'set', 'unset', 'list'];
+const CONFIG_METHODS = ['get', 'set', 'unset', 'list', 'keys'];
 const SESSION_METHODS = ['list', 'show'];
-const CONDUCTOR_METHODS = ['next', 'dispatch', 'handoff', 'close', 'doctor'];
+const CONDUCTOR_METHODS = [
+  'next', 'prepare', 'dispatch', 'handoff', 'close', 'closeWith', 'doctor',
+  'handoffForm', 'pluginCommand', 'pluginCommands',
+];
 
 const pf = open('\\\\tmp\\pf-surface-probe');
 
@@ -32,16 +35,17 @@ describe('the handle open() hands back', () => {
 });
 
 describe('pf.ledger', () => {
-  it('init / register / dag / cycles / instructions are all there', () => {
+  it('init / register / cleanTemp / dag / cycles / instructions are all there', () => {
     expect(Object.keys(pf.ledger).sort())
-      .toEqual(['cycles', 'dag', 'init', 'instructions', 'register']);
+      .toEqual(['cleanTemp', 'cycles', 'dag', 'init', 'instructions', 'register']);
     expect(typeof pf.ledger.init).toBe('function');
     expect(typeof pf.ledger.register).toBe('function');
+    expect(typeof pf.ledger.cleanTemp).toBe('function');
   });
   it('dag has all fifteen verbs', () => {
     expect(Object.keys(pf.ledger.dag).sort()).toEqual([...DAG_METHODS].sort());
   });
-  it('cycles has all eleven verbs', () => {
+  it('cycles has all thirteen verbs', () => {
     expect(Object.keys(pf.ledger.cycles).sort()).toEqual([...CYCLE_METHODS].sort());
   });
   it('instructions has all five verbs', () => {
@@ -50,13 +54,13 @@ describe('pf.ledger', () => {
 });
 
 describe('pf.config / pf.sessions / pf.conductor', () => {
-  it('config has all four verbs', () => {
+  it('config has all five verbs', () => {
     expect(Object.keys(pf.config).sort()).toEqual([...CONFIG_METHODS].sort());
   });
   it('sessions has both verbs', () => {
     expect(Object.keys(pf.sessions).sort()).toEqual([...SESSION_METHODS].sort());
   });
-  it('conductor has all five verbs', () => {
+  it('conductor has all ten verbs', () => {
     expect(Object.keys(pf.conductor).sort()).toEqual([...CONDUCTOR_METHODS].sort());
   });
 });

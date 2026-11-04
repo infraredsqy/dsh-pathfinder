@@ -5,6 +5,7 @@ import type {
   InstructionAddInput,
   InstructionListFilter,
   InstructionReaderRow,
+  InstructionResolveOptions,
   InstructionsNamespace,
 } from './ledger';
 import { withLedgerLock } from './ledgerlock';
@@ -439,15 +440,17 @@ export function createInstructionsNamespace(root: string): InstructionsNamespace
       return rows.map(foldReaderRow);
     },
 
-    async resolve(id: string): Promise<InstructionRecord> {
+    async resolve(id: string, options?: InstructionResolveOptions): Promise<InstructionRecord> {
       return mutate(async (ledger) => {
         const hit = ledger.instructions.find((entry) => entry.id === id);
         if (hit === undefined) {
           throw new Error(`no instruction ${JSON.stringify(id)}`);
         }
-        // Resolving touches only the state and timestamp cells: text, scope and binding are all kept as they are.
+        // Resolving touches the state and timestamp cells, plus the note when one is given: text,
+        // scope and binding are all kept as they are, and a note that was never given is not cleared.
         hit.state = 'withdrawn';
         hit.resolved_at = nowSeconds();
+        if (options?.note !== undefined && options.note !== '') hit.note = options.note;
         await writeInstructions(ledger);
         return hit;
       });

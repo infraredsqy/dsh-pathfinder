@@ -9,8 +9,10 @@ import { collectGates, collectOffers } from './plugins/host';
 import { applyInsertion } from './plugins/insertion';
 import {
   commandClashes,
+  implOf,
   pluginListing,
   pluginsDirOf,
+  routableCommands,
   shadowedKnobs,
   verifyPlugins,
 } from './plugins/registry';
@@ -19,13 +21,22 @@ import { envSpawnDryRun, envSpawner, zcodeDataDir } from './env';
 import { PfError } from './errors';
 import type { GitResult, GitRunner } from './git';
 import { atomicWriteBytes, atomicWriteJson, EOL, jsonOptionsForRecord, readJsonFile } from './jsonio';
-import { assertLedgerInitialized, readAbsoluteForm, resolvesOnPath } from './initledger';
-import { planNext, promptTextOf, settleClose } from './planner';
-import { prepareDispatch } from './prepare';
+import {
+  assertLedgerInitialized,
+  MERGE_DRIVER_NAME_FORM,
+  MERGE_DRIVER_PF_FORM,
+  namedDriverCommand,
+  readAbsoluteForm,
+  resolvesOnPath,
+} from './initledger';
+import { planNext, promptTextOf, settleClose, settleCloseWithAnswers } from './planner';
+import { prepareDispatch, ticketReadings } from './prepare';
+import type { PreparedDispatch } from './prepare';
 import { launchPromptPath, PF_DIR_NAME, pfPaths, signalPath, startedMarkerPath, type PfPaths } from './paths';
 import type { DagNamespace } from './ledger';
 import type { CycleRecord, HandoffRecord, NodeMode, NodeResult } from './types';
 import type { PluginFolder } from './plugins/types';
+import type { PluginCommandEntry } from './plugins/types';
 import { withLedgerLock } from './ledgerlock';
 import { createCyclesNamespace, cyclePolicy } from './cycles';
 
@@ -224,6 +235,53 @@ export interface ConductorHandoffInput {
   outputs?: Record<string, unknown>;
 }
 
+/**
+ * The closing answers a settle can carry: which way the closing call decided, one line of reason, and the
+ * node to run instead of the ranking's pick. The same answers the closing rehearsal of `next` takes.
+ */
+export interface ConductorCloseAnswers extends ConductorTarget {
+  readonly decision?: 'continue' | 'stop';
+  readonly note?: string;
+  /** Run this node instead of the ranking's pick (a full id or a prefix). */
+  readonly named?: string;
+}
+
+/** One reading slot the ticket shape of a line asks for: the key, and the question the declaration carries. */
+export interface HandoffFormReading {
+  key: string;
+  ask: string;
+}
+
+/** The shape of the ticket this line asks for: which line, and which reading slots a worker is asked to report. */
+export interface HandoffForm {
+  cycle: string;
+  /** The reading slots (`source: ticket`) in force on this line; empty means nobody reports a number. */
+  readings: HandoffFormReading[];
+}
+
+/** One routed plugin command: the word and the rest of the line. */
+export interface ConductorPluginCommandInput {
+  word: string;
+  argv?: readonly string[];
+}
+
+/**
+ * What one routed plugin command did: which plugin answered, whether it ran to its end, the text it answered
+ * with, and — when it did not run — the sentence the failure leaves. `main` may hand back a number as its
+ * answer: that number is the exit code the run asks for, and it lands in `code` (null when the plugin asked
+ * for none). A caller that runs on a command line keeps it, the way a command's own exit code is kept.
+ */
+export interface PluginCommandAnswer {
+  word: string;
+  /** The plugin folder that answered; null when no installed plugin claims this word. */
+  plugin: string | null;
+  ran: boolean;
+  text: string | null;
+  /** The exit code the plugin handed back (a number from `main`); null when it handed back none. */
+  code: number | null;
+  error: string | null;
+}
+
 /** One check of doctor. */
 export interface DoctorCheck {
   name: string;
@@ -263,10 +321,18 @@ export interface ConductorNamespaceOptions {
   readonly gitTimeoutMs?: number;
 }
 
-/** The pipeline namespace: the group of actions that pushes a line along, these five verbs. */
+/** The pipeline namespace: the group of actions that pushes a line along, these ten verbs. */
 export interface ConductorNamespace {
   /** Read what the next step is: a plan (dispatch / pin / stop / wait / ask a person / no line yet). */
   next(input?: NextQuery): Promise<NextPlan>;
+  /**
+   * Land the material of one dispatch and open no session: the prompt at its location, this round's
+   * run doc in the node directory, and the handoff template handed back with them. This is the
+   * write-side half the step that pins a node calls (`next` in the shell in front of this package);
+   * `dispatch` is the same preparation followed by the session. Only a dispatch plan has material to
+   * land: called on any other plan it says so on the spot and writes not one byte.
+   */
+  prepare(input?: ConductorTarget): Promise<PreparedDispatch>;
   /**
    * Hand the next step to the executor: the node goes to a session, and the promise ends when that
    * session is **open**. The result is not here — the worker files a ticket and `close` settles it.
@@ -276,6 +342,22 @@ export interface ConductorNamespace {
   handoff(input: ConductorHandoffInput): Promise<HandoffRecord>;
   /** Close out the line and settle. */
   close(input?: ConductorTarget): Promise<CycleRecord>;
+  /**
+   * Close out the line and settle, with the closing answers the caller carries: continue / stop, one line of
+   * reason, or a node named instead of the ranking's pick. Everything else is the same settle `close` lands.
+   */
+  closeWith(input?: ConductorCloseAnswers): Promise<CycleRecord>;
+  /**
+   * Route one plugin command: the word and the rest of the line go to the installed plugin that declares it,
+   * run in this process through the plugin contract, and its answer comes back — the text it answered with,
+   * and the exit code it handed back when `main` answered a number. A word no installed plugin claims answers
+   * `plugin: null, ran: false` — the caller says "no such command".
+   */
+  pluginCommand(input: ConductorPluginCommandInput): Promise<PluginCommandAnswer>;
+  /** The plugin commands installed here claim, in folder order, with the name the router matches. */
+  pluginCommands(): Promise<PluginCommandEntry[]>;
+  /** The ticket shape this line asks for: which reading slots a worker reports (writes nothing). */
+  handoffForm(input?: ConductorTarget): Promise<HandoffForm>;
   /** Check-up: the installed plugins are listed one by one, the records are complete, no reference dangles, nothing cycles; the merge-driver cell is asked with the git handed in on this call (without one it is not asked). */
   doctor(options?: ConductorDoctorOptions): Promise<DoctorReport>;
 }
@@ -299,18 +381,27 @@ const PLUGIN_LOAD_NOTE =
   'changed on disk, is in force on the next call without a restart';
 
 /**
- * Assemble the conductor namespace: how the five verbs are wired:
+ * Assemble the conductor namespace: how the ten verbs are wired:
  *
+ * - `prepare`'s **landing the material**: the same preparation `dispatch` does, without the session.
+ *   The line is resolved (an id that is not on the record is refused the way every verb refuses one),
+ *   the plan is read, and only a dispatch plan has material to land — a prompt at its location, the
+ *   run doc in the node directory, the handoff template handed back with them. Any other plan is
+ *   answered on the spot with not one byte written. This is the write-side half of the step that pins
+ *   a node, so the shell in front of this package can land the prompt on the pinning call and start
+ *   the session on the next one.
  * - `dispatch`'s **whole dispatch**: the claim of an earlier dispatch is read first — when this
  *   (line, node)'s `started` marker is already on disk the answer is `already_open`, with no executor
  *   call and not one byte written. Otherwise: the plugin blocking seam (a blocker lists every reason
- *   and throws `dispatch_blocked`) → dispatch preparation (`prepareDispatch`: the prompt lands at its
- *   location, the run doc is set up in the node directory, the handoff template comes back with the
- *   material) → build the `DispatchRequest` (the line's and the node's identity carried as they are,
- *   `role` carried by the request, the prompt being the one line preparation handed back) and give it
- *   to the injected executor → take the `OpenedSession` as the receipt and land the claim (`started`),
- *   after which the plan treats this cell as in flight and never dispatches it a second time. An
- *   executor that throws means no session was opened: no marker lands and no record moves. A claim
+ *   and throws `dispatch_blocked`) → dispatch preparation → build the `DispatchRequest` (the line's
+ *   and the node's identity carried as they are, `role` carried by the request, the prompt being the
+ *   one line preparation handed back) and give it to the injected executor → take the `OpenedSession`
+ *   as the receipt and land the claim (`started`), after which the plan treats this cell as in flight
+ *   and never dispatches it a second time. The preparation is skipped for a cell whose prompt is
+ *   **already on disk**: that prompt is the one the pinning step landed, and a prompt on disk with no
+ *   `started` stamp is a dispatch of its own (the reference's gate), even while the plan is still
+ *   waiting on the ticket — nothing is left to land, so no second prompt and no run doc are written.
+ *   An executor that throws means no session was opened: no marker lands and no record moves. A claim
  *   that cannot be written is **not** a warning: the session is out and nothing on disk says so, so
  *   the call throws with the session id in the message (dispatching the same cell again would open a
  *   second session) — success is never handed back without the claim.
@@ -340,7 +431,8 @@ const PLUGIN_LOAD_NOTE =
  *   that cannot wait it out): a question left unanswered reds that cell and names the question and the wait
  *   instead of holding the whole check-up open, while the other cells are computed all the same.
  *
- * The executor is taken on the green light path of `dispatch`; `next` is still a read-only plan.
+ * The executor is taken on the green light path of `dispatch` only; `next` is still a read-only plan,
+ * and `prepare` is the preparation half of a dispatch, which needs no executor at all.
  */
 export function createConductorNamespace(
   root: string,
@@ -452,6 +544,119 @@ export function createConductorNamespace(
     }
   }
 
+  /**
+   * The settle both closing verbs land: the gates, the plugin half asked before the lock, one
+   * transaction over the records, and the closing insertion seam. `answers` is what a closing call
+   * may carry (continue / stop, one line of reason, a named node); without them the criteria decide
+   * on their own.
+   */
+  const settleNode = async (
+    input: (ConductorCloseAnswers | ConductorTarget) | undefined,
+    answers?: ConductorCloseAnswers,
+  ): Promise<CycleRecord> => {
+    assertLedgerInitialized(paths);
+    const cycle = await resolveCycle(input?.cycle);
+    const cycleId = String(cycle.id ?? '');
+    const nodeId = heldNodeId(cycle, input?.node);
+    const known = await dag.get(nodeId);
+    if (known === null) {
+      throw new Error(`node ${nodeId} not found`);
+    }
+    // Gate one of the closing: the node must be on this line's claim list (the same gate as the closing itself).
+    const inHand = (Array.isArray(cycle.holding) ? cycle.holding : []).some(
+      (item) => item !== null && typeof item === 'object' && (item as { id?: unknown }).id === nodeId,
+    );
+    if (!inHand) {
+      const names = (Array.isArray(cycle.holding) ? cycle.holding : [])
+        .map((item) => String((item as { id?: unknown }).id ?? '').slice(0, 8))
+        .filter((name) => name !== '');
+      throw new PfError(
+        'not_holding',
+        paths.stateJson,
+        `cycle "${cycleId}" is not holding ${nodeId} (it is holding ` +
+          `${names.join(', ') || 'nothing'}); there is nothing to settle`,
+      );
+    }
+    // Gate two of the closing: the ticket has to be on disk and it has to state a result. A missing ticket, or one
+    // still pending, is a blocker (nothing was handed in, or it is a re-run marker) — there is no verdict to
+    // settle, and not one byte moves.
+    const sig = await ticketOf(cycleId, nodeId);
+    if (sig === null || sig.status === 'pending') throw nothingToSettle(cycleId, nodeId);
+    // The plugin half of the close — the scan, the dynamic load, every plugin's question — is asked here, before
+    // the lock is taken, on one snapshot of the scene (the line and the ticket as read just above). How long a
+    // plugin takes to answer is how long it takes and no writer waits on it: no record of this ledger is written
+    // in this stretch. What the answered offers want in the graph is landed under the lock by the mechanism below.
+    const warnings: string[] = [];
+    const folders = await pluginAssemblyOf(root, options.pluginsDir).folders();
+    const snapshot = await readGraphSnapshot(paths);
+    const ctx = createContext({
+      root,
+      folders,
+      homeDir: options.homeDir,
+      warnings,
+      cycle: cycle as unknown as Record<string, unknown>,
+      nodeId,
+      sig,
+      dag: snapshot,
+      target: null,
+    });
+    const offers = await collectOffers('close', ctx, folders, warnings);
+    return withLedgerLock(paths, async () => {
+      // The first thing under the lock: the line and the ticket are read again, and the settle answers to these
+      // bytes. What the plugin half was handed above is a snapshot taken before the lock — the plugins judge on
+      // that scene, they do not decide the verdict.
+      const line = await resolveCycle(cycleId);
+      const ticket = await ticketOf(cycleId, nodeId);
+      if (ticket === null || ticket.status === 'pending') throw nothingToSettle(cycleId, nodeId);
+      // The settling criteria are shared with the plan (settleClose): the verdict word, walk or stop, the slot
+      // list, and whether the line parks.
+      const settle = answers === undefined
+        ? await settleClose(root, line, nodeId, ticket)
+        : await settleCloseWithAnswers(root, line, nodeId, ticket, answers);
+      // Transactional: a snapshot is taken before the records move, and a mid-way failure puts them back by the
+      // snapshot — no half record is left.
+      const before = [
+        await snapshotRecord(paths.stateJson),
+        await snapshotRecord(paths.ideasJson),
+      ];
+      try {
+        // The mechanical steps of the settle, in the order of the closing command list: first record the step (the
+        // verdict goes into path, the claim is laid down), then mark the graph (a delivery lands completed, a
+        // non-delivery lands shelved), then pin the filled slots one by one or turn the line out of service. When
+        // the line is not in service, only the recording happens (settle.parkLine=false, no slot is filled).
+        await cycles.close(cycleId, { node: nodeId, result: settle.outcome });
+        await dag.setStatus(nodeId, settle.delivered ? 'completed' : 'shelved');
+        if (settle.decision === 'continue' && settle.filled.length > 0) {
+          for (const slot of settle.filled) {
+            await cycles.hold(cycleId, slot.id);
+          }
+        } else if (settle.parkLine) {
+          await cycles.setStatus(cycleId, 'inactive');
+        }
+        // The closing insertion seam (zero semantic change): once the settle is fixed, an offer of the close timing
+        // lands in the graph through the core mechanism as before; the offers were asked before the lock, and a
+        // broken plugin folds into one WARNING line and does not take part this round, while the main flow goes on
+        // as usual.
+        for (const offer of offers) {
+          try {
+            // The closing seam has no picking step yet: the insertion hangs behind the node being closed, with no before.
+            await applyInsertion(root, dag, offer, nodeId, null, warnings);
+          } catch (error) {
+            warnings.push(warnLine(offer.plugin, 'failed', error));
+          }
+        }
+        const updated = await cycles.show(cycleId);
+        warningsByResult.set(updated, warnings);
+        return updated;
+      } catch (error) {
+        for (const snap of before) {
+          if (snap !== null) await atomicWriteBytes(snap.path, snap.bytes);
+        }
+        throw error;
+      }
+    });
+  };
+
   return {
     next: async (input) => {
       const query = input ?? {};
@@ -463,6 +668,20 @@ export function createConductorNamespace(
         );
       }
       return planNext(root, query);
+    },
+
+    prepare: async (input) => {
+      // The line is resolved the way every verb resolves one — an id that is not on the record is refused
+      // here rather than as a plan answer, so the caller reads a line that is really there. The material
+      // itself is the same preparation `dispatch` runs; that one call is where "only a dispatch plan has
+      // material" is decided, and it writes nothing when it is not one.
+      const cycle = await resolveCycle(input?.cycle);
+      const cycleId = String(cycle.id ?? '');
+      return prepareDispatch(
+        root,
+        { cycle: cycleId, ...(input?.node === undefined || input.node === '' ? {} : { node: input.node }) },
+        { homeDir: options.homeDir, pluginsDir: options.pluginsDir },
+      );
     },
 
     handoff: async (input) => {
@@ -572,23 +791,34 @@ export function createConductorNamespace(
       if (executor === undefined) {
         throw new Error('conductor.dispatch needs an injected executor (PfOpenOptions.executor)');
       }
-      // Dispatch preparation: the prompt lands at its location, the run doc is set up in the node directory, the
-      // handoff template comes back with the material. When the plan hands back something other than a
-      // dispatch right now (the ticket is waiting to be settled) preparation says so itself on the spot.
-      const prepared = await prepareDispatch(
-        root,
-        { cycle: cycleId, node: nodeId },
-        { homeDir: options.homeDir, pluginsDir: options.pluginsDir, assembly },
-      );
-      const slot = prepared.nodes[0];
-      if (slot === undefined || slot.node_id !== nodeId) {
-        throw new Error(
-          `node ${nodeId} is not on this dispatch's list (not in hand, its session is ` +
-            'already out, or it already filed a ticket); nothing was prepared',
+      // The material this dispatch hands over. The prompt is the one line the step that pinned this node
+      // lands; when it is **already on disk** there is nothing left to land, and this call writes only
+      // the `started` claim below. That pair of disk facts — prompt there, no `started` stamp — is the
+      // reference's own dispatch gate, so a landed prompt is a dispatch even while the plan is still
+      // waiting on the ticket (a prompt another implementation or an earlier round left behind).
+      // A cell with no prompt goes through the preparation, which lands the prompt, sets up the run doc,
+      // and says on its own spot when the plan hands back something other than a dispatch.
+      const promptPath = launchPromptPath(paths, cycleId, nodeId);
+      let material: { readonly prompt: string; readonly prompt_text: string };
+      if (existsSync(promptPath)) {
+        material = { prompt: promptPath, prompt_text: promptTextOf(nodeId) };
+      } else {
+        const prepared = await prepareDispatch(
+          root,
+          { cycle: cycleId, node: nodeId },
+          { homeDir: options.homeDir, pluginsDir: options.pluginsDir, assembly },
         );
+        const slot = prepared.nodes[0];
+        if (slot === undefined || slot.node_id !== nodeId) {
+          throw new Error(
+            `node ${nodeId} is not on this dispatch's list (not in hand, its session is ` +
+              'already out, or it already filed a ticket); nothing was prepared',
+          );
+        }
+        material = slot;
       }
       // The request goes to the executor: the line's and the node's identity are carried as they are, role is
-      // carried by the request, and the prompt is the one line preparation handed back. What comes back is a
+      // carried by the request, and the prompt is the one line the material holds. What comes back is a
       // receipt, not a result: the session is open, and the result will arrive as a ticket from the worker.
       // Which spawner opens this session is the most specific answer: what this call named, then the line's
       // own `spawner` policy, then the machine's switch; with nothing said the cell is absent and the
@@ -602,7 +832,7 @@ export function createConductorNamespace(
         cycle: cycleId,
         node: nodeId,
         role: 'execute',
-        prompt: slot.prompt_text,
+        prompt: material.prompt_text,
         ...(namedSpawner === undefined ? {} : { spawner: namedSpawner }),
         ...(namedSpawner === 'zcode' ? { zcodeDataDir: zcodeDataDir() } : {}),
         ...(envSpawnDryRun() ? { dryRun: true } : {}),
@@ -622,114 +852,77 @@ export function createConductorNamespace(
         cycle: cycleId,
         node_id: nodeId,
         node_title: nodeTitle,
-        prompt: slot.prompt,
-        prompt_text: slot.prompt_text,
+        prompt: material.prompt,
+        prompt_text: material.prompt_text,
         session,
       };
       warningsByResult.set(receipt, warnings);
       return receipt;
     },
 
-    close: async (input) => {
-      assertLedgerInitialized(paths);
-      const cycle = await resolveCycle(input?.cycle);
-      const cycleId = String(cycle.id ?? '');
-      const nodeId = heldNodeId(cycle, input?.node);
-      const known = await dag.get(nodeId);
-      if (known === null) {
-        throw new Error(`node ${nodeId} not found`);
+    close: async (input) => await settleNode(input),
+
+    closeWith: async (input) => await settleNode(input, input),
+
+    pluginCommand: async (input) => {
+      const word = String(input?.word ?? '');
+      const argv = [word, ...(input?.argv ?? []).map(String)];
+      const answer: PluginCommandAnswer = { word, plugin: null, ran: false, text: null, code: null, error: null };
+      if (word === '') {
+        answer.error = 'a plugin command needs a word';
+        return answer;
       }
-      // Gate one of the closing: the node must be on this line's claim list (the same gate as the closing itself).
-      const inHand = (Array.isArray(cycle.holding) ? cycle.holding : []).some(
-        (item) => item !== null && typeof item === 'object' && (item as { id?: unknown }).id === nodeId,
-      );
-      if (!inHand) {
-        const names = (Array.isArray(cycle.holding) ? cycle.holding : [])
-          .map((item) => String((item as { id?: unknown }).id ?? '').slice(0, 8))
-          .filter((name) => name !== '');
-        throw new PfError(
-          'not_holding',
-          paths.stateJson,
-          `cycle "${cycleId}" is not holding ${nodeId} (it is holding ` +
-            `${names.join(', ') || 'nothing'}); there is nothing to settle`,
-        );
-      }
-      // Gate two of the closing: the ticket has to be on disk and it has to state a result. A missing ticket, or one
-      // still pending, is a blocker (nothing was handed in, or it is a re-run marker) — there is no verdict to
-      // settle, and not one byte moves.
-      const sig = await ticketOf(cycleId, nodeId);
-      if (sig === null || sig.status === 'pending') throw nothingToSettle(cycleId, nodeId);
-      // The plugin half of the close — the scan, the dynamic load, every plugin's question — is asked here, before
-      // the lock is taken, on one snapshot of the scene (the line and the ticket as read just above). How long a
-      // plugin takes to answer is how long it takes and no writer waits on it: no record of this ledger is written
-      // in this stretch. What the answered offers want in the graph is landed under the lock by the mechanism below.
-      const warnings: string[] = [];
       const folders = await pluginAssemblyOf(root, options.pluginsDir).folders();
-      const snapshot = await readGraphSnapshot(paths);
+      const entry = routableCommands(folders).find((candidate) => candidate.name === word);
+      if (entry === undefined) return answer;
+      answer.plugin = entry.plugin;
+      const folder = folders.find((candidate) => candidate.name === entry.plugin);
+      const impl = folder === undefined ? null : await implOf(folder);
+      const main = impl === null ? undefined : (impl as Record<string, unknown>).main;
+      if (typeof main !== 'function') {
+        answer.error = `plugin ${JSON.stringify(entry.plugin)} declares the command ${JSON.stringify(word)} but has no main() to run it`;
+        return answer;
+      }
+      // The context is the same one a timing's door gets: the knobs' chain, the readings, the tag lookup, the
+      // graph snapshot and the node layout. A command run from the command line stands on no node and no line,
+      // so both cells are empty and the whole graph is handed over as the snapshot.
+      const warnings: string[] = [];
       const ctx = createContext({
         root,
         folders,
         homeDir: options.homeDir,
         warnings,
-        cycle: cycle as unknown as Record<string, unknown>,
-        nodeId,
-        sig,
-        dag: snapshot,
-        target: null,
+        dag: await readGraphSnapshot(paths),
       });
-      const offers = await collectOffers('close', ctx, folders, warnings);
-      return withLedgerLock(paths, async () => {
-        // The first thing under the lock: the line and the ticket are read again, and the settle answers to these
-        // bytes. What the plugin half was handed above is a snapshot taken before the lock — the plugins judge on
-        // that scene, they do not decide the verdict.
-        const line = await resolveCycle(cycleId);
-        const ticket = await ticketOf(cycleId, nodeId);
-        if (ticket === null || ticket.status === 'pending') throw nothingToSettle(cycleId, nodeId);
-        // The settling criteria are shared with the plan (settleClose): the verdict word, walk or stop, the slot
-        // list, and whether the line parks.
-        const settle = await settleClose(root, line, nodeId, ticket);
-        // Transactional: a snapshot is taken before the records move, and a mid-way failure puts them back by the
-        // snapshot — no half record is left.
-        const before = [
-          await snapshotRecord(paths.stateJson),
-          await snapshotRecord(paths.ideasJson),
-        ];
-        try {
-          // The mechanical steps of the settle, in the order of the closing command list: first record the step (the
-          // verdict goes into path, the claim is laid down), then mark the graph (a delivery lands completed, a
-          // non-delivery lands shelved), then pin the filled slots one by one or turn the line out of service. When
-          // the line is not in service, only the recording happens (settle.parkLine=false, no slot is filled).
-          await cycles.close(cycleId, { node: nodeId, result: settle.outcome });
-          await dag.setStatus(nodeId, settle.delivered ? 'completed' : 'shelved');
-          if (settle.decision === 'continue' && settle.filled.length > 0) {
-            for (const slot of settle.filled) {
-              await cycles.hold(cycleId, slot.id);
-            }
-          } else if (settle.parkLine) {
-            await cycles.setStatus(cycleId, 'inactive');
-          }
-          // The closing insertion seam (zero semantic change): once the settle is fixed, an offer of the close timing
-          // lands in the graph through the core mechanism as before; the offers were asked before the lock, and a
-          // broken plugin folds into one WARNING line and does not take part this round, while the main flow goes on
-          // as usual.
-          for (const offer of offers) {
-            try {
-              // The closing seam has no picking step yet: the insertion hangs behind the node being closed, with no before.
-              await applyInsertion(root, dag, offer, nodeId, null, warnings);
-            } catch (error) {
-              warnings.push(warnLine(offer.plugin, 'failed', error));
-            }
-          }
-          const updated = await cycles.show(cycleId);
-          warningsByResult.set(updated, warnings);
-          return updated;
-        } catch (error) {
-          for (const snap of before) {
-            if (snap !== null) await atomicWriteBytes(snap.path, snap.bytes);
-          }
-          throw error;
-        }
+      const callArgv = entry.keepName ? argv : argv.slice(1);
+      try {
+        const answered = await (main as (argv: readonly string[], context: unknown) => unknown)(callArgv, ctx);
+        // Ran to its end: whether it answered text is its own business (an effectful command answers none),
+        // and a number is the exit code it asks its caller to leave with.
+        answer.ran = true;
+        answer.text = typeof answered === 'string' ? answered : null;
+        answer.code = typeof answered === 'number' ? answered : null;
+      } catch (error) {
+        answer.error = error instanceof Error ? error.message : String(error);
+      }
+      return answer;
+    },
+
+    pluginCommands: async () => await pluginAssemblyOf(root, options.pluginsDir).folders().then(routableCommands),
+
+    handoffForm: async (input) => {
+      const cycle = await resolveCycle(input?.cycle);
+      const cycleId = String(cycle.id ?? '');
+      const nodeId = input?.node === undefined || input.node === '' ? undefined : String(input.node);
+      const folders = await pluginAssemblyOf(root, options.pluginsDir).folders();
+      // The reading slots are the ones this line asks for, resolved on the same chain the close judges with:
+      // with a node named, that node's own layer counts too.
+      const readings = await ticketReadings(root, folders, {
+        homeDir: options.homeDir,
+        cycle: cycleId,
+        ...(nodeId === undefined ? {} : { node: nodeId }),
       });
+      return { cycle: cycleId, readings: readings.map((slot) => ({ key: slot.key, ask: slot.ask })) };
     },
 
     doctor: async (input) => {
@@ -846,9 +1039,6 @@ async function recordChecks(
   ];
 }
 
-/** The name form of the registered command: the one form that survives a moved checkout or another machine. */
-const MERGE_DRIVER_NAME_FORM = 'pf-merge-ledger';
-
 /**
  * The bound on one git question the check-up asks (milliseconds).
  *
@@ -929,19 +1119,21 @@ function unansweredCell(args: readonly string[], waitedMs: number, timeoutMs: nu
  * - `merge.pf.driver` there but `merge.pf.name` absent: **not red** — `merge.pf.name` is only the
  *   label git shows for the driver, so a merge is driven all the same; the detail still says the
  *   pair `ledger.register` writes is incomplete.
- * - registered in the name form, and `pf-merge-ledger` resolves on `PATH` here: green.
- * - registered in the name form, but the command does not resolve on `PATH`: **red** — the string
- *   was written where the package was installed, and nothing answers it here; every record merge
- *   comes back as a plain git conflict.
+ * - registered in a command form this tree answers — `pf merge-ledger %O %A %B %P` (this tree's own
+ *   router, the form an installed `pf` command writes) or `pf-merge-ledger %O %A %B %P` (this
+ *   package's bin) — and that command resolves on `PATH` here: green.
+ * - registered in one of those command forms, but its command does not resolve on `PATH`: **red** —
+ *   the string was written where the command was installed, and nothing answers it here; every record
+ *   merge comes back as a plain git conflict.
  * - registered in the absolute form (the quoted node path plus the quoted built entry), and both
  *   those paths are files here: **not red**, but said out loud — the two paths it names are here,
- *   and a moved checkout or another machine breaks it, so it should be re-registered as the name
+ *   and a moved checkout or another machine breaks it, so it should be re-registered as the command
  *   form.
  * - registered in that absolute form but pointing at paths that are not here (a moved checkout):
  *   **red**, with the re-register advice rather than "both quoted paths are here".
  * - registered as anything else — neither form: **red**, and the sentence names the value and says
- *   to re-register. Nothing this package ships answers such a string, so a merge of records still
- *   comes back as a plain git conflict; certifying it would tell a person to keep a dead line.
+ *   to re-register. Nothing this tree answers such a string, so a merge of records still comes back
+ *   as a plain git conflict; certifying it would tell a person to keep a dead line.
  */
 async function mergeDriverCheck(
   root: string,
@@ -997,21 +1189,24 @@ async function mergeDriverCheck(
         ? '. The pair ledger.register writes is incomplete: merge.pf.name (the label git shows for ' +
           'the driver, not what drives a merge) is not set -- run ledger.register to write the pair'
         : '';
-    if (driver.startsWith(`${MERGE_DRIVER_NAME_FORM} `)) {
-      // The shape alone is not the answer: the string was written where the package was on `PATH`,
-      // and this machine may not have it. Ask the same resolution the writer asked.
-      if (resolvesOnPath(MERGE_DRIVER_NAME_FORM)) {
+    // The shape alone is not the answer: the string was written where its command was on `PATH`, and
+    // this machine may not have it. Ask the same reading the writer asked, over the same two command
+    // forms — this package's bin, and this tree's own `pf merge-ledger` word.
+    const command = namedDriverCommand(driver);
+    if (command !== null) {
+      const form = driver.startsWith(`${MERGE_DRIVER_PF_FORM} `) ? MERGE_DRIVER_PF_FORM : MERGE_DRIVER_NAME_FORM;
+      if (resolvesOnPath(command)) {
         return {
           name: 'merge-driver',
           ok: true,
-          detail: `registered in the name form (${MERGE_DRIVER_NAME_FORM}), which resolves on PATH here${incompletePair}`,
+          detail: `registered in the name form (${form}), which resolves on PATH here${incompletePair}`,
         };
       }
       return {
         name: 'merge-driver',
         ok: false,
         detail:
-          `registered in the name form (${MERGE_DRIVER_NAME_FORM}), but ${MERGE_DRIVER_NAME_FORM} ` +
+          `registered in the name form (${form}), but ${command} ` +
           'does not resolve on PATH on this machine: nothing answers it, so a merge of records ' +
           'comes back as a plain git conflict -- put it on PATH and re-register with ledger.register',
       };
@@ -1028,7 +1223,7 @@ async function mergeDriverCheck(
           detail:
             `registered in the absolute form (${driver}): both quoted paths are here, but a moved ` +
             `checkout or another machine breaks it -- re-register as the name form ` +
-            `(${MERGE_DRIVER_NAME_FORM} on PATH)${incompletePair}`,
+            `(${MERGE_DRIVER_PF_FORM} or ${MERGE_DRIVER_NAME_FORM} on PATH)${incompletePair}`,
         };
       }
       if (absolute.shaped) {
@@ -1040,7 +1235,7 @@ async function mergeDriverCheck(
             `which ${absolute.missing.length === 1 ? 'is' : 'are'} not on this machine any more (a ` +
             'moved checkout leaves its paths behind), so nothing answers a merge of records -- ' +
             're-register it with ledger.register (the name form, ' +
-            `${MERGE_DRIVER_NAME_FORM} on PATH, survives a moved checkout)`,
+            `${MERGE_DRIVER_PF_FORM} or ${MERGE_DRIVER_NAME_FORM} on PATH, survives a moved checkout)`,
         };
       }
     }
@@ -1048,10 +1243,10 @@ async function mergeDriverCheck(
       name: 'merge-driver',
       ok: false,
       detail:
-        `registered as ${driver}: that is neither the name form (${MERGE_DRIVER_NAME_FORM} %O %A %B %P) ` +
-        "nor the absolute form (this package's built entry, both paths quoted), so no command " +
-        'answers it and a merge of records comes back as a plain git conflict -- re-register it ' +
-        'with ledger.register',
+        `registered as ${driver}: that is neither the name form (${MERGE_DRIVER_PF_FORM} %O %A %B %P ` +
+        `or ${MERGE_DRIVER_NAME_FORM} %O %A %B %P) nor the absolute form (this package's built entry, ` +
+        'both paths quoted), so no command answers it and a merge of records comes back as a plain ' +
+        'git conflict -- re-register it with ledger.register',
     };
   } catch {
     return {

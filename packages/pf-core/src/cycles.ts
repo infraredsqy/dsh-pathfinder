@@ -8,6 +8,7 @@ import type {
   CycleCreateInput,
   CyclePolicySet,
   CyclePolicyValue,
+  CycleStanding,
   CycleStartInput,
   CyclesNamespace,
 } from './ledger';
@@ -518,6 +519,53 @@ export function createCyclesNamespace(root: string): CyclesNamespace {
       return { ...record, holding: holdingOf(record) };
     },
 
+    /** One line's effective policy set: the defaults, then whatever this line states, in one reading. */
+    async policies(id: string): Promise<CyclePolicySet> {
+      const ledger = await readState();
+      return cyclePolicy(findCycle(ledger, id));
+    },
+
+    /**
+     * One node's standing in one line: whether this line holds it now (with the claim's moment), walked
+     * it before (the most recent step naming it), or knows nothing about it -- plus the ticket on disk
+     * for that (line, node), read as it is. A read verb: no lock, no init gate, not one byte written.
+     */
+    async standing(id: string, node: string): Promise<CycleStanding> {
+      const ledger = await readState();
+      const record = findCycle(ledger, id);
+      const standing: CycleStanding = { cycle: id, node, standing: 'nothing', signal: null };
+      const held = holdingOf(record).find((item) => item.id === node);
+      if (held !== undefined) {
+        standing.standing = 'holding';
+        standing.since = held.since ?? null;
+      } else {
+        const steps = record.path ?? [];
+        const step = [...steps].reverse().find((item) => item.node === node);
+        if (step !== undefined) {
+          const raw = step as unknown as Record<string, unknown>;
+          standing.standing = 'walked';
+          standing.step = {
+            result: step.result,
+            started_at: (raw.started_at as string | null | undefined) ?? null,
+            ended_at: (raw.ended_at as string | null | undefined) ?? null,
+          };
+        }
+      }
+      const read = await readJsonFile(signalPath(paths, id, node), 'signal');
+      if (read.kind === 'present' && read.value !== null && typeof read.value === 'object') {
+        const ticket = read.value as Record<string, unknown>;
+        const outputs = ticket.outputs;
+        standing.signal = {
+          status: String(ticket.status ?? ''),
+          summary: String(ticket.summary ?? ''),
+          outputs: outputs !== null && typeof outputs === 'object' && !Array.isArray(outputs)
+            ? (outputs as Record<string, unknown>)
+            : null,
+        };
+      }
+      return standing;
+    },
+
     async hold(id: string, node: string): Promise<CycleRecord> {
       return mutate(async (ledger) => {
         const record = findCycle(ledger, id);
@@ -574,7 +622,7 @@ export function createCyclesNamespace(root: string): CyclesNamespace {
       });
     },
 
-    async retry(id: string, node?: string, options?: { drop?: boolean }): Promise<CycleRecord> {
+    async retry(id: string, node?: string, options?: { drop?: boolean; summary?: string }): Promise<CycleRecord> {
       return mutate(async (ledger) => {
         const record = findCycle(ledger, id);
         // The default step: the single one in hand, otherwise the one walked most recently; with neither there is nothing to re-run.
@@ -606,7 +654,12 @@ export function createCyclesNamespace(root: string): CyclesNamespace {
           cycle: id,
           node: target,
           status: 'pending',
-          summary: 'Node restarted (previous signal cleared)',
+          // The caller's sentence when one was given, the plain note otherwise: a retry's ticket is
+          // what the next reader of this line reads as the step's own words.
+          summary:
+            options?.summary !== undefined && options.summary !== ''
+              ? options.summary
+              : 'Node restarted (previous signal cleared)',
           outputs: {},
           timestamp: nowSeconds(),
         };

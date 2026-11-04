@@ -48,8 +48,10 @@ import type { CycleRecord, InstructionRecord, NodeRecord } from './types';
  *   byte. Pinning (`open_node`'s claim) and handing the request to the executor are the other two
  *   write-side steps and are not in this half of the action.
  *
- * The runtime export surface does not include anything here: `conductor.dispatch` wires this block
- * behind the verb when it takes its behaviour.
+ * The runtime export surface reaches this block through `conductor.prepare` (the material landed, no
+ * session opened); `conductor.dispatch` is the same block behind its own gates, followed by the
+ * executor and the claim — and it skips the block altogether when the prompt it would land is already
+ * on disk, because then the pinning step landed it and there is nothing left to prepare.
  */
 export interface PrepareOptions {
   /**
@@ -168,10 +170,10 @@ export function handoffTemplate(
  * declaration gives a factory default — both count as "in force"; when nobody on the chain says anything and
  * there is no default, measuring it would be judged by no one, so it is not asked.
  */
-async function ticketReadings(
+export async function ticketReadings(
   root: string,
   folders: readonly PluginFolder[],
-  options: { readonly homeDir?: string; readonly cycle: string; readonly node: string },
+  options: { readonly homeDir?: string; readonly cycle: string; readonly node?: string },
 ): Promise<Array<{ readonly key: string; readonly ask: string }>> {
   const entries = readingsOf(folders).filter((entry) => entry.source === 'ticket');
   if (entries.length === 0) return [];

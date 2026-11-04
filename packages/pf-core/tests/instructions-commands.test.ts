@@ -326,6 +326,17 @@ describe('resolve / revive: the settle and revive round trip', () => {
     await expect(pf.ledger.instructions.revive('i-9999')).rejects.toThrow(/no instruction/);
   });
 
+  it('resolve with a note: the sentence lands on the record beside the settling stamp, and a later resolve without one leaves it', async () => {
+    const added = await ins('带注释归档');
+    const resolved = await pf.ledger.instructions.resolve(added.id, { note: 'owner said so' });
+    expect(resolved.note).toBe('owner said so');
+    expect((readInstructionFile().instructions as InstructionRecord[])[0]!.note).toBe('owner said so');
+
+    // Settling the same entry again with no note writes the state and the stamp only.
+    const again = await pf.ledger.instructions.resolve(added.id);
+    expect(again.note).toBe('owner said so');
+  });
+
   it('resolve refuses an id the book does not have; settling an archived entry again still moves its stamp forward', async () => {
     await expect(pf.ledger.instructions.resolve('i-9999')).rejects.toThrow(/no instruction/);
     const added = await ins('归档两次');

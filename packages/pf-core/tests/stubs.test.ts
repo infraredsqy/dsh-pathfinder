@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { open } from '../src/open';
 
 /**
- * No stub left on the surface: all forty-four verbs across the seven namespaces are methods, and
+ * No stub left on the surface: all fifty-three verbs across the seven namespaces are methods, and
  * the source tree has no "not implemented yet" path either.
  * The probe handle's root is a made-up address; the assertions here touch only methods and source
  * text, and nothing lands on disk.
@@ -35,14 +35,14 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
 }
 
 describe('verbs on the handle', () => {
-  it('seven namespaces, forty-four verbs, none missing', () => {
+  it('seven namespaces, fifty-three verbs, none missing', () => {
     let count = 0;
     for (const [, ns] of SURFACE) {
       for (const value of Object.values(ns)) {
         if (typeof value === 'function') count += 1;
       }
     }
-    expect(count).toBe(2 + 15 + 11 + 5 + 4 + 2 + 5);
+    expect(count).toBe(3 + 15 + 13 + 5 + 5 + 2 + 10);
   });
 
   it("each level's verb names match the frozen surface", () => {
@@ -56,19 +56,22 @@ describe('verbs on the handle', () => {
       ]),
     );
     expect(names).toEqual({
-      ledger: ['init', 'register'],
+      ledger: ['cleanTemp', 'init', 'register'],
       'ledger.dag': [
         'add', 'approve', 'context', 'get', 'info', 'link', 'list', 'remove', 'revive',
         'search', 'setStatus', 'specPath', 'unlink', 'update', 'validate',
       ].sort(),
       'ledger.cycles': [
-        'close', 'create', 'current', 'hold', 'list', 'rename', 'retry', 'setPolicy',
-        'setStatus', 'show', 'start',
+        'close', 'create', 'current', 'hold', 'list', 'policies', 'rename', 'retry',
+        'setPolicy', 'setStatus', 'show', 'standing', 'start',
       ].sort(),
       'ledger.instructions': ['add', 'list', 'remove', 'resolve', 'revive'].sort(),
-      config: ['get', 'list', 'set', 'unset'].sort(),
+      config: ['get', 'keys', 'list', 'set', 'unset'].sort(),
       sessions: ['list', 'show'],
-      conductor: ['close', 'dispatch', 'doctor', 'handoff', 'next'],
+      conductor: [
+        'close', 'closeWith', 'dispatch', 'doctor', 'handoff', 'handoffForm', 'next',
+        'pluginCommand', 'pluginCommands', 'prepare',
+      ],
     });
   });
 });

@@ -58,11 +58,11 @@ node tools/css-check.mjs  # the style-layer rules
 npm pack                  # the distributable
 ```
 
-`npm test` covers the model layer, the host half, the built browser half and the engine package's own
-suite (`packages/pf-core/`) — the browser half mounts `lib/client.js` over an in-memory record, walks
-every pane, and fails on any `console.error`. What it cannot reach (the readings over a real `.pf`, the
-copy, the layout) is on the hand pass in [docs/publish.md](docs/publish.md); `tools/testbed/` boots an
-isolated DSH instance to walk it.
+`npm test` covers the model layer, the host half, the built browser half, the engine package's own
+suite (`packages/pf-core/`) and the `pf` command in `bin/` — the browser half mounts `lib/client.js`
+over an in-memory record, walks every pane, and fails on any `console.error`. What it cannot reach (the
+readings over a live `.pf`, the panel's copy, the layout) is on the hand pass in
+[docs/publish.md](docs/publish.md); `tools/testbed/` boots an isolated DSH instance to walk it.
 
 The repository map and ground rules live in [AGENTS.md](AGENTS.md). Read
 [docs/design-principles.md](docs/design-principles.md) before touching the UI, and

@@ -122,7 +122,8 @@ describe('ledger.init: the bottom line holds in an environment without git', () 
     expect(report.ownRepo).toBe('skipped-no-git');
     expect(report.written).toEqual(LAYOUT_FILES);
     expect(readFileSync(join(gitDir, 'HEAD'), 'utf8')).toBe(headBefore);
-    // The engine creates no repository of .pf's own either: the `.git` question was only "is there one".
+    // No runner means no `git init .pf` can be run either: the asked-for repository stays a reading and
+    // an advice, and no `.pf/.git` appears.
     expect(existsSync(join(root, '.pf', '.git'))).toBe(false);
     expect(readFileSync(join(root, '.pf', '.gitignore'), 'utf8')).toBe(GITIGNORE);
   });

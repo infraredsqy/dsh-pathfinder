@@ -194,9 +194,9 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
 
 自动的那三样，各跑一次：
 
-- `npm test` —— 模型层、宿主半身、构建出来的浏览器半身，还有引擎包（`packages/pf-core/`）自己那一套；
-  浏览器半身那块把 `lib/client.js` 挂到一份**四份来源都有内容**的内存记录上、逐格画一遍，控制台里出现
-  一条 error 就算失败。面板**说什么**故意不在这里量。
+- `npm test` —— 模型层、宿主半身、构建出来的浏览器半身，引擎包（`packages/pf-core/`）自己那一套，
+  以及 `bin/` 里那条 `pf` 命令；浏览器半身那块把 `lib/client.js` 挂到一份**四份来源都有内容**的内存
+  记录上、逐格画一遍，控制台里出现一条 error 就算失败。面板**说什么**故意不在这里量。
 - `node tools/css-check.mjs` —— 样式层的规矩。
 - `tools/testbed/testbed.ps1 up|check|down` —— 真实例：这一行装得上、启动清单里列了它、宿主半身答得上话。
 

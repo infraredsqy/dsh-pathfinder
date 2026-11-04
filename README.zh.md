@@ -49,10 +49,10 @@ node tools/css-check.mjs  # 样式层的规矩
 npm pack                  # 打出分发件
 ```
 
-`npm test` 管到四块：模型层、宿主半身、构建出来的浏览器半身，还有引擎包（`packages/pf-core/`）自己那一套——
-浏览器半身那块把 `lib/client.js` 挂到一份内存里的记录上、逐格走一遍，控制台里出现一条 error 就算失败。
-它管不到的那些（真记录下的读数、文案、布局）在 [docs/publish.md](docs/publish.md) 有一张手动单子；
-`tools/testbed/` 能起一个隔离的 DSH 实例来走它。
+`npm test` 管到五块：模型层、宿主半身、构建出来的浏览器半身，引擎包（`packages/pf-core/`）自己那一套，
+还有 `bin/` 里那条 `pf` 命令——浏览器半身那块把 `lib/client.js` 挂到一份内存里的记录上、逐格走一遍，
+控制台里出现一条 error 就算失败。它管不到的那些（真实例里的读数、面板的文案、布局）在
+[docs/publish.md](docs/publish.md) 有一张手动单子；`tools/testbed/` 能起一个隔离的 DSH 实例来走它。
 
 仓库的路牌与规矩在 [AGENTS.md](AGENTS.md)。改界面前先读
 [docs/design-principles.md](docs/design-principles.md)，发一版前看

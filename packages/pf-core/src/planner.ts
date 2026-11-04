@@ -856,6 +856,43 @@ export async function settleClose(
   );
 }
 
+/** The closing answers one settle may carry in: the decision, a line of reason, and a node named instead of the ranking's pick. */
+export interface CloseAnswersInput {
+  readonly decision?: 'continue' | 'stop';
+  readonly note?: string;
+  readonly named?: string;
+}
+
+/**
+ * The settlement criteria of one close **with answers**: the same reading as `settleClose`, except that the
+ * caller's own closing answers (continue / stop, one line of reason, which node to run instead) are the ones
+ * the criteria judge. This is the write-side counterpart of the closing rehearsal `next` offers; the settle
+ * itself is the caller's to land, exactly as with `settleClose`.
+ */
+export async function settleCloseWithAnswers(
+  root: string,
+  cycle: CycleRecord,
+  nodeId: string,
+  signal: Record<string, unknown>,
+  answers: CloseAnswersInput,
+): Promise<CloseSettlement> {
+  const view = await readLedger(pfPaths(root));
+  return settleAnswers(
+    root,
+    cycle,
+    nodeId,
+    signal,
+    {
+      decision: answers.decision ?? null,
+      named: answers.named ?? null,
+      note: answers.note ?? '',
+      decisionGiven: answers.decision !== undefined,
+    },
+    cycle.status === 'active',
+    view,
+  );
+}
+
 /**
  * The body of the settlement criteria: the deciding block exists only here — `closeOwnNode` folds it into an
  * action bag (the closing rehearsal of `next`), `conductor.close` folds it into mechanical steps on the records,

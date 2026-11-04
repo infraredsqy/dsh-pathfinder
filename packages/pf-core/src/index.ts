@@ -50,6 +50,9 @@ export type {
   CycleCreateInput,
   CyclePolicySet,
   CyclePolicyValue,
+  CycleStanding,
+  CycleStandingSignal,
+  CycleStandingStep,
   CycleStartInput,
   CyclesNamespace,
   DagAddInput,
@@ -66,6 +69,7 @@ export type {
   InstructionAddInput,
   InstructionListFilter,
   InstructionReaderRow,
+  InstructionResolveOptions,
   InstructionsNamespace,
   ExcludeReading,
   InitReport,
@@ -79,6 +83,8 @@ export type {
   NodeSummary,
 } from './ledger';
 
+export type { CleanTempEntry, CleanTempOptions, CleanTempReport } from './tempclean';
+
 export type {
   ConfigDefault,
   ConfigLayer,
@@ -89,17 +95,23 @@ export type {
   ConfigValue,
 } from './config';
 export type { SessionNoteSummary, SessionShow, SessionsNamespace } from './sessions';
+export type { PreparedDispatch, PreparedNode } from './prepare';
 export type {
+  ConductorCloseAnswers,
   ConductorDispatchInput,
   ConductorDoctorOptions,
   ConductorHandoffInput,
   ConductorNamespace,
   ConductorNamespaceOptions,
+  ConductorPluginCommandInput,
   ConductorTarget,
   DispatchReceipt,
   DoctorCheck,
   DoctorReport,
+  HandoffForm,
+  HandoffFormReading,
   NextPlan,
+  PluginCommandAnswer,
 } from './conductor';
 
 export type {

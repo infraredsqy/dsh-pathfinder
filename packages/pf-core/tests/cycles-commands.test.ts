@@ -297,6 +297,25 @@ describe('retry: a retry only clears the ticket', () => {
     expect(ticket.timestamp).toMatch(SECONDS_SHAPE);
   });
 
+  it('the retry ticket carries the sentence the caller gave; without one the fixed note stays', async () => {
+    const node = await addNode('重票据', { tags: ['coding'] });
+    await pf.ledger.cycles.create({ id: 'main', tags: ['coding'] });
+    await pf.ledger.cycles.hold('main', node.id);
+    const signalPath = join(root, '.pf', 'signals', 'main', `${node.id}.json`);
+
+    await pf.ledger.cycles.retry('main', node.id, { summary: 'redo it' });
+    expect((JSON.parse(readFileSync(signalPath, 'utf8')) as Record<string, unknown>).summary)
+      .toBe('redo it');
+
+    // The fixed note is what a retry without a sentence leaves, and an empty string reads the same way.
+    await pf.ledger.cycles.retry('main', node.id);
+    expect((JSON.parse(readFileSync(signalPath, 'utf8')) as Record<string, unknown>).summary)
+      .toBe('Node restarted (previous signal cleared)');
+    await pf.ledger.cycles.retry('main', node.id, { summary: '' });
+    expect((JSON.parse(readFileSync(signalPath, 'utf8')) as Record<string, unknown>).summary)
+      .toBe('Node restarted (previous signal cleared)');
+  });
+
   it('node defaults to the one in hand; empty-handed and with nothing walked, there is nothing to retry', async () => {
     const node = await addNode('在手件', { tags: ['coding'] });
     await pf.ledger.cycles.create({ id: 'main', tags: ['coding'] });
