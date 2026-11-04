@@ -30,7 +30,8 @@
     "lib/client.js",
     "lib/types/**/*.d.ts",
     "locale/*.json",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "packages/pf-core/plugins/**/*"
   ],
   "scripts": {
     "prepack": "npm run types && npm run bundle && npm run bundle:client",

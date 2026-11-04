@@ -23,11 +23,21 @@
 ## 运行时导出
 
 ```text
+PLUGIN_SKILL_FILE
 SimulatedExecutor
+loadPlugins
 open
+skillFolders
+skillProblems
 ```
 
-运行时出口就这两条。包另有一个进程入口 `pf-merge-ledger`（`package.json` 的 `bin` 里只有这一条，
+`PLUGIN_SKILL_FILE` 是技能文件名（`SKILL.md`）；`SimulatedExecutor` 是执行者接缝；`open` 是句柄入口。
+`loadPlugins` / `skillFolders` / `skillProblems` 读的是插件自带技能——`loadPlugins` 装载插件目录，
+`skillFolders` 交出一个插件带的技能目录，`skillProblems` 说出它与声明对不上的两种情形（度量点名的
+方法没有技能、一个技能名被两个插件交出）。读的是同一个插件目录，判什么由调用方定：引擎只交结论，
+装与卸归装它的那一侧。
+
+包另有一个进程入口 `pf-merge-ledger`（`package.json` 的 `bin` 里只有这一条，
 产物是 `dist/merge-ledger.mjs`）：git 的合并驱动只能靠进程叫，它是边界上唯一那个例外，做的是
 argv 与退出码的搬运，一条合并规则都不在它里面。
 

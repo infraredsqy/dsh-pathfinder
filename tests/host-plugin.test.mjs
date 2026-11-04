@@ -8,7 +8,23 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { apply, inject, name } from '../src/host/index.ts'
+
+/* Loading this line places the shipped skills into the DSH skill root, and these cases only exercise
+ * the record service — so the root they would write into is pinned to a temp home here, never the
+ * machine's own. `apply` returns the placement seam; these cases do not wait on it, they only check
+ * that loading still installs the service (the placement has its own file, `host-skills`). */
+const testHome = mkdtempSync(join(tmpdir(), 'pf-plugin-home-'))
+const previousHome = process.env.DSH_HOME
+process.env.DSH_HOME = testHome
+test.after(() => {
+  if (previousHome === undefined) delete process.env.DSH_HOME
+  else process.env.DSH_HOME = previousHome
+  rmSync(testHome, { recursive: true, force: true })
+})
 
 const signal = new AbortController().signal
 

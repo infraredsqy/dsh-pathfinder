@@ -39,6 +39,8 @@ import { RECORD_DIR } from './contract.ts'
 import type { PfFailure, PfRefusalCode } from './failure.ts'
 import { isAbsent, readWholeFile, type PathfinderScope } from './records.ts'
 import { noteOpenedSession } from './session-note.ts'
+import { confirmSkillsForWorkspace, reportSkillView } from './skills.ts'
+import type { SkillCatalogPort, SkillHostContext } from './skills.ts'
 
 /** What one open brought back: the session now working this node. The id is an address for the panel's navigation, not a word a reader is shown. */
 export type SessionOpenOutcome =
@@ -137,6 +139,22 @@ function messageOf(error: unknown): string {
 }
 
 /**
+ * The host's own skill catalog and logger, fetched structurally rather than declared as
+ * dependencies: this line loads on hosts that mount no skill service, and the session-view
+ * diagnostic on such a host refuses (naming the missing service) instead of claiming anything about
+ * a catalog.
+ */
+function skillHostOf(ctx: Context): SkillHostContext {
+  const read = (ctx as { get?: (name: string) => unknown }).get
+  const skills = typeof read === 'function' ? (read.call(ctx, 'skills') as SkillCatalogPort | undefined) : undefined
+  const logger = (ctx as { logger?: SkillHostContext['logger'] }).logger
+  return {
+    ...(skills === undefined || skills === null ? {} : { skills }),
+    ...(logger === undefined ? {} : { logger }),
+  }
+}
+
+/**
  * Open the session that works one node, and settle its opening round.
  *
  * The plan's launch prompt (`<pf>/meta/launch/<line>/<node>/prompt.txt`) is
@@ -189,6 +207,13 @@ export async function openNodeSession(
           source: { kind: 'user' },
         }))
         await noteOpenedSession(workspaceRoot, node, opened)
+        /* The placement's session-side diagnostic. This is the one stretch that knows both the
+         * workspace and the live session's own scope, so a same-name copy in a project root
+         * (rank 100/200 — DSH's own per-workspace override, outside this node's judgement) gets a
+         * name and both places in one log line rather than passing silently. Neither call can fail
+         * the open: the check hands back a code and the report writes a line. This diagnostic is not
+         * an acceptance reading anyone can point at — the session's own catalog is. */
+        reportSkillView(skillHostOf(ctx), await confirmSkillsForWorkspace(skillHostOf(ctx), workspaceRoot, handle.agent))
       } catch (error) {
         armed.drop()
         throw error

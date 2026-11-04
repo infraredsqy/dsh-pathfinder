@@ -1,11 +1,21 @@
 /**
- * The package exit of pf-core: runtime exports `open` and `SimulatedExecutor`, everything
- * else is types. Names and signatures are not renamed separately.
+ * The package exit of pf-core: runtime exports `open`, `SimulatedExecutor` and the three readers of a
+ * plugin's own skills, everything else is types. Names and signatures are not renamed separately.
  */
 
 export { open } from './open';
 export type { Pf, PfOpenOptions } from './open';
 export { SimulatedExecutor } from './executor';
+/* A plugin's skills are read out of its folder by anyone who installs them: the scan of the plugin
+   directory, the folders one plugin ships, and the two ways those folders disagree with the
+   declaration. The engine keeps the verdict; the caller owns what happens next. */
+export {
+  PLUGIN_SKILL_FILE,
+  loadPlugins,
+  skillFolders,
+  skillProblems,
+} from './plugins/registry';
+export type { PluginScan } from './plugins/registry';
 export type {
   DispatchRequest,
   Executor,

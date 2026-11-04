@@ -14,11 +14,23 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openNodeSession } from '../src/host/executor.ts'
 import { fakeWorkspaceFiles } from './helpers/workspace-files-port.mjs'
+
+/* Opening a session also reads the placement record under the DSH home to confirm the skills the
+ * plugins placed against this workspace's own catalog view. These cases exercise the opener's flow,
+ * not that placement, so the home they read is pinned to a temp one here — never the machine's own. */
+const testHome = mkdtempSync(join(tmpdir(), 'pf-executor-home-'))
+const previousHome = process.env.DSH_HOME
+process.env.DSH_HOME = testHome
+test.after(() => {
+  if (previousHome === undefined) delete process.env.DSH_HOME
+  else process.env.DSH_HOME = previousHome
+  rmSync(testHome, { recursive: true, force: true })
+})
 
 /** One cell's plan line, the way the dispatch preparation writes it: one line, nothing after it. */
 const PROMPT_LINE = '/pf-conduct n1 [pipeline]'
@@ -375,4 +387,96 @@ test('部署里没有默认模型选择：agentOptions 不带，由循环自己�
   rigging.agents.created[0].whenIdle.resolve()
   await pending
   assert.equal(rigging.agents.created[0].options.agentOptions, undefined)
+})
+
+/* ---- the session-side diagnostic of the placed skills (K4) ---- */
+
+/** One placement record plus the two files it names, in the temp home these cases read. */
+function placeOneSkill(name) {
+  const root = join(testHome, 'skills')
+  const ours = join(root, name, 'SKILL.md')
+  mkdirSync(join(root, name), { recursive: true })
+  writeFileSync(ours, `---\nname: ${name}\ndescription: placed by the plugin\n---\n\n# ${name}\n`, 'utf8')
+  mkdirSync(join(testHome, 'pathfinder'), { recursive: true })
+  writeFileSync(
+    join(testHome, 'pathfinder', 'skills.json'),
+    JSON.stringify({ version: 1, root, skills: [{ name, dir: name, files: [`${name}/SKILL.md`] }] }),
+    'utf8',
+  )
+  return ours
+}
+
+/** Take the record back off the temp home, so the next case starts with this line having placed nothing. */
+function clearPlacement() {
+  rmSync(join(testHome, 'pathfinder'), { recursive: true, force: true })
+  rmSync(join(testHome, 'skills'), { recursive: true, force: true })
+}
+
+/** The host context with a skill catalog that answers one fixed view, and a logger that keeps its lines. */
+function rigWithCatalog(rigging, view) {
+  const lines = []
+  const ctx = {
+    ...rigging.ctx,
+    logger: {
+      info: (line) => lines.push(`info: ${line}`),
+      warn: (line) => lines.push(`warn: ${line}`),
+      error: (line) => lines.push(`error: ${line}`),
+    },
+    get(name) {
+      if (name === 'skills') return { async list(options) { return view(options) } }
+      return rigging.ctx.get(name)
+    },
+  }
+  return { ctx, lines }
+}
+
+test('会话侧诊断：project 根同名副本压过插件这份时，开会话只留一行 skill-shadowed 读数并点名两处', async () => {
+  const name = 'pf-issue-repair'
+  const ours = placeOneSkill(name)
+  const rigging = rig()
+  const projectCopy = join(rigging.root, '.dsh', 'skills', name, 'SKILL.md')
+  try {
+    const { ctx, lines } = rigWithCatalog(rigging, (options) => {
+      /* The view a session reads: cwd named, the session's own scope passed through. */
+      assert.equal(options.cwd, rigging.root, '会话视角的读回丢了 workspace')
+      assert.ok(options.scope !== undefined, '会话视角的读回丢了 scope')
+      return [{ name, provider: 'filesystem', source: 'project-dsh', rank: 100, path: projectCopy }]
+    })
+    const pending = openNodeSession(ctx, 's1', rigging.root, rigging.cycle, rigging.node)
+    await flush()
+    rigging.agents.created[0].whenIdle.resolve()
+    const outcome = await pending
+
+    assert.equal(outcome.ok, true, '遮蔽读数不许把开会话弄失败')
+    assert.equal(lines.length, 1, `开会话该留一行读数：${lines.join(' / ')}`)
+    assert.match(lines[0], /^warn: plugin skills shadowed/u)
+    assert.match(lines[0], /\(diagnostic only\)/u, '读数没写明它只是诊断，读者会误把它当拒绝面')
+    assert.match(lines[0], /skill-shadowed/u)
+    assert.ok(lines[0].includes(ours), '读数没写出插件自己放的那一处')
+    assert.ok(lines[0].includes(projectCopy), '读数没写出遮蔽方的那一处')
+  } finally {
+    clearPlacement()
+  }
+})
+
+test('会话侧诊断：这份在会话视角里赢了自己的名字时，只留一行诊断读数，不报影子', async () => {
+  const name = 'pf-issue-repair'
+  const ours = placeOneSkill(name)
+  const rigging = rig()
+  try {
+    const { ctx, lines } = rigWithCatalog(rigging, () => [
+      { name, provider: 'filesystem', source: 'user-dsh', rank: 400, path: ours },
+    ])
+    const pending = openNodeSession(ctx, 's1', rigging.root, rigging.cycle, rigging.node)
+    await flush()
+    rigging.agents.created[0].whenIdle.resolve()
+    const outcome = await pending
+
+    assert.equal(outcome.ok, true)
+    assert.equal(lines.length, 1, `开会话该留一行诊断读数：${lines.join(' / ')}`)
+    assert.match(lines[0], /^info: plugin skills checked/u)
+    assert.match(lines[0], /\(diagnostic only\)$/u, '读数没写明 (diagnostic only)，读者会误把它当验收结论')
+  } finally {
+    clearPlacement()
+  }
 })

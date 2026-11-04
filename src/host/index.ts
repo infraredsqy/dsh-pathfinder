@@ -23,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-session'
 import { Config } from './config.ts'
 import { PathfinderRecordsGateway } from './gateway.ts'
+import { installSkillsWhenReady } from './skills.ts'
 import type { PathfinderRecords } from './contract.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -51,7 +52,20 @@ export { PathfinderRecordsGateway }
 /**
  * Installs `ctx.pathfinderRecords`. The service unloads with the fiber this
  * plugin lives on.
+ *
+ * The skills the shipped pf plugins carry go in and come out with the same
+ * fiber: `installSkillsWhenReady` places them into the DSH home's skill root
+ * (where the filesystem provider scans them, above the old hand-copied copies
+ * by the provider's own rank), records exactly what it wrote, and hands the
+ * undo to that fiber, so a host that unloads the line is left with nothing of
+ * ours under that root. The placement needs no skill service to happen — it is
+ * a filesystem action — and the catalog a session sees is read back later, as
+ * one diagnostic line, where a workspace is known (`executor.ts`).
+ *
+ * @returns whatever the placement seam handed back, so a caller (or a test)
+ * can wait for the attempt to settle.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context): unknown {
   ctx.provide('pathfinderRecords', new PathfinderRecordsGateway(ctx))
+  return installSkillsWhenReady(ctx)
 }

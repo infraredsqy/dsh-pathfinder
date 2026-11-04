@@ -19,7 +19,9 @@ npm run bundle:client  # lib/client.js（浏览器半身）
 这三条绑在 `prepack` 上，`npm pack` 与 `npm publish` 会自己跑一遍。
 
 `package.json` 的 `files` 只收两个运行时入口、`lib/types/**/*.d.ts`、`locale/*.json`、
-`cordis.patch.yml`，于是 `npm pack` 出的那一个 `.tgz` 就是分发件本身（`lib/client-body.js` 是浏览器
+`cordis.patch.yml`，以及 `packages/pf-core/plugins/**/*`——插件目录整个进包，随插件装与卸的那几套技能
+就在里面（一个技能指向同目录的兄弟文件，半个文件夹装出去就是引用的文件不在），技能文本与引擎因此落在
+同一份发布件里。于是 `npm pack` 出的那一个 `.tgz` 就是分发件本身（`lib/client-body.js` 是浏览器
 那一步的中间件，构建脚本用完当场删掉，不进包）。三个口子：
 
 | 口子 | 落点 | 谁用 |
@@ -190,6 +192,12 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
 `$DSH_HOME/cordis.patch.yml` → 命令行上每个 `--patch`，后一层按行 id 覆盖前一层；一条 patch 落到
 目标行上时，那一行的整个 `config` 一起换掉，逐键合并的写法在这里读不到。
 
+技能不在合成配置里，它落在 DSH 读技能的那个根：这一行装载时，插件文件夹里那几套技能被写进
+`$DSH_HOME/skills/<技能名>/SKILL.md`（缺省跟 DSH 那一家 provider 一样：`DSH_HOME`，否则 `~/.dsh`），
+清单记在 `$DSH_HOME/pathfinder/skills.json`（升级时先按上一次的清单摘掉旧的一份，再写新的）；这一行
+被卸下来时按那份清单摘净，别人的技能一个不碰。那个根里已经有别人的同名副本时，这一行的技能就不装
+（面板照常起来），拒绝里点名两处——这一行的那份与占名的那份——一个字节都不写。
+
 ## 发版前走一遍
 
 自动的那三样，各跑一次：
@@ -231,3 +239,6 @@ dsh plugin --profile <名字> remove dsh-pathfinder      # 撤销：依赖与那
   那条命令，豁免记在 profile 的 `compatibility.json` 里，插件升版与 DSH 升版都不继承。
 - **git 那条路要用户在 profile 里授权跑构建脚本**（就是让这个包在装的时候执行代码）；预构建产物
   （npm 与 `.tgz` 两条）绕开这件事，所以那两条是主路径。
+- **项目根的技能副本压过插件这份**：`<项目>/.dsh/skills` 与 `<项目>/.agents/skills` 是 DSH 自己的
+  per-workspace 覆盖，比插件写进的 `$DSH_HOME/skills` 更近；同一个名字在那个工作区里读的是项目里
+  那份，宿主只在日志里留一行诊断，不改盘。
