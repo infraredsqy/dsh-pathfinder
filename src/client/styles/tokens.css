@@ -192,6 +192,14 @@
    mark itself is a pause: it is not running and delivered nothing, it is waiting for a
    person; which gate it is, the word right of the mark says. */.pf-page .pf-state.is-gate{
   color: var(--dsw-alias-state-warn-primary);
+}/* The stranded dispatch: a round is out, its claim is on disk, and nothing is moving it —
+   it wears the failed mark's ring, the shape the panel already keeps for turned-down
+   work; the amber ink says "a person has to move" and the hover carries the remedy, so
+   ink and words make the distinction and the panel gains no shape. */.pf-page .pf-state.is-dead{
+  color: var(--dsw-alias-state-warn-primary);
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  corner-shape: round;
 }/* Next in line: a dashed circle. It has not started and has not earned a state color, so it
    drops to the ink ladder's third step. The circle is a drawn mark, so it takes the 1px
    stroke tier; the half-pixel tier is left for edges on the flat. */.pf-page .pf-state.is-next{
@@ -210,14 +218,15 @@
   }
 }/* A node a person has to act on. It carries the state colour as a ring, and on
  * the panels it always stands first: it is the one reading that cannot move
- * until someone moves it. Three gates wear it — out of play waiting to be
- * revived, a manual node that lives in the conversation, and a checkpoint that
- * just stopped the line — and the word beside the mark says which.
+ * until someone moves it. The gates wear it — out of play waiting to be
+ * revived, a manual node that lives in the conversation, a checkpoint that
+ * just stopped the line, and a dispatch whose session is gone — and the word
+ * beside the mark says which.
  *
  * The ring is for a gate the reader can move on now. A gate that is only coming
  * up — a node no line has taken in hand — waits without it: the warn colour is
  * what says "look here" on this panel, and spending it on a node the reader can
- * do nothing about yet is how the one that can be acted on gets missed. */.pf-page .pf-card.is-shelved, .pf-page .pf-card.is-gate{
+ * do nothing about yet is how the one that can be acted on gets missed. */.pf-page .pf-card.is-shelved, .pf-page .pf-card.is-gate, .pf-page .pf-card.is-dead{
   box-shadow: inset 0 0 0 1px var(--dsw-alias-state-warn-primary);
 }/* ---- marks and readouts that ride along a name ---------------------------- */
 /* Anything with digits in it gets tabular figures — a column of timestamps is

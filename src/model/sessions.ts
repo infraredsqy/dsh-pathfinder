@@ -72,3 +72,36 @@ export function readSessions(notes: Readonly<Record<string, string>>): Readonly<
   }
   return out
 }
+
+/**
+ * The stranded dispatch: which line this cell's claim belongs to when the
+ * claim is on disk and the session it opened is gone, `null` when it is not.
+ *
+ * The dispatch writes a claim when a session is really out; the session's
+ * identity is this machine's own note. Both on disk and the session absent
+ * from the host's live agents — a worker that died mid-round, or a host
+ * restarted under the cell — the cell can never settle by itself: nothing is
+ * left to end a turn, and the plan holds it in `wait`. That is the reading
+ * here; the line id comes back so the reader's sentence can name the two
+ * record words the remedy names.
+ *
+ * Three guards, in order: the cell must still be held by a line (a settled
+ * cell keeps its claim and its note forever, and is not stranded); the host
+ * must be able to say which sessions are alive (an unknown is never read as
+ * gone); and the note must name the session at all (no note, no identity to
+ * miss). What the reader is told to do about it is the client's sentence.
+ */
+export function strandedCycleOf(
+  node: { readonly id: string; readonly running: boolean },
+  claims: Readonly<Record<string, string>>,
+  sessions: Readonly<Record<string, string>>,
+  alive: ReadonlySet<string> | null,
+): string | null {
+  if (!node.running) return null
+  if (alive === null) return null
+  const claim = claims[node.id]
+  if (claim === undefined || claim.length === 0) return null
+  const session = sessions[node.id]
+  if (session === undefined || session.length === 0) return null
+  return alive.has(session) ? null : claim
+}

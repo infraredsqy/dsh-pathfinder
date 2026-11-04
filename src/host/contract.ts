@@ -50,6 +50,15 @@ export const RECORD_SOURCES: Readonly<Record<RecordSourceKey, string>> = {
  */
 export const RECORD_SESSIONS = `${RECORD_DIR}/meta/sessions`
 
+/**
+ * The directory layer holding the dispatch cells, workspace-relative:
+ * `<launch>/<line>/<node>/`, the cell where the plan's prompt and the
+ * dispatch claim (`started`, written by the dispatch itself) live. The claim
+ * is what keeps a dispatched cell from being dispatched again — reading
+ * which cells carry one is read-only and answers "which rounds are out".
+ */
+export const RECORD_LAUNCH = `${RECORD_DIR}/meta/launch`
+
 /** Options that may accompany a read. */
 export interface PathfinderReadOptions {
   readonly signal?: AbortSignal

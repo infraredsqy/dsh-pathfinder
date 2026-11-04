@@ -100,6 +100,17 @@ export function stateWord(t: Translate, cycle: CycleReading): string {
 }
 
 /**
+ * The stranded dispatch's sentence: the claim is on disk, the session is gone.
+ * The words carry the record's own two names and the exact command, so the
+ * remedy can be followed as it is read — this side spells it because the
+ * reader's language is the panel's, and the model only said which line the
+ * cell is stranded on.
+ */
+export function strandedTitle(t: Translate, cycleId: string, nodeId: string): string {
+  return t('cell.stranded', { cycle: cycleId, node: nodeId })
+}
+
+/**
  * The heading of one group on the instruction ledger.
  *
  * Spelled from the group's own key rather than carried in the reading: a group bound to a cycle is
@@ -194,6 +205,7 @@ const FAILURE_WORDS: Readonly<Record<FailureCode, WordKey>> = {
   'no-session-service': 'failure.no-session-service',
   'prompt-missing': 'failure.prompt-missing',
   'open-failed': 'failure.open-failed',
+  'dispatch-refused': 'failure.dispatch-refused',
   'no-operation': 'failure.no-operation',
   'not-connected': 'failure.not-connected',
   'no-write-channel': 'failure.no-write-channel',

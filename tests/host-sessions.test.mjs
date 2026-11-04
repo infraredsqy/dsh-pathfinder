@@ -11,15 +11,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { absentError, fakeWorkspaceFiles } from './helpers/workspace-files-port.mjs'
-import { readSessionNotes } from '../src/host/sessions.ts'
+import { readClaims, readSessionNotes } from '../src/host/sessions.ts'
 
 /** This file's own cases on top of the shared stand-in: the whole layer absent from the workspace,
  * and files listed but unreadable (plus a directory entry nothing should try to carry over). */
-function fakePort(files, { absent = false, phantom = [] } = {}) {
+function fakePort(files, { absent = false, refuse = false, phantom = [] } = {}) {
   const port = fakeWorkspaceFiles(files)
   return {
     async list(scope, path) {
       if (absent) throw absentError(path)
+      if (refuse) throw new Error(`listing ${path} refused`)
       const listing = await port.list(scope, path)
       return {
         ...listing,
@@ -67,4 +68,29 @@ test('这一层目录不在（换台机器、新克隆一份记录）：交回�
 
   assert.equal(reading.state, 'missing')
   assert.deepEqual(reading.notes, {})
+})
+
+/* ---- the dispatch claims: which cell carries a `started` marker ----------- */
+
+test('认领那一层：带 started 标记的格子收进来，值是格子所在的那条线', async () => {
+  const port = fakePort({
+    '.pf/meta/launch/c-1/n-1/prompt.txt': '/pf-conduct n-1 [pipeline]\n',
+    '.pf/meta/launch/c-1/n-1/started': '4242 started 2026-10-18T00:00:00Z\n',
+    '.pf/meta/launch/c-2/n-2/prompt.txt': '/pf-conduct n-2 [pipeline]\n',
+  })
+  const claims = await readClaims(port, scope, signal)
+
+  assert.deepEqual(claims, { 'n-1': 'c-1' })
+})
+
+test('认领那一层不在（一次派发都没有过）：交回空的一份，不抛', async () => {
+  const port = fakePort({})
+  const claims = await readClaims(port, scope, signal)
+
+  assert.deepEqual(claims, {})
+})
+
+test('认领那一层整层拒了（不是不在）：与笔记同一纪律，非缺席的失败往上抛', async () => {
+  const port = fakePort({}, { refuse: true })
+  await assert.rejects(() => readClaims(port, scope, signal), { message: /refused/u })
 })

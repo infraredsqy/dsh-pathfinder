@@ -166,6 +166,22 @@ function SettingsPage(props: SettingsSectionProps): React.ReactElement {
           </button>
         )}
       />
+      <Row
+        label={t('settings.auto-relay.label')}
+        desc={t('settings.auto-relay.desc')}
+        control={(
+          <button
+            type="button"
+            className="pfset-switch"
+            role="switch"
+            aria-checked={prefs.autoRelay}
+            aria-label={t('settings.auto-relay.label')}
+            onClick={() => write(PANEL_PREF_FIELDS.autoRelay, !prefs.autoRelay)}
+          >
+            <span className="pfset-swthumb" />
+          </button>
+        )}
+      />
       {snapshot.status === 'unavailable'
         ? (
           <p className="pfset-msg">

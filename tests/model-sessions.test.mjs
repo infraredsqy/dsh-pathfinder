@@ -8,7 +8,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { latestSessionOf, readSessions } from '../src/model/index.ts'
+import { latestSessionOf, readSessions, strandedCycleOf } from '../src/model/index.ts'
 
 test('一份笔记里最近开过的那条会话：两类各按自己的时刻比', () => {
   assert.equal(latestSessionOf({
@@ -74,4 +74,43 @@ test('解不动的那一份：跳过那一格，别的格照读', () => {
 
 test('一层笔记一条都没有：交回空的一份', () => {
   assert.deepEqual(readSessions({}), {})
+})
+
+/* ---- the stranded dispatch: claim on disk, session gone ------------------ */
+
+const heldNode = { id: 'n-1', running: true }
+
+test('认领在、会话不在：这一格 stranded，回的是认领所在的那条线', () => {
+  const claims = { 'n-1': 'c-1' }
+  const sessions = { 'n-1': 'session-7' }
+  const alive = new Set(['session-other'])
+
+  assert.equal(strandedCycleOf(heldNode, claims, sessions, alive), 'c-1')
+})
+
+test('会话还活着：不是 stranded', () => {
+  const alive = new Set(['session-7'])
+
+  assert.equal(strandedCycleOf(heldNode, { 'n-1': 'c-1' }, { 'n-1': 'session-7' }, alive), null)
+})
+
+test('没有认领：不是 stranded——claims 是这条读数的门', () => {
+  const alive = new Set([])
+
+  assert.equal(strandedCycleOf(heldNode, {}, { 'n-1': 'session-7' }, alive), null)
+  assert.equal(strandedCycleOf(heldNode, { 'n-1': '' }, { 'n-1': 'session-7' }, alive), null)
+})
+
+test('笔记没有给出会话身份：判不了「不在」，不算 stranded', () => {
+  const alive = new Set([])
+
+  assert.equal(strandedCycleOf(heldNode, { 'n-1': 'c-1' }, {}, alive), null)
+  assert.equal(strandedCycleOf(heldNode, { 'n-1': 'c-1' }, { 'n-1': 'session-7' }, null), null)
+})
+
+test('格子不在任何线的手里：认领和笔记都还在也不算 stranded——settled 的格子永远带着这两样', () => {
+  const done = { id: 'n-1', running: false }
+  const alive = new Set([])
+
+  assert.equal(strandedCycleOf(done, { 'n-1': 'c-1' }, { 'n-1': 'session-7' }, alive), null)
 })

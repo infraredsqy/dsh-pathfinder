@@ -88,8 +88,9 @@ test('一份写全的设置文档读成面板那几个值', () => {
     defaultTab: 'detail',
     showArchived: true,
     showOtherStates: true,
+    autoRelay: false,
   })
-  assert.deepEqual(prefs, { sideWidth: 200, tab: 'detail', archived: true, otherStates: true })
+  assert.deepEqual(prefs, { sideWidth: 200, tab: 'detail', archived: true, otherStates: true, autoRelay: false })
 })
 
 test('那几节读不懂时各自退到出厂那一份，别的照读', () => {
@@ -104,8 +105,12 @@ test('那几节读不懂时各自退到出厂那一份，别的照读', () => {
   )
   assert.deepEqual(
     prefsFromSection({ defaultTab: 'issue', showArchived: 1, showOtherStates: 0 }),
-    { sideWidth: DEFAULT_PREFS.sideWidth, tab: 'issue', archived: false, otherStates: false },
+    { sideWidth: DEFAULT_PREFS.sideWidth, tab: 'issue', archived: false, otherStates: false, autoRelay: true },
   )
+  /* The relay switch reads `false` when the document says false; a value that is not a boolean
+     (an older document, a hand edit) falls back to the factory default, which is on. */
+  assert.deepEqual(prefsFromSection({ autoRelay: true }).autoRelay, true)
+  assert.deepEqual(prefsFromSection({ autoRelay: 'no' }).autoRelay, true)
   /* A field this version no longer has (`infoLevel`, the old cards-per-column tier) is dead weight
    * in an old document: it reads as nothing rather than as a bad value. */
   assert.deepEqual(prefsFromSection({ infoLevel: 'lean' }), DEFAULT_PREFS)
@@ -154,7 +159,7 @@ test('挂上表单之后读数就是那一节的值，修订号跟着来', () =>
   const source = createPrefsSource()
   source.attach(form)
   const snapshot = source.getSnapshot()
-  assert.deepEqual(snapshot.prefs, { sideWidth: 300, tab: 'issue', archived: true, otherStates: false })
+  assert.deepEqual(snapshot.prefs, { sideWidth: 300, tab: 'issue', archived: true, otherStates: false, autoRelay: true })
   assert.equal(snapshot.status, 'ready')
   assert.equal(snapshot.revision, 1)
   assert.equal(snapshot.writable, true)
@@ -365,6 +370,13 @@ test('宿主那份 schema：字段的种类、出厂默认与上下限就是字�
     defaults: [PANEL_PREF_DEFAULTS.showOtherStates],
     extra: {},
   })
+  /* The relay switch defaults to on: an untouched row must not silently turn the relay off. */
+  assert.deepEqual(read(PANEL_PREF_FIELDS.autoRelay), {
+    kind: 'boolean',
+    defaults: [PANEL_PREF_DEFAULTS.autoRelay],
+    extra: {},
+  })
+  assert.equal(PANEL_PREF_DEFAULTS.autoRelay, true)
 })
 
 test('prefs 不再带 POLICY_KEYS：策略键在面板这一侧没有第二份清单', async () => {

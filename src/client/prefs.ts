@@ -44,6 +44,8 @@ export interface PanelPrefs {
   readonly archived: boolean
   /** Whether the issues view also puts the three handled states back on the page. */
   readonly otherStates: boolean
+  /** Whether the host opens the next round itself after a session settles and the plan says dispatch. */
+  readonly autoRelay: boolean
 }
 
 export const DEFAULT_PREFS: PanelPrefs = {
@@ -51,6 +53,7 @@ export const DEFAULT_PREFS: PanelPrefs = {
   tab: 'map',
   archived: false,
   otherStates: false,
+  autoRelay: PANEL_PREF_DEFAULTS.autoRelay,
 }
 
 export function clampSide(px: number): number {
@@ -112,11 +115,13 @@ export function prefsFromSection(section: unknown): PanelPrefs {
   const held = (typeof section === 'object' && section !== null ? section : {}) as Readonly<Record<string, unknown>>
   const width = held[PANEL_PREF_FIELDS.sideWidth]
   const tab = held[PANEL_PREF_FIELDS.defaultTab]
+  const relay = held[PANEL_PREF_FIELDS.autoRelay]
   return {
     sideWidth: typeof width === 'number' && Number.isFinite(width) ? clampSide(width) : DEFAULT_PREFS.sideWidth,
     tab: VIEW_IDS.includes(tab as ViewId) ? (tab as ViewId) : DEFAULT_PREFS.tab,
     archived: held[PANEL_PREF_FIELDS.showArchived] === true,
     otherStates: held[PANEL_PREF_FIELDS.showOtherStates] === true,
+    autoRelay: typeof relay === 'boolean' ? relay : DEFAULT_PREFS.autoRelay,
   }
 }
 
@@ -217,6 +222,7 @@ function samePrefs(left: PanelPrefs, right: PanelPrefs): boolean {
     && left.tab === right.tab
     && left.archived === right.archived
     && left.otherStates === right.otherStates
+    && left.autoRelay === right.autoRelay
 }
 
 /**

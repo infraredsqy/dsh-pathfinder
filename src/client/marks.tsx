@@ -12,7 +12,7 @@ import type { CycleReading, NodeReading } from '../model/index.ts'
 import { bucketOf, duration, readDeps } from '../model/index.ts'
 import type { Translate } from './locale.ts'
 import { useT } from './locale.ts'
-import { depsSentence, gateTitle, stateWord } from './words.ts'
+import { depsSentence, gateTitle, stateWord, strandedTitle } from './words.ts'
 
 /**
  * What the running ring says: how long this step has been open, or just "in hand" when the line
@@ -41,13 +41,18 @@ export function LineMark(props: { readonly cycle: CycleReading }): React.ReactEl
 /**
  * State mark: the model's one bucket, drawn. A card that wants a person (a gate, or the shelved
  * verdict, which is its own gate) takes the pause mark; the line's hold takes the spinner; the
- * card's own state draws the rest. Nothing here judges the record again.
+ * card's own state draws the rest. Nothing here judges the record again. A stranded dispatch
+ * outranks the bucket — the round is out and nothing is moving it, which is a wait no other
+ * reading can say.
  */
-export function StateMark(props: { readonly node: NodeReading; readonly at: Date }): React.ReactElement {
+export function StateMark(props: { readonly node: NodeReading; readonly at: Date; readonly dead?: string | null }): React.ReactElement {
   /* The mark's hover text is the only thing it says, so the translator is taken here, where the word
    * is printed. */
   const t = useT()
   const { node } = props
+  if (props.dead !== undefined && props.dead !== null && props.dead.length > 0) {
+    return <StrandedMark cycleId={props.dead} nodeId={node.id} />
+  }
   const bucket = bucketOf(node)
   if (bucket === 'gate' || bucket === 'shelved') {
     return (
@@ -71,6 +76,17 @@ export function StateMark(props: { readonly node: NodeReading; readonly at: Date
       </svg>
     </span>
   )
+}
+
+/**
+ * The stranded dispatch's own mark: the failed mark's ring, worn in the amber this
+ * panel reserves for "a person has to move". Its hover carries the remedy — one
+ * sentence with the line's id, the cell's id and the two commands in it. The same
+ * drawing stands on the map's card and on the detail row, the way every state mark does.
+ */
+export function StrandedMark(props: { readonly cycleId: string; readonly nodeId: string }): React.ReactElement {
+  const t = useT()
+  return <span className="pf-state is-dead" title={strandedTitle(t, props.cycleId, props.nodeId)} />
 }
 
 /**

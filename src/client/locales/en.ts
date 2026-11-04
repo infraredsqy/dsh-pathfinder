@@ -58,6 +58,8 @@ export const en: Readonly<Record<WordKey, string>> = {
   'settings.archived.desc': 'Also lists archived instructions.',
   'settings.other-states.label': 'Show every issue state',
   'settings.other-states.desc': 'Also lists acknowledged, rejected, and resolved issues.',
+  'settings.auto-relay.label': 'Open the next round after a session settles',
+  'settings.auto-relay.desc': 'When on, the next round opens by itself once a line’s session settles and the plan says dispatch; when off, the line waits and a person dispatches.',
   'settings.unavailable': 'DSH does not expose {ns} as a settings namespace yet, so changes here are not saved.',
 
   /* ── Words shared across the panes ────────────────────────────────────────────────────────── */
@@ -89,6 +91,9 @@ export const en: Readonly<Record<WordKey, string>> = {
   'cycle.running': 'In service',
   'cycle.stopped': 'Stopped',
   'node.open': 'Open session',
+  /* The stranded dispatch: the claim is on disk, the session is gone. The sentence names the two
+   * record words the remedy names, and the exact command, so it can be followed as it is read. */
+  'cell.stranded': 'This cell still has its dispatch claim on disk, but its session is gone: run pf cycle retry {cycle} {node} --drop to clear the claim, then pf next --cycle {cycle} --spawn --json to open this round again.',
 
   /* ── The instruction ledger ───────────────────────────────────────────────────────────────── */
   'notes.scroll.aria': 'User instructions',
@@ -197,6 +202,7 @@ export const en: Readonly<Record<WordKey, string>> = {
   'failure.no-session-service': 'This host exposes no {detail} service, so no session can be opened.',
   'failure.prompt-missing': 'The dispatch prompt for this cell is not in the record ({detail}): dispatch first, then open a session.',
   'failure.open-failed': 'The session did not open: {detail}',
+  'failure.dispatch-refused': 'The dispatch did not complete: {detail}',
   'failure.no-operation': 'This channel has no {detail} operation.',
   'failure.not-connected': 'This deployment is not connected to the Pathfinder record service, so records cannot be read.',
   'failure.no-write-channel': 'This deployment has no usable write channel.',

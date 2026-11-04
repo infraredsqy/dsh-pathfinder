@@ -35,6 +35,8 @@ export type PfRefusalCode =
   | 'prompt-missing'
   /** The open did not complete; `detail` carries what went wrong, verbatim. */
   | 'open-failed'
+  /** The dispatch path refused — the engine's gates, preparation or the opener inside it said no; `detail` carries its reason, verbatim. */
+  | 'dispatch-refused'
 
 /** A refusal: which one, plus the untranslatable detail that goes with it. */
 export interface PfRefusal {

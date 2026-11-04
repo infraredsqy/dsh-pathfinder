@@ -34,7 +34,7 @@ import {
   type Size,
   type View,
 } from './map-layout.ts'
-import { LineMark, runningTitle } from './marks.tsx'
+import { LineMark, runningTitle, StrandedMark } from './marks.tsx'
 import { nodeHover, nodeName } from './nodes.ts'
 import { gateWord, stateWord, timeOf } from './words.ts'
 
@@ -70,6 +70,8 @@ export function MapPane(props: {
   readonly noNodes: boolean
   readonly project: ProjectReading | null
   readonly go: CardGo | null
+  /** The stranded dispatches, by node id: the line each cell's claim belongs to. */
+  readonly stranded: Readonly<Record<string, string>>
   /** Read the record again: the page's own reading is fixed until this lands. */
   readonly onRefresh: () => void
 }): React.ReactElement {
@@ -551,6 +553,7 @@ export function MapPane(props: {
                     go={props.go}
                     at={props.project === null ? new Date() : props.project.at}
                     t={t}
+                    dead={props.stranded[node.id] ?? null}
                     onPress={() => press(node)}
                   />
                 )
@@ -641,6 +644,8 @@ function Card(props: {
   /** The moment the reading was taken: every stamp on this page is read against it. */
   readonly at: Date
   readonly t: Translate
+  /** The line this card's stranded claim belongs to, when the round is out with nothing moving it. */
+  readonly dead: string | null
   readonly onPress: () => void
 }): React.ReactElement {
   const { node, t } = props
@@ -648,10 +653,11 @@ function Card(props: {
   const hover = nodeHover(node)
   const canGo = target !== null
   const moment = stampMomentOf(node)
+  const dead = props.dead !== null && props.dead.length > 0
   return (
     <button
       type="button"
-      className={`pf-mnode ${edgeOf(node)}${props.lit ? ' is-lit' : ''}${!props.lit && props.ahead ? ' is-ahead' : ''}`}
+      className={`pf-mnode ${edgeOf(node)}${dead ? ' is-dead' : ''}${props.lit ? ' is-lit' : ''}${!props.lit && props.ahead ? ' is-ahead' : ''}`}
       data-id={node.id}
       style={{ left: `${String(props.point.x)}px`, top: `${String(props.point.y)}px` }}
       title={props.focused && canGo ? `${hover} · ${t('map.card.go')}` : hover}
@@ -660,11 +666,16 @@ function Card(props: {
     >
       <span className="pf-mtitle">{nodeName(node)}</span>
       <span className="pf-mmeta">
-        {/* The running ring leads the row: the frame can say "in hand" but only motion says "moving",
-            so this is the one mark the card keeps. The line's id follows it, and a card with no line
+        {/* The mark leads the row: a round in hand wears the ring, and one whose session is gone
+            wears the stranded × in its place — the same slot, because it is the same reading (what
+            is happening to this cell right now). The line's id follows, and a card with no line
             renders no id at all rather than an empty one — nothing is drawn for what the record does
             not have. */}
-        {node.running ? <span className="pf-state is-run" title={runningTitle(t, node)} /> : null}
+        {node.running
+          ? (dead
+            ? <StrandedMark cycleId={props.dead} nodeId={node.id} />
+            : <span className="pf-state is-run" title={runningTitle(t, node)} />)
+          : null}
         {node.cycleIds.length === 0 ? null : <span className="pf-mtag">{node.cycleIds[0]}</span>}
         {node.gate === null ? null : <span className="pf-gate">{gateWord(t, node.gate)}</span>}
         <span className="pf-mtime pf-num">{moment === null ? '' : timeOf(t, moment, props.at)}</span>

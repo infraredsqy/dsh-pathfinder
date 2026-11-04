@@ -24,6 +24,7 @@ import type {} from '@deepseek-ai/dsh-session'
 import { Config } from './config.ts'
 import { PathfinderRecordsGateway } from './gateway.ts'
 import { installSkillsWhenReady } from './skills.ts'
+import { installRelay } from './relay.ts'
 import type { PathfinderRecords } from './contract.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -65,7 +66,16 @@ export { PathfinderRecordsGateway }
  * @returns whatever the placement seam handed back, so a caller (or a test)
  * can wait for the attempt to settle.
  */
-export function apply(ctx: Context): unknown {
+export function apply(ctx: Context, config?: unknown): unknown {
   ctx.provide('pathfinderRecords', new PathfinderRecordsGateway(ctx))
+  /* The dispatch relay's listeners live as long as this line does: the
+   * disposer goes into a fiber effect, so an unload (or a reload) takes them
+   * back instead of leaving a second trigger behind. A stand-in context
+   * without `effect` keeps the listeners unowned — they die with it. The
+   * line's own resolved config rides along: that object is where the relay's
+   * switch is read (the context proxy itself refuses undeclared reads). */
+  const relayOff = installRelay(ctx, config)
+  const effect = (ctx as { effect?: (make: () => unknown, label?: string) => unknown }).effect
+  if (typeof effect === 'function') effect.call(ctx, () => relayOff, 'dsh-pathfinder: dispatch relay')
   return installSkillsWhenReady(ctx)
 }

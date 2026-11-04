@@ -75,6 +75,8 @@ export const zh = {
   'settings.archived.desc': '开启后，已归档的指令一并列出。',
   'settings.other-states.label': '问题面板中显示未激活的问题',
   'settings.other-states.desc': '开启后，已承认、已驳回与已解决的问题一并列出。',
+  'settings.auto-relay.label': '收尾后自动开下一棒',
+  'settings.auto-relay.desc': '开启后，一条线的会话收尾、计划说派发时，下一棒自己开出来；关掉就停在等待，由人补棒。',
   'settings.unavailable': 'DSH 还没把 {ns} 暴露成设置命名空间，这里的改动不会保存。',
 
   /* ── Words shared across the panes ────────────────────────────────────────────────────────── */
@@ -108,6 +110,9 @@ export const zh = {
   /* The one action a ready cell carries: the host opens the session itself, the plan's first
    * instruction goes in verbatim. */
   'node.open': '开会话',
+  /* The stranded dispatch: the claim is on disk, the session is gone. The sentence names the two
+   * record words the remedy names, and the exact command, so it can be followed as it is read. */
+  'cell.stranded': '这一格的认领还在盘上，会话已经不在了：跑 pf cycle retry {cycle} {node} --drop 清掉认领，再 pf next --cycle {cycle} --spawn --json 重开这一棒。',
 
   /* ── The instruction ledger ───────────────────────────────────────────────────────────────── */
   'notes.scroll.aria': '用户指令',
@@ -225,6 +230,7 @@ export const zh = {
   'failure.no-session-service': '这个宿主没有 {detail} 服务，开不了会话。',
   'failure.prompt-missing': '这一格的派发提示不在记录里（{detail}）：先派发，再开会话。',
   'failure.open-failed': '会话没有开成：{detail}',
+  'failure.dispatch-refused': '派发没有完成：{detail}',
   'failure.no-operation': '这条通道上没有 {detail} 这个操作。',
   'failure.not-connected': '该部署未连接寻路记录服务，无法读取记录。',
   'failure.no-write-channel': '该部署没有可用的写入通道。',

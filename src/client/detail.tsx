@@ -54,6 +54,8 @@ export function DetailPane(props: {
   readonly cycles: readonly CycleReading[]
   readonly picked: CycleReading | null
   readonly project: ProjectReading | null
+  /** The stranded dispatches, by node id: the line each cell's claim belongs to. */
+  readonly stranded: Readonly<Record<string, string>>
   readonly sideWidth: number
   readonly onSideWidth: (px: number) => void
   readonly onSideCommit: (px: number) => void
@@ -105,7 +107,7 @@ export function DetailPane(props: {
         />
         <div className="pf-linemain">
           <div className="pf-scroll" role="region" aria-label={t('view.detail')} tabIndex={0}>
-            {props.picked === null ? null : <DetailList cycle={props.picked} project={props.project as ProjectReading} onOpenNode={props.onOpenNode} openingNode={props.openingNode} />}
+            {props.picked === null ? null : <DetailList cycle={props.picked} project={props.project as ProjectReading} stranded={props.stranded} onOpenNode={props.onOpenNode} openingNode={props.openingNode} />}
           </div>
         </div>
       </div>
@@ -115,7 +117,7 @@ export function DetailPane(props: {
 }
 
 /** Detail: the picked line's node list, grouped into five sections. */
-function DetailList(props: { readonly cycle: CycleReading; readonly project: ProjectReading; readonly onOpenNode: (nodeId: string) => void; readonly openingNode: string | null }): React.ReactElement {
+function DetailList(props: { readonly cycle: CycleReading; readonly project: ProjectReading; readonly stranded: Readonly<Record<string, string>>; readonly onOpenNode: (nodeId: string) => void; readonly openingNode: string | null }): React.ReactElement {
   const { cycle, project } = props
   const at = project.at
   return (
@@ -123,14 +125,14 @@ function DetailList(props: { readonly cycle: CycleReading; readonly project: Pro
       {GROUPS.map((group) => {
         const list = nodesOf(group.key, cycle, project)
         if (list.length === 0) return null
-        return <DetailGroup key={group.key} group={group} nodes={list} at={at} onOpenNode={props.onOpenNode} openingNode={props.openingNode} />
+        return <DetailGroup key={group.key} group={group} nodes={list} at={at} stranded={props.stranded} onOpenNode={props.onOpenNode} openingNode={props.openingNode} />
       })}
     </React.Fragment>
   )
 }
 
 /** A section's header and the rows under it. */
-function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[]; readonly at: Date; readonly onOpenNode: (nodeId: string) => void; readonly openingNode: string | null }): React.ReactElement {
+function DetailGroup(props: { readonly group: Group; readonly nodes: readonly NodeReading[]; readonly at: Date; readonly stranded: Readonly<Record<string, string>>; readonly onOpenNode: (nodeId: string) => void; readonly openingNode: string | null }): React.ReactElement {
   const { group } = props
   const t = useT()
   const [folded, setFolded] = React.useState(false)
@@ -149,7 +151,7 @@ function DetailGroup(props: { readonly group: Group; readonly nodes: readonly No
       </button>
       {props.nodes.map((node) => (
         <div className={`pf-row ${group.cls}`} key={node.id} data-id={node.id} title={gateTitle(t, node, props.at)}>
-          <StateMark node={node} at={props.at} />
+          <StateMark node={node} at={props.at} dead={props.stranded[node.id] ?? null} />
           <span className="pf-rowtitle" title={nodeHover(node)}>{nodeName(node)}</span>
           <span className="pf-rowfigs">
             {group.deps ? <DepsChip node={node} /> : null}

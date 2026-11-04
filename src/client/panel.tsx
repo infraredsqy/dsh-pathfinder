@@ -15,7 +15,7 @@
 import * as React from 'react'
 import type { PathfinderReading } from '../host/contract.ts'
 import type { InstructionReading } from '../model/index.ts'
-import { everySourceIs, readProject, readSessions } from '../model/index.ts'
+import { everySourceIs, readProject, readSessions, strandedCycleOf } from '../model/index.ts'
 import type { PrefField, PrefsSource, ViewId } from './prefs.ts'
 import { clampSide, DEFAULT_SOURCE, PANEL_PREF_FIELDS, VIEW_IDS, VIEW_WORDS } from './prefs.ts'
 import { useT } from './locale.ts'
@@ -52,6 +52,9 @@ export interface PanelProps {
 
 /** The notes when there is no session yet: no pane has anywhere to go. */
 const NO_NOTES: Readonly<Record<string, string>> = Object.freeze({})
+
+/** The claims when nothing has been read: no cell is held to have a claim at all. */
+const NO_CLAIMS: Readonly<Record<string, string>> = Object.freeze({})
 
 const NO_SESSIONS: ReadonlySet<string> = new Set<string>()
 
@@ -135,6 +138,11 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
   const [otherStates, setOtherStates] = usePreference<boolean>(stored.otherStates)
   const [load, setLoad] = React.useState<Load>({ phase: 'loading' })
   const [notes, setNotes] = React.useState<Readonly<Record<string, string>>>(NO_NOTES)
+  /* The dispatch claims and the live-agent roster: the two machine-side facts the stranded reading
+     judges. An unreadable reading holds neither fact, and an unknown roster (null) never reads as
+     "gone". */
+  const [claims, setClaims] = React.useState<Readonly<Record<string, string>>>(NO_CLAIMS)
+  const [alive, setAlive] = React.useState<ReadonlySet<string> | null>(null)
   /* Which moment the read happened at: fixed on the fetch beat. Everything displays by it — the
    * reading already carries this moment; "now" is never fetched separately. */
   const [at, setAt] = React.useState<Date>(() => new Date())
@@ -172,22 +180,38 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
     return () => { live = false }
   }, [port, sessionId, workspaceRoot, tick, pickedNone])
 
-  /* Session notes: the host half carries the notes directory back verbatim, and the model layer
-   * reads "which session each cell should go to" against it. Only the map has cards to click, so
-   * the read happens only on the passes that pane is visible; an unreadable one draws as empty. The
-   * write-side verbs cannot touch the notes, so `tick` does not follow them. */
+  /* Session notes, dispatch claims and the live-agent roster: the host half carries the record
+     store's session side back verbatim, and the model layer reads "which session each cell should
+     go to" and "which cell is stranded" against it. The map has cards to click and the detail has
+     rows to judge, so the read happens on the passes either pane is visible; an unreadable one
+     draws as empty. The write-side verbs do touch this side — a dispatch lands the claim and the
+     note — so `tick` rides here too: a settled write re-reads the session side on the same beat
+     as the records, and a red cell or a card's click target moves with it rather than waiting
+     for the next page flip. */
   React.useEffect(() => {
-    if (pickedNone || tab !== 'map' || sessionId === undefined || sessionId.length === 0) {
+    if (pickedNone || (tab !== 'map' && tab !== 'detail') || sessionId === undefined || sessionId.length === 0) {
       setNotes(NO_NOTES)
+      setClaims(NO_CLAIMS)
+      setAlive(null)
       return undefined
     }
     let live = true
     port.readSessions(sessionId, workspaceRoot).then(
-      (reading) => { if (live) setNotes(readSessions(reading.notes)) },
-      () => { if (live) setNotes(NO_NOTES) },
+      (reading) => {
+        if (!live) return
+        setNotes(readSessions(reading.notes))
+        setClaims(reading.claims)
+        setAlive(reading.alive === null ? null : new Set(reading.alive))
+      },
+      () => {
+        if (!live) return
+        setNotes(NO_NOTES)
+        setClaims(NO_CLAIMS)
+        setAlive(null)
+      },
     )
     return () => { live = false }
-  }, [port, sessionId, workspaceRoot, tab, pickedNone])
+  }, [port, sessionId, workspaceRoot, tab, pickedNone, tick])
 
   /* The click on a card: only when the record's session is on this machine right now does the card
    * click through. The session identity is recognized in two places — this machine's own notes
@@ -221,6 +245,18 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
 
   const cycles = project?.cycles ?? []
   const picked = cycles.find((cycle) => cycle.id === lineId) ?? cycles[0] ?? null
+
+  /* The stranded dispatches, judged once per reading: claim on disk, the cell still held, and the
+     session its note names absent from this host's live agents. The judgment is the model's; the
+     three facts only meet here. */
+  const stranded = React.useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const node of project?.nodes ?? []) {
+      const cycleId = strandedCycleOf(node, claims, notes, alive)
+      if (cycleId !== null) out[node.id] = cycleId
+    }
+    return out
+  }, [project, claims, notes, alive])
 
   /* Whether this workspace has any nodes: not a single cell in the reading means none. When there
    * are none, the five node-following panes each collapse to one sentence, and the header's count
@@ -354,6 +390,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             noNodes={noNodes}
             project={project}
             go={cardGo}
+            stranded={stranded}
             onRefresh={() => setTick((value) => value + 1)}
           />
 
@@ -363,6 +400,7 @@ export function PathfinderPanel(props: PanelProps): React.ReactElement {
             cycles={cycles}
             picked={picked}
             project={project}
+            stranded={stranded}
             sideWidth={sideWidth}
             onSideWidth={setSideWidth}
             onSideCommit={(px) => keep(PANEL_PREF_FIELDS.sideWidth, clampSide(px))}

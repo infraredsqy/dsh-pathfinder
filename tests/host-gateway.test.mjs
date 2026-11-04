@@ -221,6 +221,43 @@ test('readSessions 认 options 上的取消信号：调用方递的那一条原�
   }
 })
 
+/* ---- the live-agent roster: `alive` reads each agent's own id ------------- */
+
+/** A bare gateway over an empty record tree, with the agent registry this case names (`undefined` = the host exposes none). */
+function rosterGateway(agents) {
+  return new PathfinderRecordsGateway({
+    workspaceFiles: {
+      async list(scope, path) { return { path, entries: [], truncated: false } },
+      async read() { throw new Error('nothing to read in this test') },
+    },
+    sessions: { get: () => ({ header: { cwd: 'C:\\ws' } }) },
+    sandboxPolicy: { workspaceRoot: 'C:\\ws' },
+    ...(agents === undefined ? {} : { get: (name) => (name === 'agents' ? agents : undefined) }),
+  })
+}
+
+test('alive 读的是 agent 自己的身份：registry 上两个活 agent，roster 深等两个会话 id', async () => {
+  /* The DSH agent contract puts the session identity on `id`; a roster that
+   * reads any other field filters every live agent out and answers "no live
+   * sessions" while the registry is up — the reading the stranded judgment
+   * would take as "gone". */
+  const gateway = rosterGateway({ list: () => [{ id: 'session-a' }, { id: 'session-b' }] })
+  const reading = await gateway.readSessions('s1', 'C:\\ws')
+  assert.deepEqual(reading.alive, ['session-a', 'session-b'])
+})
+
+test('registry 缺席：alive 交回 null（答不出不作「都不在」答）', async () => {
+  const gateway = rosterGateway(undefined)
+  const reading = await gateway.readSessions('s1', 'C:\\ws')
+  assert.equal(reading.alive, null)
+})
+
+test('registry 的 list() 抛了：alive 交回 null', async () => {
+  const gateway = rosterGateway({ list() { throw new Error('registry blew up') } })
+  const reading = await gateway.readSessions('s1', 'C:\\ws')
+  assert.equal(reading.alive, null)
+})
+
 test('端点表漏登记在构造时当场报错：类上有而表里没有的方法不再静默', () => {
   /* The same rig measures the base class first: it constructs fine — the later error is about the unlisted method, not construction itself. */
   assert.doesNotThrow(() => new PathfinderRecordsGateway({}))

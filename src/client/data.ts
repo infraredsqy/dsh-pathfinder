@@ -304,6 +304,7 @@ const KNOWN_CODES = {
   'no-session-service': true,
   'prompt-missing': true,
   'open-failed': true,
+  'dispatch-refused': true,
   'no-operation': true,
   'not-connected': true,
   'no-write-channel': true,

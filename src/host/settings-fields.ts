@@ -21,6 +21,7 @@ export const PANEL_PREF_FIELDS = {
   defaultTab: 'defaultTab',
   showArchived: 'showArchived',
   showOtherStates: 'showOtherStates',
+  autoRelay: 'autoRelay',
 } as const
 
 /** Lower bound of the wire column width on the detail's left. */
@@ -42,10 +43,14 @@ export const VIEW_IDS: readonly ViewId[] = ['map', 'detail', 'notes', 'issue', '
  * panel writes back on every switch — a row for it would read as a default and
  * then be overwritten by the next click. Both still live in this document, so
  * both still get a factory default here.
+ *
+ * The relay switch defaults to on: whether a round is opened by hand or by
+ * the relay should not depend on a row nobody has touched.
  */
 export const PANEL_PREF_DEFAULTS = {
   sideWidth: SIDE_DEFAULT,
   defaultTab: 'map',
   showArchived: false,
   showOtherStates: false,
+  autoRelay: true,
 } as const

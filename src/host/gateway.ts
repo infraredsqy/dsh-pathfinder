@@ -17,11 +17,12 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { bindTypertRemote, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import type { TypertGatewayBinding } from '@deepseek-ai/dsh-typert-protocol'
 import type { PathfinderReading, PathfinderReadOptions, PathfinderRecords } from './contract.ts'
-import { openNodeSession, type SessionOpenOutcome } from './executor.ts'
+import type { SessionOpenOutcome } from './executor.ts'
 import type { PfOutcome } from './failure.ts'
 import { parseConfigList, type PathfinderConfigReading } from './project-config.ts'
+import { dispatchCell } from './relay.ts'
 import { readReading } from './records.ts'
-import { readSessionNotes, type PathfinderSessionsReading } from './sessions.ts'
+import { readClaims, readSessionNotes, type PathfinderSessionsReading } from './sessions.ts'
 import { runPf } from './write.ts'
 
 /** The three scopes an instruction can bind to: global / a cycle / a node. */
@@ -233,43 +234,55 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   }
 
   /**
-   * Bring back the session notes of the named workspace's layer, verbatim.
-   *
-   * What gets read is the layer of per-node note files in the record store:
-   * session identity lives on this machine's own notes, and a session exists
-   * only on the machine that opened it. Like the four records, this lives in
-   * the workspace, so it goes through the same read-only gateway; this only
-   * moves the data — which note each node should show is the model layer's
-   * call.
+   * Bring back the session side of the named workspace's layer, verbatim:
+   * the per-node note files, the dispatch claims on disk (`started` markers
+   * under the launch cells), and which sessions have a live agent in this
+   * host right now. Session identity lives on this machine's own notes, and
+   * a session exists only on the machine that opened it. Like the four
+   * records, this lives in the workspace, so the notes and the claims go
+   * through the same read-only gateway; the live-agents half comes from the
+   * host's own registry and answers `null` when this host cannot say. This
+   * only moves the data — which cell is stranded (claim on disk, session
+   * gone) is the model layer's call.
    *
    * The parameter list stays on one line with no trailing comma, same reason as `read`.
    * @param workspaceRoot - The workspace root to read; an empty string means this session's own root.
    */
   async readSessions(sessionId: SessionId, workspaceRoot: string, options?: PathfinderReadOptions): Promise<PathfinderSessionsReading> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
-    return readSessionNotes(this.ctx.workspaceFiles, { sessionId, workspaceRoot: root }, options?.signal ?? NEVER_ABORT)
+    const scope = { sessionId, workspaceRoot: root }
+    const signal = options?.signal ?? NEVER_ABORT
+    const [reading, claims] = await Promise.all([
+      readSessionNotes(this.ctx.workspaceFiles, scope, signal),
+      readClaims(this.ctx.workspaceFiles, scope, signal),
+    ])
+    return { ...reading, claims, alive: aliveAgentIds(this.ctx) }
   }
 
   /**
-   * Open, natively, the session that works one node: the host's own session
-   * service creates it in the named workspace, the plan's launch prompt goes
-   * in as the first instruction, and the opening round is waited out before
-   * this answers. The receipt is an address, not a reading: nothing here is
-   * shown to a reader as-is.
+   * Dispatch, natively, the cell of one line: the engine lands the plan's
+   * launch prompt (when it is not already on disk), this host opens the
+   * session through its own opener, and the `started` claim lands with the
+   * dispatch — the same marks, in the same order, whatever pressed it. The
+   * panel's button and the automatic relay both walk this one path
+   * (`relay.ts`), so a cell opened by hand is as real to the plan as one the
+   * relay opened, and a second call for the same cell answers instead of
+   * opening a second session.
    *
    * The workspace-touching steps (create, note) run one at a time per
    * workspace — two opens on one workspace never race their sessions or
-   * their notes. A host without its session side is refused up front, with
-   * the missing piece named. The parameter list stays on one line with no
-   * trailing comma, same reason as `read`; `options` (the cancel signal) is
-   * in-process only, the same way `readSessions` takes it.
+   * their notes — and dispatches process-wide run one at a time. A host
+   * without its session side is refused up front, with the missing piece
+   * named; a dispatch the engine refuses carries its reason verbatim as the
+   * `dispatch-refused` detail. The parameter list stays on one line with no
+   * trailing comma, same reason as `read`.
    * @param workspaceRoot - The workspace to open the session in, absolute; an empty string means this session's own root.
    * @param cycle - Which line this cell sits on, by line id.
    * @param node - Which node to open the session for, by node id.
    */
-  async openNodeSession(sessionId: SessionId, workspaceRoot: string, cycle: string, node: string, options?: PathfinderReadOptions): Promise<SessionOpenOutcome> {
+  async openNodeSession(sessionId: SessionId, workspaceRoot: string, cycle: string, node: string): Promise<SessionOpenOutcome> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
-    return openNodeSession(this.ctx, sessionId, root, cycle, node, options)
+    return dispatchCell(this.ctx, sessionId, root, cycle, node)
   }
 
   /**
@@ -278,6 +291,31 @@ export class PathfinderRecordsGateway implements PathfinderRecords {
   async #pf(sessionId: SessionId, workspaceRoot: string, args: readonly string[], said?: string): Promise<PfOutcome> {
     const root = await rootFor(this.ctx, sessionId, workspaceRoot)
     return runPf(this.ctx, root, args, NEVER_ABORT, said)
+  }
+}
+
+/**
+ * Which sessions have a live agent in this host right now: the registry's
+ * own list, ids only. `null` when this host exposes no agent registry — a
+ * host that cannot say does not claim every session is gone.
+ */
+function aliveAgentIds(ctx: Context): readonly string[] | null {
+  const read = (ctx as { get?: (name: string) => unknown }).get
+  const agents = typeof read === 'function' ? (read.call(ctx, 'agents') as { list?: () => unknown } | undefined) : undefined
+  if (agents === undefined || agents === null || typeof agents.list !== 'function') return null
+  try {
+    const ids: string[] = []
+    /* The session identity sits on the agent's own `id` (the DSH agent contract spells
+     * `Agent { readonly id: SessionId }`; there is no `sessionId` field to read). Reading any
+     * other field would filter every live agent out and answer "no live sessions" while the
+     * registry is up — an answer the stranded judgment would take as "gone". */
+    for (const agent of agents.list() as readonly { id?: unknown }[]) {
+      const id = typeof agent?.id === 'string' ? agent.id : ''
+      if (id.length > 0) ids.push(id)
+    }
+    return ids
+  } catch {
+    return null
   }
 }
 
